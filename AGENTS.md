@@ -1,38 +1,38 @@
-# F1 Live Events — the deployed app
+# FormulaTime — the deployed app
 
-Public, non-commercial live F1 timing app with race-reactive polls, built
-from the validated POC at `../f1-live-events-poc`. Owner is building
-backend/system-design depth: surface decisions and trade-offs, don't decide
-silently (see their global learning workflow).
+Public, non-commercial live F1 timing app with race-reactive polls and
+broadcast alignment, built from the validated POC at
+`../f1-live-events-poc`. Owner is building backend/system-design depth:
+surface decisions and trade-offs, don't decide silently (see their global
+learning workflow). Repo was `f1-live-events` until 2026-09-07; same code.
 
-## Status (2026-09-07)
+## Where things stand
 
-Nothing built here yet. The design is decided; the build is sequenced.
-Committed decisions live in `docs/adr/` — start with ADR-0001, which holds
-the shape, the invariants, the managed-first stance, and the three-day
-deploy-first build order with its seam contracts. ADR-0002 fixes the repo
-layout and toolchain. The owner is writing presentable docs before
-scaffolding: `docs/PRD.md` (draft) is the product spec the design answers to.
+Do not look here for status; it goes stale. Sources of truth, in order:
+`git log` and the tree (what exists), GitHub Issues (what is in flight and
+what is next), `docs/adr/` (what is decided), `docs/PRD.md` §4–5 (product
+decisions and open product questions). Anything decided in conversation but
+not yet in an ADR is listed at the top of `docs/HLD.md` §7 as "ADR pending".
 
-## Gain context in this order
+## Where context lives
 
-1. `docs/adr/0001-production-shape-and-operational-stance.md` — binding.
-   Then `docs/adr/0002-repository-layout-and-toolchain.md` — layout
-   (pnpm workspaces: `apps/{ingest,app,web}`, `packages/shared`),
-   Fastify + hand-written SSE route, Vite + React, tsc for prod.
-2. `../f1-live-events-poc/CLAUDE.md` — the POC handoff: architecture,
-   commands, hard-won OpenF1 facts (free tier, 404 semantics, mutating rows,
-   never two API consumers at once).
-3. `docs/PRD.md` (untracked draft) — what and why: goals, non-goals,
-   stories v1/v2/later, 5 functional + 4 non-functional requirements,
-   open product questions (poll close rule, void rule, headline number).
-4. `docs/08-system-designs.md` (untracked draft) — per-component HLD + LLD,
-   schema, the eight resolved calls, §8 build order and tracks.
-5. `docs/live-architecture-decisions.md` §6.16–6.19 (untracked draft) — the
-   reasoning trail behind ADR-0001.
-6. `../f1-live-events-poc/poc/ts/` — the code being lifted: `live_race.ts`,
-   `session_registry.ts`, `poll_engine.ts` touch no files; the file coupling
-   is in `server.ts` behind `Fetcher` in `live_capture.ts`.
+Read `docs/` before doing anything. What each part holds:
+
+- `docs/PRD.md` — what and why: problem, goals, not-now list, product
+  decisions, open product questions. Mirrors the owner's Notion.
+- `docs/adr/` — binding decisions, numbered and dated. ADR-0001: shape,
+  the five invariants, managed-first stance, build order, seam contracts.
+  ADR-0002: repo layout and toolchain.
+- `docs/HLD.md` — requirements with numbers, entities, the stored data
+  model, the HLD diagrams, and §7: the mechanics and vocabulary every
+  agent must use rather than reinvent.
+- `docs/08-system-designs.md` — per-component LLD and the audit trail of
+  the resolved design calls. `docs/live-architecture-decisions.md` — the
+  reasoning behind ADR-0001. Other `docs/*.md` are earlier drafts.
+- `../f1-live-events-poc/CLAUDE.md` — the POC being lifted: architecture,
+  commands, hard-won OpenF1 facts (free-tier lockout, 404 semantics,
+  mutating rows, never two API consumers). `../f1-live-events-poc/poc/ts/`
+  is the source; the file coupling is behind `Fetcher` in `live_capture.ts`.
 
 ## Rules
 
@@ -41,78 +41,48 @@ scaffolding: `docs/PRD.md` (draft) is the product spec the design answers to.
   over anything hand-rolled.
 - New decisions get a new numbered file in `docs/adr/` (Status / Date /
   Context / Decision / Consequences). Never edit an accepted ADR's decision;
-  supersede it.
+  supersede it. A PreToolUse hook blocks edits to accepted ADRs.
 - Tests (ADR-0002): vitest for unit (in-memory fakes) and integration
   (real Postgres in Docker — dedup + vote upsert); Playwright for e2e.
   `typecheck` + unit + integration must pass before a commit.
 - `docs/` other than `docs/adr/` is gitignored on purpose — do not change
-  `.gitignore` unless asked.
+  `.gitignore` unless asked. Consequence: `PRD.md`, `HLD.md` and the other
+  drafts are invisible inside git worktrees. Task bodies must be
+  self-contained (seam contracts pasted verbatim, ADR-0001 §4).
 - OpenF1 credentials only via the platform secret store; never in the repo.
-- Owner-written tracks: T3 (Postgres fetcher) and T4 (durable votes) are the
-  owner's to write under the learning workflow. Plumbing tracks (T1, T2, T5,
-  T6) may be delegated to agents.
-- Worktree blind spot: untracked `docs/*.md` drafts are invisible inside git
-  worktrees. Tickets carry the seam contracts verbatim (ADR-0001 §4).
+- Use the vocabulary in `docs/HLD.md` §7. "Projector" is the class,
+  "authority" is the role. "Lock" is the poll state, not "close".
 
-## Working notes (2026-09-07) — clarified, not yet in any ADR
+## Context by function
 
-Vocabulary and mechanics settled in conversation; use these words.
+Load only what the task needs. Nothing below is loaded by default.
 
-- **Fold** = `Array.reduce` over the event log: start empty, apply events in
-  order, the result is RaceState. Live: fold once at startup, apply new
-  events as they arrive. Recovery: throw the state away and re-fold. Never
-  patch a late event in.
-- **Projector / authority.** Class named for what it does
-  (`RaceStateProjector`, event-sourcing term); role named for what it
-  guarantees ("the authority" — there is exactly one). It "holds" RaceState
-  as a plain object in process memory. Derived, disposable, rebuilt from the
-  log; votes are not, hence Postgres.
-- **Cursor.** The projector remembers the highest `seq` applied and asks
-  `WHERE seq > $cursor ORDER BY seq` every 250 ms. Restart = same query with
-  cursor 0. Open for T3: two ingest lanes insert concurrently, so a lower
-  seq can become visible after a higher one; decide what the cursor does.
-- **Push** = RaceState + poll tallies serialized once (`JSON.stringify`),
-  the same string written to every socket. A vote never triggers a push; it
-  commits a row, changes the in-memory tally, and the next scheduled push
-  carries it. Polls are in-process because the tally must be inside the
-  string when it is built, and the poll module settles from the fold.
-- **Join** = hand the newest existing string, then attach the socket. One
-  write, not a new serialization. Every live join is the same; there is no
-  separate "mid-race" path. Target adds the last ~30 s of pushes for the
-  client delay buffer.
-- **Router** = the SSE route handler, ~10 lines: live → attach socket to
-  fan-out; finished → redirect to the export. Never touches state. Not a
-  box on the HLD.
-- **Alignment** is entirely client-side. Browser OCRs the lap counter and
-  detects lights-out, derives its offset, and applies it through whatever
-  moves the viewer in time: today a server-side seek into the POC's
-  per-tab replay session (interim); target a ring buffer of recent pushes
-  rendered at now − offset. The only server change was a header line.
-- **Rewind tiers.** Seconds back: client ring buffer (target). Minutes/laps
-  back: keyframe (RaceState at a lap boundary) + 10 s log chunks fetched
-  from object storage and folded in the browser (target); today the
-  server-side per-tab session (ADR-0001 call 4, kept for v1).
-- **gzip on SSE — compress once, not per connection.** gzip state is per
-  connection, so cross-push dictionary gain would cost one compression per
-  viewer per push (violates invariant 1). Plan: gzip each push as an
-  independent full-flushed block, write the same compressed bytes to all
-  sockets, gzip header per connection at join. Ratio is then intra-push
-  only — measure on day 1. Browser inflates natively; `EventSource` sees
-  plain text; cost ≈1 ms per push. Deltas remain the real egress fix.
-- **No CDN needed at first.** Finished-race files may be served by the app;
-  CDN is an optimization. But PaaS disks are ephemeral, so exports go to
-  the platform's object storage, not local disk.
-- **Total laps** is not in OpenF1. POC uses a CLI flag (default 72). Fix if
-  needed: a ~24-row circuit → laps table keyed by `circuit_key`, flag as
-  override. Whether it is needed depends on the open poll-close question in
-  the PRD.
-- **Entities.** Stored (one writer each): Event (ingest), Poll, Vote (app).
-  Derived in memory: Session, RaceState, Driver (a field inside RaceState,
-  not a table), Tally. Transient/files: Viewer (cookie), Push, Export
-  (finished race, keyframe, chunk).
-- **HLD diagram conventions** (owner's Excalidraw + `08` §0): three process
-  boxes (ingest, app, browser); both lanes always on, "safety net" not
-  "fallback"; MQTT = same timing rows seconds earlier, telemetry topics
-  deliberately not subscribed; REST/MQTT twins have identical ids; arrows
-  Polling → Fan-out (tallies ride the push) and Routing → Fan-out (attach
-  socket) are required; App → Object storage "export once" is the writer.
+| Doing | Read / use |
+|---|---|
+| Any implementation task | The issue body first (self-contained by rule). Then `docs/HLD.md` §7 and the ADR the issue names. Then `superpowers:writing-plans` before code, `superpowers:test-driven-development` while coding, `superpowers:verification-before-completion` before claiming done. |
+| Working inside one app | That app's own `AGENTS.md` (`apps/<name>/AGENTS.md`, created with the scaffold). It overrides nothing here; it adds the local conventions. |
+| Ingest, fetcher, projector, votes, SSE | `docs/adr/0001` §2 and §4 verbatim, `docs/HLD.md` §4–§7, then the POC's `CLAUDE.md` for OpenF1 facts. |
+| Frontend | `docs/HLD.md` §7 (alignment, rewind tiers, browser fold), ADR-0002 (Vite + React, shared reducer). The `frontend-design` plugin for any visual decision. |
+| Reviewing a PR | `/code-review` for correctness and simplification; the `seam-reviewer` agent (`.claude/agents/`) for the invariants and seam contracts; `/security-review` before anything public-facing ships. |
+| Debugging | `superpowers:systematic-debugging` before proposing a fix. |
+| Recording a decision | New numbered file in `docs/adr/`; the ADR-guard hook refuses edits to accepted ones. |
+| Running the stack, rehearsing a race | Project skills under `.claude/skills/` once the scaffold exists; until then the POC's `CLAUDE.md` commands. |
+| Finishing a branch | `superpowers:finishing-a-development-branch`. |
+
+## How work is tracked
+
+Tasks live in GitHub Issues. Labels are the state machine:
+`ready` → `in-progress` → `in-review` → `done`; `owner` marks a task no
+agent may pick up. An issue body is self-contained: goal, the relevant seam
+contracts pasted verbatim (ADR-0001 §4), files it may touch, acceptance
+criteria as commands, and "blocked by #N".
+
+Per-task loop: claim (`in-progress`) → worktree branch → tests pass →
+`gh pr create` with "Closes #N" → review agent posts findings
+(`/code-review --comment` plus a seam review against the five invariants)
+→ **the owner approves and merges; this step is never automated** →
+label `done` → next `ready`.
+
+Design-bearing tracks (ADR-0001 §4: the Postgres fetcher / projector
+cursor, and vote acknowledgement) are owner-reviewed in person. Whether the
+owner writes them or an agent does is the owner's call per task.

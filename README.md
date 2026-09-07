@@ -12,4 +12,4 @@
 
 ## Decisions
 
-- `docs/adr/` documents all decisions made during planning and implementation. Any new architectural decisions are appended into this folder.
+- `docs/adr/` holds every architectural decision, numbered and dated. New decisions are appended.
