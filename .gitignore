@@ -1,1 +1,9 @@
 /docs/*
+
+# toolchain
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+coverage/
