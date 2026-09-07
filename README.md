@@ -12,4 +12,4 @@
 
 ## Decisions
 
-- `docs/adr/` holds every architectural decision, numbered and dated. New decisions are appended.
+- `decisions-adr/` holds every architectural decision, numbered and dated. New decisions are appended.
