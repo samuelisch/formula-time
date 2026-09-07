@@ -1,4 +1,4 @@
-# Formulatime
+# FormulaTime
 
 ## What this is about
 
