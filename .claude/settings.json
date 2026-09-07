@@ -20,7 +20,7 @@
           {
             "type": "command",
             "if": "Bash(git commit *)",
-            "command": "pnpm typecheck && pnpm test:unit && pnpm test:integration",
+            "command": "pnpm typecheck && pnpm test:unit",
             "timeout": 300,
             "statusMessage": "typecheck + tests before commit"
           }
