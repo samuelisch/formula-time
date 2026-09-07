@@ -1,0 +1,28 @@
+{
+  "name": "formula-time",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.30.2",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "build": "tsc -b && pnpm --filter @formula-time/web build",
+    "typecheck": "tsc -b && pnpm --filter @formula-time/web typecheck",
+    "test:unit": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
+    "test": "pnpm typecheck && pnpm test:unit && pnpm test:integration",
+    "dev:shared": "tsc -b packages/shared --watch",
+    "dev:app": "pnpm --filter @formula-time/app dev",
+    "dev:ingest": "pnpm --filter @formula-time/ingest dev",
+    "dev:web": "pnpm --filter @formula-time/web dev",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
+  }
+}
