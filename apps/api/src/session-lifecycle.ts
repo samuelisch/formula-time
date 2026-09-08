@@ -64,6 +64,10 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
   // session currently held in `session`, so a status flip to "finished"
   // notifies exactly once per session (part (c) of the wiring contract).
   let finishedNotified = false;
+  // check() now awaits DB round trips (pickSession, polls.start,
+  // polls.onSessionFinished); main.ts fires it on a fixed interval, so a
+  // slow tick must not overlap the next one.
+  let checking = false;
 
   function logPollHookFailure(hook: string, err: unknown): void {
     opts.log(`poll hook ${hook} failed`, { error: err instanceof Error ? err.message : String(err) });
@@ -102,8 +106,7 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
     p.start();
   }
 
-  return {
-    async check(): Promise<void> {
+  async function runCheck(): Promise<void> {
       const candidate = await opts.pickSession(opts.db);
       if (candidate === null) {
         if (!warnedNoSession) {
@@ -149,6 +152,17 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
       }
       projector = new RaceStateProjector({ source: opts.source, session: candidate, log: opts.log });
       wireProjector(projector, candidate);
+  }
+
+  return {
+    async check(): Promise<void> {
+      if (checking) return;
+      checking = true;
+      try {
+        await runCheck();
+      } finally {
+        checking = false;
+      }
     },
 
     health(): HealthResponse {

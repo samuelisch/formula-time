@@ -387,6 +387,36 @@ describe("createSessionLifecycle", () => {
       expect(polls.start).toHaveBeenLastCalledWith({ sessionKey: 2n, totalLaps: 50, country: "Testland" });
     });
 
+    test("a check() that overlaps one still in flight returns without a second pickSession", async () => {
+      let release: () => void = () => {};
+      const pickSession = vi.fn(
+        () =>
+          new Promise<Session | null>((resolve) => {
+            release = () => resolve(null);
+          }),
+      );
+      const lifecycle = createSessionLifecycle({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        db: {} as any,
+        source: new FakeSource([]),
+        pusher: fakePusher(),
+        pickSession,
+        polls: fakePollHooks(),
+        log: noopLog,
+      });
+
+      const first = lifecycle.check();
+      const second = lifecycle.check(); // in flight: must not start another
+      expect(pickSession).toHaveBeenCalledTimes(1);
+      release();
+      await Promise.all([first, second]);
+
+      const third = lifecycle.check(); // after the first finished, checks run again
+      expect(pickSession).toHaveBeenCalledTimes(2);
+      release();
+      await third;
+    });
+
     test("a rejected polls.start() is logged and check() still resolves", async () => {
       vi.useFakeTimers();
       const log = vi.fn();
