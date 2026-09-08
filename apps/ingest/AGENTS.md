@@ -34,8 +34,12 @@ an explicit load instead: `DATABASE_URL=... pnpm ingest:load <recording-dir>
 [<recording-dir> ...]`, each dir a POC recording (`session.json`,
 `raw/<endpoint>.jsonl`) or a root holding several. It lifts the same
 in-process path (file fetcher → normalizer → queue → writer) into a
-command, upserts the session `finished` regardless of the window, and is
-idempotent — a second run inserts 0.
+command, upserts the session `upcoming` first, writes and drains every
+event, and only then updates the row to `finished` regardless of the
+window — set last because the api's exporter exports the moment a session
+turns `finished` (ADR-0009 §2), so flipping it before the events land let
+the exporter export an empty race (issue #71) — and is idempotent — a
+second run inserts 0.
 
 ## OpenF1 facts that shape this code
 
