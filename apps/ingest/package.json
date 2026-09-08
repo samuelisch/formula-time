@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc -b",
     "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "load": "node dist/load-recording.js"
   },
   "dependencies": {
     "@formula-time/db": "workspace:*",
