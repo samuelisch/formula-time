@@ -1,0 +1,23 @@
+name: Railway config plan
+
+# Previews the diff between .railway/railway.ts and the live Railway
+# environment on every PR that touches it. Never applies anything.
+on:
+  pull_request:
+    paths:
+      - ".railway/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: railwayapp/config@v1
+        with:
+          command: plan
+          railway-token: ${{ secrets.RAILWAY_TOKEN }}
