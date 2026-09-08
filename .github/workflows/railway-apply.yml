@@ -1,0 +1,25 @@
+name: Railway config apply
+
+# Applies the plan pinned on the merged PR that last touched .railway/**.
+# Re-plans nothing; fails if the environment or the merged tree drifted
+# from what was planned (railwayapp/config's staleness check).
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".railway/**"
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: railwayapp/config@v1
+        with:
+          command: apply
+          railway-token: ${{ secrets.RAILWAY_TOKEN }}
