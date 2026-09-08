@@ -29,6 +29,7 @@ describe("resolveViewerId", () => {
     expect(result.setCookie).toContain("HttpOnly");
     expect(result.setCookie).toContain("SameSite=Lax");
     expect(result.setCookie).toContain("Max-Age=31536000");
+    expect(result.setCookie).toContain("Secure");
   });
 
   it("replaces a cookie value that is not our UUID shape, never trusting it", () => {

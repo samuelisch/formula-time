@@ -40,6 +40,7 @@ export function registerPolls(app: FastifyInstance, module: PollModule): void {
         maxAge: 31536000,
         sameSite: "lax",
         httpOnly: true,
+        secure: true,
       });
     }
 

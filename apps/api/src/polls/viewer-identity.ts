@@ -28,5 +28,8 @@ export function resolveViewerId(cookieHeader: string | undefined): {
     return { viewerId: existing, setCookie: null };
   }
   const viewerId = randomUUID();
-  return { viewerId, setCookie: `viewer_id=${viewerId}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly` };
+  return {
+    viewerId,
+    setCookie: `viewer_id=${viewerId}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly; Secure`,
+  };
 }
