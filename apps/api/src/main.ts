@@ -12,6 +12,7 @@ import { registerPolls } from "./polls/routes.js";
 import { prismaEventSource } from "./projector/event-source.js";
 import { pickSession } from "./projector/session-picker.js";
 import { liveRoutes } from "./routes/live.js";
+import { racesRoutes } from "./routes/races.js";
 import { createSessionLifecycle } from "./session-lifecycle.js";
 
 const port = Number(process.env.PORT ?? 3000);
@@ -36,7 +37,8 @@ fanout.heartbeat();
 // ADR-0009 §2: "EXPORT_DIR joins the seam-4 config names," default
 // `./exports`. Own 5s tick (started after listen, below); independent of
 // the session lifecycle.
-const exporter = createExporter({ db, dir: process.env.EXPORT_DIR ?? "./exports", log });
+const exportDir = process.env.EXPORT_DIR ?? "./exports";
+const exporter = createExporter({ db, dir: exportDir, log });
 
 const lifecycle = createSessionLifecycle({
   db,
@@ -55,6 +57,10 @@ app.get("/health", async () => lifecycle.health());
 // public path is /api/live/events.
 await app.register(liveRoutes, { prefix: "/api", fanout });
 await app.register(registerPolls(pollModule), { prefix: "/api" });
+
+// ADR-0009 §4: the two historical-race routes, /api/races and
+// /api/races/:session_key -- "Serving reads the file, not Postgres."
+await app.register(racesRoutes, { prefix: "/api", db, exporter, dir: exportDir });
 
 let sessionWatcher: ReturnType<typeof setInterval> | null = null;
 
