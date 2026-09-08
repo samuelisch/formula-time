@@ -45,7 +45,10 @@ Read `docs/` before doing anything. What each part holds:
   supersede it. A PreToolUse hook blocks edits to accepted ADRs.
 - Tests (ADR-0002): vitest for unit (in-memory fakes) and integration
   (real Postgres in Docker — dedup + vote upsert); Playwright for e2e.
-  `typecheck` + unit + integration must pass before a commit.
+  `typecheck` + unit + the ADR check before a commit (the hook); the same
+  plus integration and build in CI on every PR, required for merge
+  (ADR-0006). The PR's Verified section is prose about what CI does not
+  cover, never pasted output.
 - `docs/` is gitignored on purpose (drafts), except `docs/decisions-adr/` and `docs/retros/`, which are tracked — do not change
   `.gitignore` unless asked. Consequence: `PRD.md`, `HLD.md` and the other
   drafts are invisible inside git worktrees. Task bodies must be
