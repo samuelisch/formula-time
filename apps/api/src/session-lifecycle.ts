@@ -6,6 +6,7 @@
 // `health()` are unit-testable with a fake that returns null, without a
 // real Postgres or projector.
 import type { PrismaClient, Session } from "@formula-time/db";
+import type { RaceState } from "@formula-time/domain";
 
 import type { EventSource } from "./projector/event-source.js";
 import { RaceStateProjector, type ProjectorLog } from "./projector/projector.js";
@@ -23,12 +24,23 @@ export interface Pusher {
   size(): number;
 }
 
+// The poll module's lifecycle hooks, as seen from session-lifecycle: it
+// folds from the same authority state as the projector (apps/api/AGENTS.md
+// "The poll module"), so start/onSessionFinished are sequenced around the
+// projector here rather than left for PollModule to discover on its own.
+export interface PollHooks {
+  start(session: { sessionKey: bigint; totalLaps: number | null; country: string }): Promise<void>;
+  onState(state: RaceState): void;
+  onSessionFinished(): Promise<void>;
+  publicPolls(): unknown[];
+}
+
 export interface SessionLifecycleOptions {
   db: PrismaClient;
   source: EventSource;
   pusher: Pusher;
   pickSession: (db: PrismaClient) => Promise<Session | null>;
-  publicPolls: () => unknown[];
+  polls: PollHooks;
   log: ProjectorLog;
 }
 
@@ -47,9 +59,20 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
   let session: Session | null = null;
   let projector: RaceStateProjector | null = null;
   let warnedNoSession = false;
+  // Tracks whether polls.onSessionFinished() has already fired for the
+  // session currently held in `session`, so a status flip to "finished"
+  // notifies exactly once per session (part (c) of the wiring contract).
+  let finishedNotified = false;
+
+  function logPollHookFailure(hook: string, err: unknown): void {
+    opts.log(`poll hook ${hook} failed`, { error: err instanceof Error ? err.message : String(err) });
+  }
 
   function wireProjector(p: RaceStateProjector, forSession: Session): void {
     p.subscribe((state, cursor) => {
+      // The poll module folds from the same authority state before the
+      // one serialize: a push must never carry a stale lock.
+      opts.polls.onState(state);
       void opts.pusher.push({
         type: "state",
         seq: cursor.toString(),
@@ -57,7 +80,7 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
         session_key: forSession.sessionKey.toString(),
         total_laps: forSession.totalLaps,
         state,
-        polls: opts.publicPolls(),
+        polls: opts.polls.publicPolls(),
       });
     });
     p.start();
@@ -73,11 +96,44 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
         }
         return;
       }
+
       if (candidate.sessionKey === session?.sessionKey) {
+        session = candidate;
+        if (candidate.status === "finished" && !finishedNotified) {
+          finishedNotified = true;
+          try {
+            await opts.polls.onSessionFinished();
+          } catch (err) {
+            logPollHookFailure("onSessionFinished", err);
+          }
+        }
         return;
       }
+
+      const previousSession = session;
       projector?.stop();
+      projector = null;
+
+      if (previousSession !== null) {
+        try {
+          await opts.polls.onSessionFinished();
+        } catch (err) {
+          logPollHookFailure("onSessionFinished", err);
+        }
+      }
+
+      try {
+        await opts.polls.start({
+          sessionKey: candidate.sessionKey,
+          totalLaps: candidate.totalLaps,
+          country: candidate.country,
+        });
+      } catch (err) {
+        logPollHookFailure("start", err);
+      }
+
       session = candidate;
+      finishedNotified = candidate.status === "finished";
       projector = new RaceStateProjector({ source: opts.source, session: candidate, log: opts.log });
       wireProjector(projector, candidate);
     },
