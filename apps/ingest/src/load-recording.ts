@@ -15,7 +15,13 @@
 // `createDb(url, { max: 1 })` (ADR-0007 §1: "Ingest never updates an
 // `events` row."; apps/ingest/AGENTS.md: "Sole writer of the `sessions` and
 // `events` tables"). Never touches `polls`, `votes`, or `exports`.
+//
+// ADR-0010: ADR-0007's single-writer guarantee is per session, not per
+// process — this loader is a second connection writing `events`, which is
+// only safe because it refuses any session that is (or might still be)
+// live; see the guard in loadOneSession() below.
 
+import type { SessionStatus } from "@formula-time/db";
 import { createDb } from "@formula-time/db";
 
 import { ENTRY_LIST_2026 } from "./openf1/entry-list.js";
@@ -27,10 +33,22 @@ import { EventQueue } from "./writer/queue.js";
 import type { DrainResult, EventWriterDb } from "./writer/writer.js";
 import { EventWriter } from "./writer/writer.js";
 import type { SessionsDb } from "./writer/sessions.js";
-import { upsertSession } from "./writer/sessions.js";
+import { sessionFieldsFromRaw, upsertSession } from "./writer/sessions.js";
+
+/**
+ * The read half of the live-session guard (ADR-0010): whether an *existing*
+ * `sessions` row for this key is currently `live`. Kept separate from
+ * `SessionsDb` (write-only, used by `RestLane` too) rather than widening
+ * that shared interface for one caller.
+ */
+export interface SessionStatusReader {
+  session: {
+    findUnique(args: { where: { sessionKey: bigint } }): Promise<{ status: SessionStatus } | null>;
+  };
+}
 
 /** The slice of the Prisma client the loader needs — real client or a fake (unit test). */
-export type LoaderDb = SessionsDb & EventWriterDb;
+export type LoaderDb = SessionsDb & EventWriterDb & SessionStatusReader;
 
 // Issue #63: "read every `raw/*.jsonl` through the same `LiveNormalizer`
 // (identity, dedup) in file order, endpoint order `drivers, position,
@@ -60,29 +78,55 @@ export interface LoadRecordingsResult {
   /** Sessions the loader tried to load, across every `dir` (round 1 fix). */
   sessionsAttempted: number;
   /**
-   * Sessions not written because loading them threw (round 1 fix — caught
-   * in `loadRecordings`'s per-session loop below, e.g. a malformed
-   * `date_start`/`date_end`).
+   * Sessions not written: a malformed row (round 1 fix — caught in
+   * `loadRecordings`'s per-session loop, not here) or refused as live
+   * (ADR-0010 — returned as `{ skipped: true }` below).
    */
   sessionsSkipped: number;
+}
+
+interface LoadOneSessionResult {
+  skipped: boolean;
 }
 
 async function loadOneSession(
   fetcher: Fetcher,
   session: RawRecord,
-  db: SessionsDb,
+  db: LoaderDb,
   queue: EventQueue<QueueItem>,
   nowMs: number,
   log: (line: string) => void,
-): Promise<void> {
+): Promise<LoadOneSessionResult> {
   const sessionKey = Number(session["session_key"]);
   if (!Number.isFinite(sessionKey)) {
     log(`load: session skipped, invalid session_key: ${JSON.stringify(session["session_key"])}`);
-    return;
+    return { skipped: true };
   }
 
-  // Forced `finished`, regardless of the window (issue #63) — a past
-  // recording is not "live" no matter what `nowMs` says.
+  // ADR-0010: the single-writer guarantee (ADR-0007) is per session, not
+  // per process — the live `ingest` service owns any session inside its
+  // live window; the loader owns only sessions whose window has closed.
+  // Two checks, both against a *live* verdict: the recording's own dates
+  // (a directory can be loaded before its own session has actually ended,
+  // e.g. a stale/partial capture), and any existing `sessions` row (in
+  // case the live service is still tracking it under different dates).
+  // `sessionFieldsFromRaw` also validates `date_start`/`date_end` — a
+  // malformed date throws here and is caught by the caller (round 1 fix),
+  // same as it always was inside `upsertSession`.
+  const fields = sessionFieldsFromRaw(session, nowMs);
+  if (fields.status === "live") {
+    log(`load: refused ${sessionKey}: session is live; the live ingest service owns it`);
+    return { skipped: true };
+  }
+  const existing = await db.session.findUnique({ where: { sessionKey: BigInt(sessionKey) } });
+  if (existing?.status === "live") {
+    log(`load: refused ${sessionKey}: session is live; the live ingest service owns it`);
+    return { skipped: true };
+  }
+
+  // Forced `finished`, regardless of the naturally-computed status (issue
+  // #63) — a past recording is not "live" no matter what `nowMs` says, and
+  // the guard above already ruled out an actually-live session.
   await upsertSession(db, session, nowMs, { status: "finished" });
 
   const normalizer = new LiveNormalizer();
@@ -110,6 +154,8 @@ async function loadOneSession(
     const result = emitRows(normalizer, queue, endpoint, sessionKey, rows);
     log(`load: session=${sessionKey} endpoint=${endpoint} rows=${rows.length} new=${result.newRows}`);
   }
+
+  return { skipped: false };
 }
 
 /**
@@ -158,7 +204,8 @@ export async function loadRecordings(
       for (const session of sessions) {
         sessionsAttempted += 1;
         try {
-          await loadOneSession(fetcher, session, db, queue, nowMs, log);
+          const result = await loadOneSession(fetcher, session, db, queue, nowMs, log);
+          if (result.skipped) sessionsSkipped += 1;
         } catch (error) {
           sessionsSkipped += 1;
           log(
@@ -196,9 +243,9 @@ if (isMain) {
   loadRecordings(dirs, db)
     .then(async (result) => {
       await db.$disconnect();
-      // Exit 1 only if every attempted session failed (round 1 fix) — a
-      // partial load (some sessions good, some skipped) still wrote what it
-      // could, so it exits 0.
+      // Exit 1 only if every attempted session failed/was refused (round 1
+      // fix) — a partial load (some sessions good, some skipped) still
+      // wrote what it could, so it exits 0.
       const allFailed = result.sessionsAttempted > 0 && result.sessionsSkipped === result.sessionsAttempted;
       process.exit(allFailed ? 1 : 0);
     })
