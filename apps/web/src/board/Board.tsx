@@ -22,9 +22,10 @@ import { clock } from "../lib/format.ts";
 import styles from "./Board.module.css";
 import { LapCounter } from "./LapCounter.tsx";
 import { RaceControlCard } from "./RaceControlCard.tsx";
+import { RaceControlFeed } from "./RaceControlFeed.tsx";
 import { TimingTable } from "./TimingTable.tsx";
 import { TrackStatusStrip } from "./TrackStatusStrip.tsx";
-import { useBoardPush } from "./useBoardState.ts";
+import { useBoardIsReplay, useBoardPush } from "./useBoardState.ts";
 import { WeatherCard } from "./WeatherCard.tsx";
 
 export interface BoardProps {
@@ -37,6 +38,7 @@ export interface BoardProps {
 export function Board({ controls, transport }: BoardProps = {}) {
   const push = useBoardPush();
   const sourceTime = push === null ? null : push.state.latest_source_time;
+  const isReplay = useBoardIsReplay();
 
   return (
     <div className={styles.board}>
@@ -52,6 +54,7 @@ export function Board({ controls, transport }: BoardProps = {}) {
       <div className={styles.grid}>
         <RaceControlCard />
         <WeatherCard />
+        <RaceControlFeed defaultOpen={isReplay} />
       </div>
       <TimingTable />
     </div>

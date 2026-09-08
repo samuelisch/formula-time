@@ -43,6 +43,11 @@ export function useBoardPush(): LivePush | null {
   return provided !== null ? provided.push : live;
 }
 
+/** True when a `BoardSourceProvider` is mounted -- only `ReplayPage` does that -- so board components can default differently on replay (issue #93: the race-control feed starts expanded there, collapsed on live). */
+export function useBoardIsReplay(): boolean {
+  return useContext(BoardSourceContext) !== null;
+}
+
 const EMPTY_RACE_CONTROL: RaceState["race_control"] = {
   session_status: null,
   current_flag: null,
