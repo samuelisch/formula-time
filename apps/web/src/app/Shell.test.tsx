@@ -183,6 +183,19 @@ describe("Shell", () => {
     expect(screen.getByText("Italy · Race · upcoming")).toBeInTheDocument();
   });
 
+  // Issue #57 fix round 5: DelayControl and AlignPanel used to mount here,
+  // under the header on every route -- so a replay carried live delay and
+  // alignment controls. They now mount in BoardPage's toolbar (the live
+  // route only); alignment on a replay is #67.
+  it("mounts no alignment controls of its own -- they belong to the live board", () => {
+    resetStore({ connection: "open", lastMessageAt: Date.now(), displayed: displayedWithSession({ status: "live" }) });
+    renderShell();
+    expect(screen.queryByRole("button", { name: "Live" })).not.toBeInTheDocument(); // DelayControl's back-to-live
+    expect(screen.queryByRole("button", { name: /Align with my screen/ })).not.toBeInTheDocument();
+    // The "Live" nav link still renders -- it is a link, not a control.
+    expect(screen.getByRole("link", { name: "Live" })).toBeInTheDocument();
+  });
+
   it("shows waiting-for-a-session when the session record is missing a field", () => {
     resetStore({
       connection: "open",

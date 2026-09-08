@@ -1,0 +1,4 @@
+.replay {
+  display: flex;
+  flex-direction: column;
+}

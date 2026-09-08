@@ -1,10 +1,14 @@
 // Board components read the push to render through this module, never the
 // live store directly (ADR-0009 amendment, issue #48 "Amendment"): the same
-// components must later render a historical race the browser folded from an
+// components must render a historical race the browser folded from an
 // export file, not only the live feed. `BoardSourceProvider` supplies that
-// push explicitly for a replay page (later issue); with no provider mounted,
-// the hooks fall back to the live store's `useDisplayed()`
-// (apps/web/src/live/selectors.ts). The live `BoardPage` mounts no provider.
+// push explicitly on the replay page (`pages/ReplayPage.tsx`, issue #57);
+// with no provider mounted, the hooks fall back to the live store's
+// `useDisplayed()` (apps/web/src/live/selectors.ts). The live `BoardPage`
+// mounts no provider. Polls read through this seam too
+// (`polls/usePolls.ts`): `Shell` holds the live connection open on every
+// route, and a replay's push carries `polls: []`, so a replay never shows
+// or opens today's live polls.
 //
 // A plain .ts file (not .tsx) by the issue's file list, so `BoardSourceProvider`
 // is built with `createElement` rather than JSX.
@@ -26,7 +30,7 @@ export interface BoardSourceProviderProps {
   children: ReactNode;
 }
 
-/** Mounted by a replay page (later issue) to render a folded push instead of the live feed. */
+/** Mounted by the replay page to render a folded push instead of the live feed. */
 export function BoardSourceProvider({ push, children }: BoardSourceProviderProps) {
   const value = useMemo<BoardSource>(() => ({ push }), [push]);
   return createElement(BoardSourceContext.Provider, { value }, children);

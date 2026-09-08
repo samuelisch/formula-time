@@ -6,14 +6,15 @@
 // PollsPage are sibling routes, so navigating away and back remounts this
 // component; the last-seen signature lives in the pollModalStore singleton,
 // not a local ref, so it survives that -- see pollModalStore.ts). The
-// signature is scoped to the session key (`useDisplayed()?.session_key`) so
-// a new race starts it fresh rather than comparing across sessions.
+// signature is scoped to the session key, read off the same push as the
+// polls themselves (`useBoardPush()?.session_key`), so a new race starts it
+// fresh rather than comparing across sessions.
 // `polls` is passed in (from `usePolls()` at the mount site in BoardPage)
 // so this stays testable by rerendering with new props rather than driving
 // the live store.
 import { useEffect } from "react";
 
-import { useDisplayed } from "../live/selectors.ts";
+import { useBoardPush } from "../board/useBoardState.ts";
 import type { PollPublic } from "../live/types.ts";
 import { PollList } from "./PollList.tsx";
 import styles from "./PollModal.module.css";
@@ -28,7 +29,7 @@ function signatureOf(polls: PollPublic[]): string {
 }
 
 export function PollModal({ polls }: PollModalProps) {
-  const sessionKey = useDisplayed()?.session_key ?? null;
+  const sessionKey = useBoardPush()?.session_key ?? null;
   const isOpen = usePollModalUiStore((state) => state.isOpen);
   const open = usePollModalUiStore((state) => state.open);
   const close = usePollModalUiStore((state) => state.close);

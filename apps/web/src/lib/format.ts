@@ -16,6 +16,12 @@ export function stringField(record: RawRecord, key: string): string | null {
   return typeof value === "string" ? value : null;
 }
 
+/** A named field of a `RawRecord`, or null unless it is actually a number. */
+export function numberField(record: RawRecord, key: string): number | null {
+  const value = record[key];
+  return typeof value === "number" ? value : null;
+}
+
 /** Fixed-point formatting of a numeric value, or "—" for anything not a number. */
 export function number(value: unknown, digits = 1): string {
   if (typeof value !== "number" || Number.isNaN(value)) return "—";
