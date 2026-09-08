@@ -312,6 +312,41 @@ describe("PollModule.onState — resolving on chequered", () => {
 
     expect(module.publicPolls().every((p) => p.status !== "resolved")).toBe(true);
   });
+
+  it("void is terminal: a chequered tick after void does not resurrect the poll (owner ruling, 2026-09-08)", async () => {
+    const db = makeFakeDb();
+    const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+
+    module.onState(raceState({ drivers: { "1": driver({ driver_number: 1, position: 1 }) }, driver_order: [1] }));
+    await module.waitForIdle();
+
+    await module.onSessionFinished();
+    expect(module.publicPolls().every((p) => p.status === "void")).toBe(true);
+
+    db.calls.length = 0;
+
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, position: 1 }) },
+        driver_order: [1],
+        race_control: {
+          session_status: null,
+          current_flag: "CHEQUERED",
+          safety_car: null,
+          active_flags: {},
+          driver_flags: {},
+          recent_messages: [],
+        },
+      }),
+    );
+    await module.waitForIdle();
+
+    const polls = module.publicPolls();
+    expect(polls.every((p) => p.status === "void")).toBe(true);
+    expect(polls.every((p) => p.winning_option_ids === null)).toBe(true);
+    expect(db.calls.some((c) => c.includes("->resolved"))).toBe(false);
+  });
 });
 
 describe("PollModule.onSessionFinished — void", () => {

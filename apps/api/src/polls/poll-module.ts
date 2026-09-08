@@ -263,7 +263,9 @@ export class PollModule {
   private async resolvePolls(driverOrder: number[]): Promise<void> {
     const order = driverOrder.map(String);
     for (const poll of this.polls.values()) {
-      if (poll.status === "resolved") continue;
+      // void is terminal (owner ruling, 2026-09-08): a chequered tick after
+      // a poll has been voided must never resurrect it.
+      if (poll.status === "resolved" || poll.status === "void") continue;
       const winningOptionIds = poll.kind === "winner" ? order.slice(0, 1) : order.slice(0, 3);
       const result = await this.db.poll.updateMany({
         where: { pollId: poll.pollId, status: poll.status },
