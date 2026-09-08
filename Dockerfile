@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1
 
 # One image, two entrypoints (ADR-0001 §1: ingest and api are separate
-# services). Each Railway service points at its own config-as-code file
-# (railway.api.json / railway.ingest.json) that overrides the start command;
-# neither config needs a service-specific image.
+# services). `.railway/railway.ts` declares both services from this same
+# `build.builder: "DOCKERFILE"` and gives each its own `start` command
+# (api: node apps/api/dist/main.js; ingest: node apps/ingest/dist/main.js);
+# neither service needs a service-specific image.
 
 FROM node:24-slim AS build
 RUN corepack enable && corepack prepare pnpm@10.30.2 --activate

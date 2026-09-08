@@ -57,5 +57,9 @@ export default defineRailway(() => {
     env: secrets,
   });
 
-  return project("formula-time", { resources: [db, api, ingest] });
+  // The project name is the join key `railway config plan`/`apply` matches
+  // against the live environment — it must equal the Railway dashboard's
+  // actual project name, not the repo name. This project is
+  // `soothing-compassion`.
+  return project("soothing-compassion", { resources: [db, api, ingest] });
 });
