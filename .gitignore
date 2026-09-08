@@ -20,3 +20,6 @@ live-logs/
 # agent worktrees and SDD scratch
 /.claude/worktrees/
 /.superpowers/
+
+# POC recordings copied for local replay (LIVE_SOURCE) and demos; not repo content
+/recordings/
