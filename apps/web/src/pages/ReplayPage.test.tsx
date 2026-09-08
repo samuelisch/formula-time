@@ -104,12 +104,13 @@ describe("ReplayPage", () => {
 
   // Polls are live-only by product stance: a replay must never show or open
   // them. `Shell` holds the live SSE connection open on every route, so the
-  // live store can hold an open poll while a replay is mounted; the replay's
-  // synthesized push carries `polls: []`, and `usePolls()`/`PollModal` read
-  // that push through `useBoardPush()`, not the live store directly. Against
-  // the pre-fix code this fails twice over: the toolbar button reads
-  // "Polls (1)" and the modal auto-pops for an unrelated live poll.
-  it("shows no poll count and never pops the modal while the live store holds an open poll", async () => {
+  // live store can hold an open poll while a replay is mounted. Two
+  // independent guards, both fixed on this branch: the replay mounts the
+  // pure `Board`, so no polls UI is mounted at all (round 5), and
+  // `usePolls()`/`PollModal` read the push through `useBoardPush()` rather
+  // than the live store, so even mounted they would see `polls: []` (round
+  // 4, pinned directly by polls/usePolls.test.tsx).
+  it("shows no polls UI and never pops the modal while the live store holds an open poll", async () => {
     useLiveStore.setState({
       displayed: makePush({ session_key: "9999", polls: [makePoll({ poll_id: "9999:winner", status: "open" })] }),
     });
@@ -118,8 +119,28 @@ describe("ReplayPage", () => {
 
     await waitFor(() => screen.getByRole("slider", { name: "Playback position" }));
 
-    expect(screen.getByRole("button", { name: "Polls" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Polls (1)" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Polls/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Race polls" })).not.toBeInTheDocument();
+  });
+
+  // Round 5: a replay mounts the pure `Board`, never `BoardPage`. The live
+  // route's furniture all reads the live session or the live store, and on a
+  // replay every piece of it is wrong: the finished banner always fires (the
+  // exporter only exports finished sessions) and would link the replay back
+  // to itself, and the delay/align controls act on a push buffer the replay
+  // does not use.
+  it("mounts none of the live route's furniture: no banner, no polls button, no delay or align control", async () => {
+    stubFetch();
+    renderPage();
+
+    await waitFor(() => screen.getByRole("slider", { name: "Playback position" }));
+
+    // The fixture session's status is "finished" -- the banner would fire here.
+    expect(screen.queryByText(/This race has finished/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Watch the replay" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Race starts/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Polls/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Live" })).not.toBeInTheDocument(); // DelayControl
+    expect(screen.queryByRole("button", { name: /Align with my screen/ })).not.toBeInTheDocument();
   });
 });

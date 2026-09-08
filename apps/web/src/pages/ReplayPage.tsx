@@ -5,13 +5,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router";
 
+import { Board } from "../board/Board.tsx";
 import { BoardSourceProvider } from "../board/useBoardState.ts";
 import { Card } from "../components/Card.tsx";
 import { fetchRaceFile } from "../races/api.ts";
 import { foldRace } from "../replay/foldRace.ts";
 import { TransportBar } from "../replay/TransportBar.tsx";
 import { useReplayPlayback } from "../replay/useReplayPlayback.ts";
-import { BoardPage } from "./BoardPage.tsx";
 import styles from "./ReplayPage.module.css";
 
 export function ReplayPage() {
@@ -54,8 +54,13 @@ export function ReplayPage() {
 
   return (
     <div className={styles.replay}>
+      {/* The pure `Board`, never `BoardPage`: the live route's furniture
+          (the finished/upcoming banner, polls, delay and align controls) all
+          read the live session and must not appear on a replay. The banner
+          in particular would always fire here -- the exporter only exports
+          finished sessions -- and link the replay back to itself. */}
       <BoardSourceProvider push={playback.push}>
-        <BoardPage toolbar={<TransportBar playback={playback} />} />
+        <Board toolbar={<TransportBar playback={playback} />} />
       </BoardSourceProvider>
     </div>
   );

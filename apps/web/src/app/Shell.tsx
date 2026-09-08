@@ -2,8 +2,6 @@ import type { RawRecord } from "@formula-time/domain";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router";
 
-import { AlignPanel } from "../align/AlignPanel.tsx";
-import { DelayControl } from "../align/DelayControl.tsx";
 import { Pill, type PillTone } from "../components/Pill.tsx";
 import {
   useCatchingUp,
@@ -97,11 +95,12 @@ export function Shell() {
         </nav>
         <Pill tone={pill.tone}>{pill.text}</Pill>
       </header>
-      {/* #48 (the board issue) adds a `toolbar` slot to BoardPage; once it
-          merges, DelayControl and AlignPanel move there instead of sitting
-          under the header for every page. */}
-      <DelayControl />
-      <AlignPanel />
+      {/* DelayControl and AlignPanel used to sit here, under the header on
+          every route -- the placement this comment always called temporary,
+          pending the board's toolbar slot. They now mount in BoardPage's
+          toolbar (issue #57 fix round 5): they act on the live store's push
+          buffer, so on a replay route they were live controls sitting on top
+          of a folded race. Alignment on a replay is #67. */}
       <main className={styles.main}>
         <Outlet />
       </main>
