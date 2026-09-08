@@ -94,6 +94,12 @@ export interface NormalizedRow {
   payload: RawRecord;
 }
 
+export interface NormalizeResult {
+  rows: NormalizedRow[];
+  /** Rows that threw while normalizing (e.g. `null`, or anything else `eventId` can't hash) — skipped, not lost to a crash. */
+  malformed: number;
+}
+
 // Stateful: dedups by event id across polls (the live API rejects date
 // filters, so every poll re-fetches the full endpoint — apps/ingest/AGENTS.md)
 // and infers stint start times from laps seen so far. One instance per live
@@ -102,41 +108,55 @@ export class LiveNormalizer {
   private readonly seen = new Map<string, Set<string>>();
   private readonly lapStartByDriverAndLap = new Map<string, string>();
 
-  public normalize(endpoint: string, rows: RawRecord[]): NormalizedRow[] {
+  /**
+   * Never throws: one malformed row (round 4, owner review — e.g. a stray
+   * `null` in the response array) must not lose every row after it in the
+   * same batch. Each row is normalized in its own try/catch; a row that
+   * throws is skipped and counted in `malformed`. An id is added to `seen`
+   * only once its row is safely in `rows` — a row that throws AFTER its id
+   * was computed but before it landed must not be marked seen, or a later,
+   * well-formed retry of that same row would be silently dropped forever.
+   */
+  public normalize(endpoint: string, rows: RawRecord[]): NormalizeResult {
     const config = endpointConfigs[endpoint] ?? {};
     const seen = this.seen.get(endpoint) ?? new Set<string>();
     this.seen.set(endpoint, seen);
     const out: NormalizedRow[] = [];
+    let malformed = 0;
 
     for (const payload of rows) {
-      if (endpoint === "laps") {
-        const driverNumber = getNumber(payload, "driver_number");
-        const lapNumber = getNumber(payload, "lap_number");
-        const dateStart = timestampValue(payload["date_start"]);
-        if (driverNumber !== null && lapNumber !== null && dateStart !== null) {
-          this.lapStartByDriverAndLap.set(`${driverNumber}:${lapNumber}`, dateStart);
+      try {
+        if (endpoint === "laps") {
+          const driverNumber = getNumber(payload, "driver_number");
+          const lapNumber = getNumber(payload, "lap_number");
+          const dateStart = timestampValue(payload["date_start"]);
+          if (driverNumber !== null && lapNumber !== null && dateStart !== null) {
+            this.lapStartByDriverAndLap.set(`${driverNumber}:${lapNumber}`, dateStart);
+          }
         }
+
+        const id = eventId(endpoint, payload);
+        if (seen.has(id)) continue;
+
+        let sourceTime: string | null = config.timestampField
+          ? timestampValue(payload[config.timestampField])
+          : null;
+
+        if (endpoint === "stints") {
+          const driverNumber = getNumber(payload, "driver_number");
+          const lapStart = getNumber(payload, "lap_start");
+          sourceTime =
+            driverNumber !== null && lapStart !== null
+              ? (this.lapStartByDriverAndLap.get(`${driverNumber}:${lapStart}`) ?? null)
+              : null;
+        }
+
+        out.push({ eventId: id, endpoint, sourceTime, payload });
+        seen.add(id);
+      } catch {
+        malformed += 1;
       }
-
-      const id = eventId(endpoint, payload);
-      if (seen.has(id)) continue;
-      seen.add(id);
-
-      let sourceTime: string | null = config.timestampField
-        ? timestampValue(payload[config.timestampField])
-        : null;
-
-      if (endpoint === "stints") {
-        const driverNumber = getNumber(payload, "driver_number");
-        const lapStart = getNumber(payload, "lap_start");
-        sourceTime =
-          driverNumber !== null && lapStart !== null
-            ? (this.lapStartByDriverAndLap.get(`${driverNumber}:${lapStart}`) ?? null)
-            : null;
-      }
-
-      out.push({ eventId: id, endpoint, sourceTime, payload });
     }
-    return out;
+    return { rows: out, malformed };
   }
 }

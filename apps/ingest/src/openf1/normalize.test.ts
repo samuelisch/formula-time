@@ -58,13 +58,15 @@ describe("LiveNormalizer", () => {
     const first = normalizer.normalize("position", [row]);
     const second = normalizer.normalize("position", [row]);
 
-    expect(first).toHaveLength(1);
-    expect(second).toHaveLength(0);
+    expect(first.rows).toHaveLength(1);
+    expect(first.malformed).toBe(0);
+    expect(second.rows).toHaveLength(0);
+    expect(second.malformed).toBe(0);
   });
 
   test("carries sourceTime from the endpoint's configured timestamp field", () => {
     const normalizer = new LiveNormalizer();
-    const [event] = normalizer.normalize("laps", [
+    const { rows: [event] } = normalizer.normalize("laps", [
       { driver_number: 1, lap_number: 1, date_start: "2026-09-06T13:00:00Z" },
     ]);
     expect(event?.sourceTime).toBe("2026-09-06T13:00:00Z");
@@ -75,19 +77,38 @@ describe("LiveNormalizer", () => {
     normalizer.normalize("laps", [
       { driver_number: 44, lap_number: 3, date_start: "2026-09-06T13:10:00Z" },
     ]);
-    const [stint] = normalizer.normalize("stints", [{ driver_number: 44, lap_start: 3 }]);
+    const { rows: [stint] } = normalizer.normalize("stints", [{ driver_number: 44, lap_start: 3 }]);
     expect(stint?.sourceTime).toBe("2026-09-06T13:10:00Z");
   });
 
   test("stints with no matching lap seen yet gets a null sourceTime, not a throw", () => {
     const normalizer = new LiveNormalizer();
-    const [stint] = normalizer.normalize("stints", [{ driver_number: 99, lap_start: 1 }]);
+    const { rows: [stint] } = normalizer.normalize("stints", [{ driver_number: 99, lap_start: 1 }]);
     expect(stint?.sourceTime).toBeNull();
   });
 
   test("an endpoint with no configured timestamp field gets a null sourceTime", () => {
     const normalizer = new LiveNormalizer();
-    const [event] = normalizer.normalize("drivers", [{ driver_number: 1 }]);
+    const { rows: [event] } = normalizer.normalize("drivers", [{ driver_number: 1 }]);
     expect(event?.sourceTime).toBeNull();
+  });
+
+  test("a malformed row (null) is skipped and counted, without throwing or losing later rows", () => {
+    const normalizer = new LiveNormalizer();
+    const valid1 = { driver_number: 1, date: "2026-09-06T13:00:00Z" };
+    const valid2 = { driver_number: 2, date: "2026-09-06T13:00:01Z" };
+    const rows = [valid1, null, valid2] as unknown as Array<Record<string, unknown>>;
+
+    const first = normalizer.normalize("position", rows);
+
+    expect(first.rows).toHaveLength(2);
+    expect(first.malformed).toBe(1);
+    expect(first.rows.map((r) => r.payload)).toEqual([valid1, valid2]);
+
+    // The valid rows' ids are marked seen; the null's is not (there is no id
+    // for it to mark — it throws before eventId() ever returns one).
+    const second = normalizer.normalize("position", rows);
+    expect(second.rows).toHaveLength(0); // both valid rows already seen
+    expect(second.malformed).toBe(1); // the null still throws, every time
   });
 });

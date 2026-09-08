@@ -95,6 +95,7 @@ export interface PollResult {
   endpoint: string;
   rows: number;
   newRows: number;
+  malformed: number;
 }
 
 export class RestLane {
@@ -232,18 +233,22 @@ export class RestLane {
       rows = await this.fetcher(url);
     } catch (error) {
       this.log(`rest: poll ${endpoint} failed: ${error instanceof Error ? error.message : String(error)}`);
-      return { endpoint, rows: 0, newRows: 0 };
+      return { endpoint, rows: 0, newRows: 0, malformed: 0 };
     }
     const rawRows = Array.isArray(rows) ? (rows as RawRecord[]) : [];
-    const newRows = await this.emitRows(endpoint, this.sessionKey, rawRows);
-    this.log(`rest: poll endpoint=${endpoint} rows=${rawRows.length} new=${newRows}`);
-    return { endpoint, rows: rawRows.length, newRows };
+    const { newRows, malformed } = await this.emitRows(endpoint, this.sessionKey, rawRows);
+    this.log(`rest: poll endpoint=${endpoint} rows=${rawRows.length} new=${newRows} malformed=${malformed}`);
+    return { endpoint, rows: rawRows.length, newRows, malformed };
   }
 
-  private async emitRows(endpoint: string, sessionKey: number, rows: RawRecord[]): Promise<number> {
-    if (rows.length === 0) return 0;
-    const normalized = this.normalizer.normalize(endpoint, rows);
-    if (normalized.length === 0) return 0;
+  private async emitRows(
+    endpoint: string,
+    sessionKey: number,
+    rows: RawRecord[],
+  ): Promise<{ newRows: number; malformed: number }> {
+    if (rows.length === 0) return { newRows: 0, malformed: 0 };
+    const { rows: normalized, malformed } = this.normalizer.normalize(endpoint, rows);
+    if (normalized.length === 0) return { newRows: 0, malformed };
     const items: QueueItem[] = normalized.map((n) => ({
       eventId: n.eventId,
       sessionKey: BigInt(sessionKey),
@@ -257,7 +262,7 @@ export class RestLane {
       endpoint,
       normalized.map((n) => n.payload),
     );
-    return normalized.length;
+    return { newRows: normalized.length, malformed };
   }
 
   /** Production loop: discovery while idle, rotation while a session is live. */

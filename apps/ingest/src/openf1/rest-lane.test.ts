@@ -206,7 +206,7 @@ describe("RestLane.pollOnce", () => {
 
     const result = await lane.pollOnce();
 
-    expect(result).toEqual({ endpoint: "position", rows: 1, newRows: 1 });
+    expect(result).toEqual({ endpoint: "position", rows: 1, newRows: 1, malformed: 0 });
     expect(calls.at(-1)).toBe("https://api.openf1.org/v1/position?session_key=11361");
     const [item] = queue.drain(10);
     expect(item).toMatchObject({ endpoint: "position", sessionKey: 11361n });
