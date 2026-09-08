@@ -29,8 +29,8 @@ function driverRow(seq: number, driverNumber: number): EventRow {
 
 /** In-memory fake: rows keyed by seq, a `visible` set standing in for "committed". */
 class FakeSource implements EventSource {
-  public readonly readAfterCalls: Array<{ afterSeq: bigint; limit: number }> = [];
-  public readonly readWindowCalls: Array<{ fromSeq: bigint; toSeq: bigint }> = [];
+  public readonly readAfterCalls: Array<{ sessionKey: bigint; afterSeq: bigint; limit: number }> = [];
+  public readonly readWindowCalls: Array<{ sessionKey: bigint; fromSeq: bigint; toSeq: bigint }> = [];
   private readonly rows: EventRow[];
   private readonly visible: Set<string>;
 
@@ -43,16 +43,16 @@ class FakeSource implements EventSource {
     this.visible.add(eventId);
   }
 
-  public async readAfter(_sessionKey: bigint, afterSeq: bigint, limit: number): Promise<EventRow[]> {
-    this.readAfterCalls.push({ afterSeq, limit });
+  public async readAfter(sessionKey: bigint, afterSeq: bigint, limit: number): Promise<EventRow[]> {
+    this.readAfterCalls.push({ sessionKey, afterSeq, limit });
     return this.rows
       .filter((row) => row.seq > afterSeq && this.visible.has(row.eventId))
       .sort((a, b) => (a.seq < b.seq ? -1 : 1))
       .slice(0, limit);
   }
 
-  public async readWindow(_sessionKey: bigint, fromSeq: bigint, toSeq: bigint): Promise<EventRow[]> {
-    this.readWindowCalls.push({ fromSeq, toSeq });
+  public async readWindow(sessionKey: bigint, fromSeq: bigint, toSeq: bigint): Promise<EventRow[]> {
+    this.readWindowCalls.push({ sessionKey, fromSeq, toSeq });
     return this.rows
       .filter((row) => row.seq > fromSeq && row.seq <= toSeq && this.visible.has(row.eventId))
       .sort((a, b) => (a.seq < b.seq ? -1 : 1));
@@ -99,6 +99,7 @@ describe("RaceStateProjector", () => {
     expect(seen[0]?.cursor).toBe(3n);
     expect(projector.snapshot().drivers["1"]).toBeDefined();
     expect(projector.snapshot().drivers["3"]).toBeDefined();
+    expect(source.readAfterCalls[0]?.sessionKey).toBe(SESSION.sessionKey);
   });
 
   test("a full batch triggers an immediate second read before any subscriber call", async () => {
@@ -196,6 +197,7 @@ describe("RaceStateProjector", () => {
     expect(seen[1]?.driverCount).toBe(5);
     expect(projector.snapshot().drivers["3"]).toBeDefined();
     expect(projector.status().cursor).toBe(5n);
+    expect(source.readWindowCalls[0]?.sessionKey).toBe(SESSION.sessionKey);
   });
 
   test("runDetector: a rejected re-fold read keeps serving the previous state and retries next pass", async () => {

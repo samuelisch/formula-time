@@ -38,6 +38,8 @@ describe("prismaEventSource", () => {
     const result = await source.readAfter(1n, 0n, 100);
     expect(result).toEqual(rows);
     expect(db.calls[0]?.method).toBe("readAfter");
+    const readAfterArgs = db.calls[0]?.args as { where: { sessionKey: bigint } };
+    expect(readAfterArgs.where.sessionKey).toBe(1n);
   });
 
   test("readWindow queries fromSeq < seq <= toSeq", async () => {
@@ -52,6 +54,9 @@ describe("prismaEventSource", () => {
 
     const result = await source.readWindow(1n, 5n, 6n);
     expect(result).toEqual([rows[1]]);
+    expect(db.calls[0]?.method).toBe("readWindow");
+    const readWindowArgs = db.calls[0]?.args as { where: { sessionKey: bigint } };
+    expect(readWindowArgs.where.sessionKey).toBe(1n);
   });
 });
 
