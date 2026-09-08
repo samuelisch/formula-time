@@ -1,3 +1,9 @@
 packages:
   - apps/*
   - packages/*
+
+# Prisma's postinstall places the schema engine binary. Without this, pnpm
+# blocks the script and the first CLI call downloads ~25 MB instead.
+onlyBuiltDependencies:
+  - "@prisma/engines"
+  - prisma

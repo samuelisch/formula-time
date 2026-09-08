@@ -9,6 +9,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@formula-time/db": "workspace:*",
     "@formula-time/domain": "workspace:*",
     "fastify": "^5.12.3"
   }

@@ -6,9 +6,5 @@
     "types": ["node"]
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"],
-  "references": [
-    { "path": "../../packages/db" },
-    { "path": "../../packages/domain" }
-  ]
+  "exclude": ["src/**/*.test.ts", "src/**/*.integration.test.ts"]
 }

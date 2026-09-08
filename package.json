@@ -7,8 +7,8 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "build": "tsc -b && pnpm --filter @formula-time/web build",
-    "typecheck": "tsc -b && pnpm --filter @formula-time/web typecheck",
+    "build": "pnpm db:generate && tsc -b && pnpm --filter @formula-time/web build",
+    "typecheck": "pnpm db:generate && tsc -b && pnpm --filter @formula-time/web typecheck",
     "test:unit": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
     "test": "pnpm typecheck && pnpm test:unit && pnpm test:integration",
@@ -17,7 +17,10 @@
     "dev:ingest": "pnpm --filter @formula-time/ingest dev",
     "dev:web": "pnpm --filter @formula-time/web dev",
     "db:up": "docker compose up -d postgres",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "db:generate": "pnpm --filter @formula-time/db db:generate",
+    "db:migrate:dev": "pnpm --filter @formula-time/db db:migrate:dev",
+    "db:migrate:deploy": "pnpm --filter @formula-time/db db:migrate:deploy"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
