@@ -9,6 +9,9 @@ import { useAnchors, useDelay, useDisplayed } from "../live/selectors.ts";
 import { axisOf } from "../live/types.ts";
 import type { TimeTarget } from "./TimeTarget.ts";
 
+/** Exported so the test asserts the exact string the viewer sees, not a paraphrase. */
+export const BUFFER_SHORT_NOTICE = "Delay exceeds what this tab has buffered; showing the oldest";
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -19,7 +22,7 @@ function clamp(value: number, min: number, max: number): number {
  * parameter for the same reason (`live/store.ts`).
  */
 export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
-  const { delayMs, spanMs, setDelayMs } = useDelay();
+  const { delayMs, spanMs, bufferShort, setDelayMs } = useDelay();
   const displayed = useDisplayed();
   const anchors = useAnchors();
 
@@ -45,7 +48,13 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
       },
 
       playback: () => null,
+
+      // The live store sets `bufferShort` when the asked-for delay is older
+      // than this tab's ring buffer holds and `displayed` has fallen back to
+      // the oldest entry (`reselect` in `live/store.ts`). Same wording the
+      // deleted `DelayControl` showed.
+      notice: () => (bufferShort ? BUFFER_SHORT_NOTICE : null),
     }),
-    [displayedAtMs, delayMs, spanMs, anchors, setDelayMs, now],
+    [displayedAtMs, delayMs, spanMs, bufferShort, anchors, setDelayMs, now],
   );
 }

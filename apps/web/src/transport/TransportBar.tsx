@@ -40,6 +40,10 @@ export function TransportBar() {
   const displayedAtMs = target.displayedAt();
   const playback = target.playback();
   const anchors = target.anchors();
+  // A limitation of where the target actually landed, rendered under the
+  // row in the same style as a failed jump: on live this is the store's
+  // `bufferShort` ("showing the oldest"), on replay always null.
+  const notice = target.notice();
 
   /** Race-start and lap jumps move the position and, on replay, pause -- live has no playback to pause. */
   function seekAndMaybePause(atMs: number): void {
@@ -144,6 +148,7 @@ export function TransportBar() {
           <button type="submit">Go</button>
         </form>
       </div>
+      {notice !== null && <div className={styles.warning}>{notice}</div>}
       {jumpMessage !== null && <div className={styles.warning}>{jumpMessage}</div>}
     </div>
   );

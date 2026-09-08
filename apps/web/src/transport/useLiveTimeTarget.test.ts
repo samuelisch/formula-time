@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { emptyAnchors, type Anchors } from "../live/anchors.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
-import { useLiveTimeTarget } from "./useLiveTimeTarget.ts";
+import { BUFFER_SHORT_NOTICE, useLiveTimeTarget } from "./useLiveTimeTarget.ts";
 
 function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>> = {}): void {
   useLiveStore.setState({
@@ -99,6 +99,20 @@ describe("useLiveTimeTarget", () => {
 
     result.current.seekTo(NOW + 1_000); // past "now" => clamped to 0
     expect(useLiveStore.getState().delayMs).toBe(0);
+  });
+
+  it("notice() carries the buffered-delay warning exactly when the store reports bufferShort", () => {
+    // The warning the deleted `DelayControl` rendered; without a slot on the
+    // seam it went dead (fix round 4 on PR #87), so a delay past the buffered
+    // span silently showed the oldest entry as if it were what was asked for.
+    resetStore({ buffer: bufferedSpan, bufferShort: false });
+    const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
+    expect(result.current.notice()).toBeNull();
+
+    resetStore({ buffer: bufferedSpan, delayMs: 500_000, bufferShort: true });
+    const { result: short } = renderHook(() => useLiveTimeTarget(() => NOW));
+    expect(short.current.notice()).toBe("Delay exceeds what this tab has buffered; showing the oldest");
+    expect(short.current.notice()).toBe(BUFFER_SHORT_NOTICE);
   });
 
   it("anchors() returns the store's anchors", () => {

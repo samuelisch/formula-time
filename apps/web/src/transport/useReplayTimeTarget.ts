@@ -61,6 +61,11 @@ export function useReplayTimeTarget(playback: ReplayPlayback, folded: FoldedRace
         play: playback.play,
         pause: playback.pause,
       }),
+
+      // Always null: a replay holds the whole fold, so every position in
+      // `range()` is exactly what was asked for -- there is no buffered-span
+      // shortfall to warn about the way live has.
+      notice: () => null,
     }),
     [folded, playback, anchors],
   );

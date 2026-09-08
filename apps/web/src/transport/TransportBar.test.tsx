@@ -33,6 +33,7 @@ function makeLiveFake(overrides: {
   displayedAtMs?: number | null;
   range?: { startMs: number; endMs: number } | null;
   anchors?: Anchors;
+  notice?: string | null;
 } = {}): TimeTarget & { seekTo: ReturnType<typeof vi.fn<(atMs: number) => void>>; nudge: ReturnType<typeof vi.fn<(deltaMs: number) => void>> } {
   const range = "range" in overrides ? overrides.range! : { startMs: 0, endMs: 180_000 };
   const displayedAtMs = "displayedAtMs" in overrides ? overrides.displayedAtMs! : (range?.endMs ?? null);
@@ -43,6 +44,7 @@ function makeLiveFake(overrides: {
     anchors: () => overrides.anchors ?? NO_ANCHORS,
     range: () => range,
     playback: () => null,
+    notice: () => overrides.notice ?? null,
   };
 }
 
@@ -70,6 +72,7 @@ function makeReplayFake(overrides: {
     anchors: () => overrides.anchors ?? NO_ANCHORS,
     range: () => range,
     playback: () => ({ playing, play, pause }),
+    notice: () => null,
     play,
     pause,
   };
@@ -246,6 +249,33 @@ describe("TransportBar -- replay", () => {
 
     expect(target.seekTo).toHaveBeenCalledWith(Date.parse("2026-09-06T13:04:00.000Z"));
     expect(target.pause).toHaveBeenCalled();
+  });
+});
+
+describe("TransportBar -- notice()", () => {
+  it("renders the target's notice under the row, and nothing when there is none", () => {
+    // Fix round 4 on PR #87: the live store's `bufferShort` warning had no
+    // slot on the seam, so deleting `DelayControl` dropped it silently.
+    const { unmount } = render(
+      <TimeTargetProvider value={makeLiveFake({ notice: "Delay exceeds what this tab has buffered; showing the oldest" })}>
+        <TransportBar />
+      </TimeTargetProvider>,
+    );
+    expect(screen.getByText("Delay exceeds what this tab has buffered; showing the oldest")).toBeInTheDocument();
+    unmount();
+
+    renderBar(makeLiveFake());
+    expect(screen.queryByText(/showing the oldest/)).not.toBeInTheDocument();
+  });
+
+  it("shows a notice alongside a failed jump message rather than replacing it", async () => {
+    const user = userEvent.setup();
+    renderBar(makeLiveFake({ notice: "Delay exceeds what this tab has buffered; showing the oldest" }));
+
+    await user.click(screen.getByRole("button", { name: "Race start" }));
+
+    expect(screen.getByText("Race start not seen since you joined")).toBeInTheDocument();
+    expect(screen.getByText("Delay exceeds what this tab has buffered; showing the oldest")).toBeInTheDocument();
   });
 });
 

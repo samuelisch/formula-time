@@ -5,6 +5,13 @@
 // folded race's lap markers) are the two implementations; `TransportBar`
 // only ever calls through this interface.
 //
+// `notice()` is the one addition to the interface as issue #81 specified it
+// (amended on the issue, fix round 4 on PR #87): without it the live store's
+// `bufferShort` -- the old `DelayControl`'s "showing the oldest" warning --
+// had nowhere to surface, so a viewer nudging past the buffered span landed
+// on stale data silently. Live returns the buffered-delay message; replay,
+// whose whole fold is always seekable, returns null.
+//
 // A plain .ts file (not .tsx), so `TimeTargetProvider` is built with
 // `createElement` rather than JSX -- the same convention `useBoardState.ts`
 // uses for `BoardSourceProvider`.
@@ -25,6 +32,8 @@ export interface TimeTarget {
   range(): { startMs: number; endMs: number } | null;
   /** Playback, replay only; live returns null. */
   playback(): { playing: boolean; play(): void; pause(): void } | null;
+  /** A human-readable limitation of the current position, or null. */
+  notice(): string | null;
 }
 
 const TimeTargetContext = createContext<TimeTarget | null>(null);

@@ -122,6 +122,14 @@ describe("useReplayTimeTarget", () => {
     expect(playback.pause).toHaveBeenCalled();
   });
 
+  it("notice() is always null -- a replay holds the whole fold, so no position is a fallback", () => {
+    const { result } = renderHook(() => useReplayTimeTarget(fakePlayback(), folded()));
+    expect(result.current.notice()).toBeNull();
+
+    const { result: unfolded } = renderHook(() => useReplayTimeTarget(fakePlayback(), null));
+    expect(unfolded.current.notice()).toBeNull();
+  });
+
   it("anchors() is derived from the fold, empty when there is none", () => {
     const { result } = renderHook(() => useReplayTimeTarget(fakePlayback(), null));
     expect(result.current.anchors()).toEqual({ lights_out: null, laps: [], restarts: [] });
