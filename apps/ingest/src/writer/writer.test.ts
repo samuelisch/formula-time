@@ -124,4 +124,58 @@ describe("EventWriter.drainAll / stop", () => {
     expect(totals).toEqual({ inserted: 2, skipped: 0 });
     expect(await writer.drainOnce()).toBeNull();
   });
+
+  test("stop() waits for a drain already in flight (from run()) before resolving, and its rows are counted", async () => {
+    const rows = new Map<string, unknown>();
+    let resolveCreateMany: (() => void) | null = null;
+    let capturedData: Array<{ eventId: string }> | null = null;
+    const db: EventWriterDb = {
+      event: {
+        createMany: (args) =>
+          new Promise((resolve) => {
+            capturedData = args.data;
+            resolveCreateMany = () => {
+              let count = 0;
+              for (const row of args.data) {
+                if (rows.has(row.eventId)) continue;
+                rows.set(row.eventId, row);
+                count += 1;
+              }
+              resolve({ count });
+            };
+          }),
+      },
+    };
+    const queue = new EventQueue<QueueItem>();
+    queue.push(item("a"));
+    const writer = new EventWriter(db, queue);
+
+    writer.run(5); // fast tick so the in-flight createMany starts quickly
+    await waitUntil(() => resolveCreateMany !== null);
+    expect(capturedData).toEqual([expect.objectContaining({ eventId: "a" })]);
+
+    let stopped = false;
+    const stopPromise = writer.stop().then((totals) => {
+      stopped = true;
+      return totals;
+    });
+
+    // The insert is still pending: stop() must not have resolved yet.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(stopped).toBe(false);
+
+    resolveCreateMany!();
+    const totals = await stopPromise;
+
+    expect(stopped).toBe(true);
+    expect(totals.inserted).toBe(1); // the in-flight batch's row is counted
+  });
 });
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error("waitUntil: timed out waiting for condition");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}

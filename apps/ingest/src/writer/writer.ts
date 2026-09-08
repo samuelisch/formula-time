@@ -37,6 +37,13 @@ export class EventWriter {
   private readonly batchSize: number;
   private stopped = false;
   private timer: NodeJS.Timeout | null = null;
+  // Tracks the drain currently in flight (awaiting `db.event.createMany`) so
+  // `stop()` can wait for it instead of returning while an insert is still
+  // running — otherwise SIGTERM can see an empty queue (the batch was
+  // already spliced off by `drain()`) and exit before that insert commits.
+  // Resolves to the batch's result (or `null` on failure) so `stop()` can
+  // fold it into the total it reports.
+  private currentDrain: Promise<DrainResult | null> | null = null;
 
   public constructor(
     private readonly db: EventWriterDb,
@@ -84,27 +91,40 @@ export class EventWriter {
     this.stopped = false;
     const tick = (): void => {
       if (this.stopped) return;
-      void this.drainOnce()
+      const drainPromise = this.drainOnce()
         .then((result) => {
           if (result && (result.inserted > 0 || result.skipped > 0)) {
             console.log(`writer: batch inserted=${result.inserted} skipped=${result.skipped}`);
           }
+          return result;
         })
         .catch((error: unknown) => {
           console.error(`writer: batch failed: ${error instanceof Error ? error.message : String(error)}`);
+          return null;
         })
         .finally(() => {
+          this.currentDrain = null;
           if (!this.stopped) this.timer = setTimeout(tick, intervalMs);
         });
+      this.currentDrain = drainPromise;
     };
     this.timer = setTimeout(tick, intervalMs);
   }
 
-  /** SIGTERM path: stop scheduling new ticks, drain what's left, then resolve. */
+  /**
+   * SIGTERM path: stop scheduling new ticks, wait for any drain already in
+   * flight to finish, then drain whatever is left (with the retry/give-up
+   * policy in `drainAll()`).
+   */
   public async stop(): Promise<DrainResult> {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    return this.drainAll();
+    const inFlight = this.currentDrain ? await this.currentDrain : null;
+    const rest = await this.drainAll();
+    return {
+      inserted: (inFlight?.inserted ?? 0) + rest.inserted,
+      skipped: (inFlight?.skipped ?? 0) + rest.skipped,
+    };
   }
 }
