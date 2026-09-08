@@ -42,10 +42,17 @@ else.
   only. Integration tests are `*.integration.test.ts` and need Postgres
   from the root `docker-compose.yml` (`DATABASE_URL`). Playwright is e2e
   only and lives elsewhere.
-- `@formula-time/domain` is browser-safe: it holds types and the reducer,
-  not identity hashing. Do not import `node:*` modules into it from here.
+- `@formula-time/domain` is browser-safe (tsconfig enforces `types: []`,
+  `lib: ["ES2022"]`): it holds types and the reducer, not identity
+  hashing. Ingest code must not add `node:*` imports to the domain
+  package.
 - Config is read from the platform secret store only, never from files in
   the image: `DATABASE_URL`, `OPENF1_LOGIN`, `OPENF1_PASSWORD`, `PORT`,
   `LIVE_SOURCE`.
-- Vocabulary: *fold* is a downstream (api) concern, not this service's —
-  ingest only appends to the log. *Lock* is poll state, also downstream.
+- Vocabulary, defined once for the whole repo: *fold* — reduce over the
+  event log into RaceState; ingest appends to that log but never folds
+  it. *projector*/*authority* — the class name and the role it plays
+  (exactly one, holds folded RaceState in memory); lives in apps/api.
+  *push* — one serialized RaceState + poll tallies written to every
+  socket; also apps/api. *lock* — the state a poll is in before it
+  resolves; polls themselves are an apps/api concern, not ingest's.
