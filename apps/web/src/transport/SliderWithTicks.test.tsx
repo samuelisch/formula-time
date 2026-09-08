@@ -41,18 +41,67 @@ describe("SliderWithTicks", () => {
     expect(screen.getByText("Lap 2")).toBeInTheDocument();
   });
 
-  it("snaps the emitted value when the input lands within the threshold of a tick", () => {
+  it("snaps the emitted value when a pointer drag lands within the threshold of a tick", () => {
     const onChange = vi.fn();
     render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={onChange} />);
-    fireEvent.change(screen.getByRole("slider", { name: "Playback position" }), { target: { value: "31000" } });
+    const slider = screen.getByRole("slider", { name: "Playback position" });
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: "31000" } });
     expect(onChange).toHaveBeenCalledWith(30_000);
   });
 
-  it("passes the raw value through when nothing is close enough to snap to", () => {
+  it("passes the raw value through during a drag when nothing is close enough to snap to", () => {
     const onChange = vi.fn();
     render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={onChange} />);
-    fireEvent.change(screen.getByRole("slider", { name: "Playback position" }), { target: { value: "45000" } });
+    const slider = screen.getByRole("slider", { name: "Playback position" });
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: "45000" } });
     expect(onChange).toHaveBeenCalledWith(45_000);
+  });
+
+  // Fix round 1 on PR #106: the native `step` (100ms) fires a plain
+  // `change` event on every arrow-key press too, with no pointerdown --
+  // snapping unconditionally there pulled a keyboard step onto a tick not
+  // on the 100ms grid, and the control could appear stuck on it.
+  it("does not snap a change with no pointer drag in progress, even inside the snap threshold", () => {
+    const onChange = vi.fn();
+    render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={onChange} />);
+    const slider = screen.getByRole("slider", { name: "Playback position" });
+    fireEvent.change(slider, { target: { value: "31000" } }); // no pointerDown first
+    expect(onChange).toHaveBeenCalledWith(31_000); // not 30_000
+  });
+
+  it("keyboard stepping near an off-grid tick moves exactly one step, never snapping onto it", () => {
+    const onChange = vi.fn();
+    const offGridTick: TickMark[] = [{ lap: 2, value: 30_050 }]; // not a multiple of the 100ms step
+    render(<SliderWithTicks min={0} max={100_000} value={29_900} ticks={offGridTick} ariaLabel="Playback position" onChange={onChange} />);
+    const slider = screen.getByRole("slider", { name: "Playback position" });
+    // One native step (100ms) lands at 30_000, well within +/-1.5% (1500ms)
+    // of the tick at 30_050 -- must not snap without a drag.
+    fireEvent.change(slider, { target: { value: "30000" } });
+    expect(onChange).toHaveBeenCalledWith(30_000);
+    onChange.mockClear();
+    fireEvent.change(slider, { target: { value: "30100" } });
+    expect(onChange).toHaveBeenCalledWith(30_100);
+  });
+
+  it("resumes snapping on a later drag after a prior drag ended (pointerup/pointercancel reset it)", () => {
+    const onChange = vi.fn();
+    render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={onChange} />);
+    const slider = screen.getByRole("slider", { name: "Playback position" });
+
+    fireEvent.pointerDown(slider);
+    fireEvent.pointerUp(slider);
+    fireEvent.change(slider, { target: { value: "31000" } });
+    expect(onChange).toHaveBeenLastCalledWith(31_000); // drag ended, no snap
+
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: "31000" } });
+    expect(onChange).toHaveBeenLastCalledWith(30_000); // dragging again, snaps
+
+    fireEvent.pointerCancel(slider);
+    fireEvent.change(slider, { target: { value: "31000" } });
+    expect(onChange).toHaveBeenLastCalledWith(31_000); // cancelled, no snap
   });
 
   it("disables the underlying input when disabled", () => {

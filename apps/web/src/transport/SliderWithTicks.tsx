@@ -4,7 +4,15 @@
 // by both `TimeTarget` implementations -- `TransportBar` builds `ticks` from
 // `target.anchors().laps` and passes it the same way for live and replay.
 // The snap/label math lives in `sliderMath.ts`, unit tested on its own.
-import type { ChangeEvent } from "react";
+//
+// Snap only applies to a pointer drag (fix round 1, PR #106): the native
+// `step` (100ms) also fires a `change` event on every arrow-key press, and
+// snapping unconditionally there could pull a keyboard step onto a tick
+// that is not on the 100ms grid, making the control appear stuck. A
+// `pointerdown`/`pointerup`/`pointercancel` pair on the input tracks
+// whether the current `change` came from a drag; keyboard and programmatic
+// changes pass the raw stepped value straight through.
+import { useState, type ChangeEvent } from "react";
 
 import { currentLap, percent, snapTarget, type TickMark } from "./sliderMath.ts";
 import styles from "./SliderWithTicks.module.css";
@@ -24,8 +32,14 @@ export interface SliderWithTicksProps {
 }
 
 export function SliderWithTicks({ min, max, value, ticks, disabled = false, ariaLabel, onChange }: SliderWithTicksProps) {
+  const [isDragging, setIsDragging] = useState(false);
+
   function handleChange(event: ChangeEvent<HTMLInputElement>): void {
     const raw = Number(event.target.value);
+    if (!isDragging) {
+      onChange(raw);
+      return;
+    }
     const snapped = snapTarget(raw, ticks, min, max);
     onChange(snapped !== null ? snapped.value : raw);
   }
@@ -56,6 +70,9 @@ export function SliderWithTicks({ min, max, value, ticks, disabled = false, aria
         disabled={disabled}
         aria-label={ariaLabel}
         onChange={handleChange}
+        onPointerDown={() => setIsDragging(true)}
+        onPointerUp={() => setIsDragging(false)}
+        onPointerCancel={() => setIsDragging(false)}
       />
     </div>
   );
