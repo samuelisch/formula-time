@@ -20,16 +20,40 @@ function fakeRequest(acceptEncoding: string | undefined) {
   } as any;
 }
 
-function fakeReply() {
+function fakeReply(decorated: Record<string, string> = {}) {
   const raw = { writeHead: vi.fn() };
   return {
     hijack: vi.fn(),
     raw,
+    getHeaders: () => decorated,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 }
 
 describe("GET /live/events handler", () => {
+  test("cors headers the plugin decorated ride along on the hijacked head; vary is joined", () => {
+    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const reply = fakeReply({
+      "access-control-allow-origin": "https://web.test",
+      "access-control-allow-credentials": "true",
+      vary: "Origin",
+    });
+    const request = fakeRequest(undefined);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    liveEventsHandler(fanout as any)(request, reply);
+
+    expect(reply.raw.writeHead).toHaveBeenCalledWith(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+      vary: "accept-encoding, Origin",
+      "access-control-allow-origin": "https://web.test",
+      "access-control-allow-credentials": "true",
+    });
+  });
+
   test("hijacks the reply and never touches the projector -- only the fanout", () => {
     const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
     const reply = fakeReply();

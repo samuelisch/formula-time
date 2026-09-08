@@ -4,6 +4,7 @@ import Fastify from "fastify";
 
 import { createDb } from "@formula-time/db";
 
+import { parseAllowedOrigins, registerCors } from "./cors.js";
 import { Fanout } from "./fanout/fanout.js";
 import { prismaEventSource } from "./projector/event-source.js";
 import { pickSession } from "./projector/session-picker.js";
@@ -12,6 +13,10 @@ import { createSessionLifecycle } from "./session-lifecycle.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const app = Fastify({ logger: true });
+
+// The web bundle is hosted on its own origin (ADR-0008); allow it here,
+// before any route, so the preflight and the hijacked SSE route see it.
+await registerCors(app, parseAllowedOrigins(process.env.CORS_ORIGIN));
 
 const db = createDb();
 const source = prismaEventSource(db);

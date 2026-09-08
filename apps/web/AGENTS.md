@@ -2,9 +2,14 @@
 
 ## What this app owns
 
-- Vite + React. Built assets are static; served by the platform CDN or
-  the api service. The dev server (`vite.config.ts`) proxies `/health`,
-  `/api`, `/live`, `/polls` to the api service on port 3000.
+- Vite + React. Built assets are static, hosted on Netlify (interim
+  `*.netlify.app`, target the apex of a custom domain); the api answers
+  on its own origin (ADR-0008). `public/_redirects` is the SPA fallback,
+  `public/_headers` the asset cache policy. `VITE_API_URL` is the api's origin at build time; unset
+  means relative URLs, which is the dev setup: the dev server
+  (`vite.config.ts`) proxies `/health`, `/api`, `/live`, `/polls` to the
+  api on port 3000. Every request goes through `src/api.ts`, never a
+  hand-built URL.
 - Imports the RaceState type, wire schemas, and the reducer from
   `@formula-time/domain`. Never copies them. The reducer runs in the
   browser to fold finished races (target) and must stay identical to the

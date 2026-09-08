@@ -12,6 +12,7 @@
 // the root, registered separately in main.ts.
 import type { FastifyInstance, FastifyPluginCallback, FastifyReply, FastifyRequest } from "fastify";
 
+import { replyHeaders } from "../cors.js";
 import type { Encoding, Fanout } from "../fanout/fanout.js";
 
 function pickEncoding(acceptEncoding: unknown): Encoding {
@@ -33,6 +34,15 @@ export function liveEventsHandler(fanout: Fanout) {
     };
     if (encoding === "gzip") {
       headers["content-encoding"] = "gzip";
+    }
+    // Hijacked: Fastify sends nothing it decorated, so the cors plugin's
+    // headers (ADR-0008) ride along here, or a cross-origin EventSource is
+    // refused. `vary` is joined, not replaced: both accept-encoding and
+    // Origin decide the bytes.
+    for (const [name, value] of Object.entries(replyHeaders(reply))) {
+      if (value === undefined) continue;
+      const text = Array.isArray(value) ? value.join(", ") : String(value);
+      headers[name] = name === "vary" && headers[name] !== undefined ? `${headers[name]}, ${text}` : text;
     }
     res.writeHead(200, headers);
 
