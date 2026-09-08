@@ -1,7 +1,6 @@
 // Voting is always live (issue #51 decision): POST /api/vote via useMutation
 // regardless of the viewer's delay, since the server judges the lock against
-// live data (PRD §4). `sessionKey` is passed in rather than read from the
-// store here so this hook stays a pure function of its caller.
+// live data (PRD §4).
 import { useMutation, type UseMutationResult } from "@tanstack/react-query";
 
 import { apiFetch } from "../api.ts";
@@ -39,15 +38,15 @@ async function postVote(variables: VoteVariables): Promise<VoteResponse> {
 
 /**
  * Wraps the vote mutation: on a 200, remembers the pick in localStorage under
- * `poll-vote-{session_key}-{poll_id}` (votes.ts); a 409 (or other non-2xx)
- * surfaces the server's `error` text as the mutation's error so the card can
- * show it -- the viewer's delayed card may still say the poll is open.
+ * `poll-vote-{poll_id}` (votes.ts); a 409 (or other non-2xx) surfaces the
+ * server's `error` text as the mutation's error so the card can show it --
+ * the viewer's delayed card may still say the poll is open.
  */
-export function useVote(sessionKey: string | null): UseMutationResult<VoteResponse, Error, VoteVariables> {
+export function useVote(): UseMutationResult<VoteResponse, Error, VoteVariables> {
   return useMutation({
     mutationFn: postVote,
     onSuccess: (_result, variables) => {
-      rememberVote(sessionKey, variables.pollId, variables.optionId);
+      rememberVote(variables.pollId, variables.optionId);
     },
   });
 }

@@ -17,13 +17,11 @@ const STATUS_LABEL: Record<PollLifecycleStatus, string> = {
 
 export interface PollCardProps {
   poll: PollPublic;
-  /** From `useDisplayed()?.session_key` -- passed down so this card stays a pure function of its props. */
-  sessionKey: string | null;
 }
 
-export function PollCard({ poll, sessionKey }: PollCardProps) {
-  const vote = useVote(sessionKey);
-  const myPick = myVote(sessionKey, poll.poll_id);
+export function PollCard({ poll }: PollCardProps) {
+  const vote = useVote();
+  const myPick = myVote(poll.poll_id);
   const winners = poll.winning_option_ids ?? [];
   const maxVotes = Math.max(1, ...poll.options.map((option) => poll.tally[option.id] ?? 0));
   const canVote = poll.status === "open" && !vote.isPending;

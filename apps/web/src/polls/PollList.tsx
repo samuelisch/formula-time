@@ -1,7 +1,4 @@
-// Sorted list of poll cards. Reads the viewer's session key once from the
-// displayed push (issue #51 decision) and threads it down so each PollCard
-// stays a pure function of its props.
-import { useDisplayed } from "../live/selectors.ts";
+// Sorted list of poll cards.
 import type { PollPublic } from "../live/types.ts";
 import { PollCard } from "./PollCard.tsx";
 import styles from "./PollList.module.css";
@@ -12,7 +9,6 @@ export interface PollListProps {
 }
 
 export function PollList({ polls }: PollListProps) {
-  const sessionKey = useDisplayed()?.session_key ?? null;
   const sorted = sortPolls(polls);
 
   if (sorted.length === 0) {
@@ -22,7 +18,7 @@ export function PollList({ polls }: PollListProps) {
   return (
     <div className={styles.list}>
       {sorted.map((poll) => (
-        <PollCard key={poll.poll_id} poll={poll} sessionKey={sessionKey} />
+        <PollCard key={poll.poll_id} poll={poll} />
       ))}
     </div>
   );

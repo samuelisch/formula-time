@@ -34,7 +34,7 @@ describe("useVote", () => {
     );
     vi.stubGlobal("fetch", fetchStub);
 
-    const { result } = renderHook(() => useVote("session-1"), { wrapper });
+    const { result } = renderHook(() => useVote(), { wrapper });
 
     result.current.mutate({ pollId: "poll-1", optionId: "opt-a" });
 
@@ -49,20 +49,20 @@ describe("useVote", () => {
         body: JSON.stringify({ poll_id: "poll-1", option_id: "opt-a" }),
       }),
     );
-    expect(myVote("session-1", "poll-1")).toBe("opt-a");
+    expect(myVote("poll-1")).toBe("opt-a");
   });
 
   it("surfaces the server's error text on a 409 and does not store a pick", async () => {
     const fetchStub = vi.fn().mockResolvedValue(jsonResponse(false, 409, { error: "Poll is locked" }));
     vi.stubGlobal("fetch", fetchStub);
 
-    const { result } = renderHook(() => useVote("session-1"), { wrapper });
+    const { result } = renderHook(() => useVote(), { wrapper });
 
     result.current.mutate({ pollId: "poll-1", optionId: "opt-a" });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
     expect(result.current.error?.message).toBe("Poll is locked");
-    expect(myVote("session-1", "poll-1")).toBeNull();
+    expect(myVote("poll-1")).toBeNull();
   });
 });
