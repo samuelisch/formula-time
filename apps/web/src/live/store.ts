@@ -1,5 +1,6 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 
+import { deriveAnchors, emptyAnchors, type Anchors } from "./anchors.ts";
 import { append, emptyBuffer, select, type BufferedPush, type PushBuffer } from "./buffer.ts";
 import { axisOf, type Connection, type LivePush } from "./types.ts";
 
@@ -12,6 +13,7 @@ export interface LiveStore {
   delayMs: number; // 0 = live edge
   displayed: LivePush | null; // what the board renders
   bufferShort: boolean; // true when delay asks for older history than the buffer holds; displayed is then the oldest entry
+  anchors: Anchors; // jump targets folded from pushes seen since this tab connected
   onOpen(): void;
   onError(): void;
   onStatus(status: { catching_up: boolean }): void;
@@ -30,6 +32,7 @@ interface Selection {
 /** Creates an isolated store instance with its own displayed-entry cache; the app uses the `useLiveStore` singleton below, tests create their own. */
 export function createLiveStore(): LiveStoreApi {
   const parsedByEntry = new WeakMap<BufferedPush, LivePush>();
+  const seenRestarts = new Set<string>();
 
   function parseCached(entry: BufferedPush): LivePush {
     const cached = parsedByEntry.get(entry);
@@ -73,6 +76,7 @@ export function createLiveStore(): LiveStoreApi {
     delayMs: 0,
     displayed: null,
     bufferShort: false,
+    anchors: emptyAnchors(),
 
     onOpen: () => set({ connection: "open" }),
     onError: () => set({ connection: "reconnecting" }),
@@ -80,7 +84,8 @@ export function createLiveStore(): LiveStoreApi {
 
     onState: (raw, push, now) => {
       const buffer = append(get().buffer, { at: axisOf(push), raw });
-      const next = { live: push, buffer, lastMessageAt: now, catchingUp: false };
+      const anchors = deriveAnchors(get().anchors, push, seenRestarts);
+      const next = { live: push, buffer, lastMessageAt: now, catchingUp: false, anchors };
       const { displayed, bufferShort } = reselect({ ...get(), ...next }, now);
       set({ ...next, displayed, bufferShort });
     },
