@@ -1,6 +1,3 @@
--- CreateSchema
-CREATE SCHEMA IF NOT EXISTS "public";
-
 -- CreateEnum
 CREATE TYPE "SessionStatus" AS ENUM ('upcoming', 'live', 'finished');
 
