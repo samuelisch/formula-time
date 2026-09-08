@@ -3,4 +3,4 @@
 // This is the entrypoint; the lanes and writer land with their tracks.
 import { DOMAIN_PACKAGE } from "@formula-time/domain";
 
-console.log(`ingest starting (shared: ${DOMAIN_PACKAGE})`);
+console.log(`ingest starting (domain: ${DOMAIN_PACKAGE})`);
