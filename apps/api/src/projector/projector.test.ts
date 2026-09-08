@@ -197,4 +197,44 @@ describe("RaceStateProjector", () => {
     expect(projector.snapshot().drivers["3"]).toBeDefined();
     expect(projector.status().cursor).toBe(5n);
   });
+
+  test("a rejected read is caught, logged, and retried on the next tick -- no stall, no crash", async () => {
+    const rows = [driverRow(1, 1)];
+    const source = new FakeSource(rows, rows.map((r) => r.eventId));
+    const originalReadAfter = source.readAfter.bind(source);
+    let calls = 0;
+    source.readAfter = async (sessionKey, afterSeq, limit) => {
+      calls += 1;
+      if (calls === 1) {
+        throw new Error("connection reset");
+      }
+      return originalReadAfter(sessionKey, afterSeq, limit);
+    };
+
+    const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+    const projector = tracked(
+      new RaceStateProjector({
+        source,
+        session: SESSION,
+        tickMs: 10, // fast retry so the test doesn't wait a full 250ms default tick
+        log: (msg, fields) => logs.push({ msg, fields }),
+      }),
+    );
+    const fn = vi.fn();
+    projector.subscribe(fn);
+
+    projector.start();
+    // Tick 1: readAfter rejects -- caught, logged, cursor/state untouched, no
+    // publish. Tick 2 (10ms later): readAfter succeeds, applies the row.
+    await vi.waitFor(() => expect(projector.status().caughtUp).toBe(true));
+
+    const failLog = logs.find((l) => l.msg === "projector tick failed");
+    expect(failLog).toBeDefined();
+    expect(failLog?.fields?.cursor).toBe("0");
+    expect(failLog?.fields?.error).toContain("connection reset");
+
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(projector.status().cursor).toBe(1n);
+    expect(projector.snapshot().drivers["1"]).toBeDefined();
+  });
 });

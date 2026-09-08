@@ -141,38 +141,53 @@ export class RaceStateProjector {
       this.foldStartedAt = Date.now();
     }
 
-    if (this.tickCount % this.detectorEveryTicks === 0) {
-      await this.runDetector();
-      if (this.stopped) {
-        return;
+    // A rejected read (Postgres restart, network blip) must not stall the
+    // tick chain forever or crash the process: scheduleTick chains ticks
+    // with `.then()` and no `.catch()`, so an uncaught rejection here would
+    // leave every future tick unscheduled. Catch, log, and retry on the
+    // normal schedule instead -- cursor and state are left exactly as they
+    // were before this tick (readAfter/readWindow reject before any row of
+    // that call is applied).
+    try {
+      if (this.tickCount % this.detectorEveryTicks === 0) {
+        await this.runDetector();
+        if (this.stopped) {
+          return;
+        }
       }
-    }
 
-    let totalApplied = 0;
-    let rows: EventRow[];
-    do {
-      rows = await this.source.readAfter(this.session.sessionKey, this.cursor, this.batchLimit);
-      if (this.stopped) {
-        return;
-      }
-      for (const row of rows) {
-        this.applyRow(row);
-        totalApplied += 1;
-      }
-    } while (rows.length === this.batchLimit);
+      let totalApplied = 0;
+      let rows: EventRow[];
+      do {
+        rows = await this.source.readAfter(this.session.sessionKey, this.cursor, this.batchLimit);
+        if (this.stopped) {
+          return;
+        }
+        for (const row of rows) {
+          this.applyRow(row);
+          totalApplied += 1;
+        }
+      } while (rows.length === this.batchLimit);
 
-    const justCaughtUp = !this.caughtUp;
-    if (justCaughtUp) {
-      this.caughtUp = true;
-      this.log("fold complete", {
-        rows: totalApplied,
-        ms: Date.now() - this.foldStartedAt,
+      const justCaughtUp = !this.caughtUp;
+      if (justCaughtUp) {
+        this.caughtUp = true;
+        this.log("fold complete", {
+          rows: totalApplied,
+          ms: Date.now() - this.foldStartedAt,
+          cursor: this.cursor.toString(),
+        });
+      }
+
+      if (totalApplied > 0 || justCaughtUp) {
+        this.publish();
+      }
+    } catch (err) {
+      this.log("projector tick failed", {
+        level: "error",
+        error: err instanceof Error ? err.message : String(err),
         cursor: this.cursor.toString(),
       });
-    }
-
-    if (totalApplied > 0 || justCaughtUp) {
-      this.publish();
     }
 
     this.scheduleTick(this.tickMs);
