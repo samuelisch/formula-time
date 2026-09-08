@@ -15,9 +15,13 @@ if [ "$#" -eq 0 ]; then
   exit 1
 fi
 
+db_env_output="$("$script_dir/db-env.sh")" || {
+  echo "with-db-env: scripts/db-env.sh failed (see above)" >&2
+  exit 1
+}
 while IFS='=' read -r key val; do
   export "${key}=${val}"
-done < <("$script_dir/db-env.sh")
+done <<<"$db_env_output"
 
 : "${DATABASE_URL:=postgres://formula:formula@localhost:${DB_PORT}/formula_time}"
 : "${DATABASE_DIRECT_URL:=$DATABASE_URL}"
