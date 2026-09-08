@@ -25,6 +25,18 @@ else.
   that runs the whole local stack against it: replays a recording through
   the unmodified REST lane via `LIVE_SOURCE`, no network involved.
 
+## Loading a past race
+
+The live REST lane only polls a session inside its ±30 min window
+(`pickLiveSession`), so `LIVE_SOURCE=<old recording>` discovers a past
+session and upserts it, but never fetches its rows — historical races need
+an explicit load instead: `DATABASE_URL=... pnpm ingest:load <recording-dir>
+[<recording-dir> ...]`, each dir a POC recording (`session.json`,
+`raw/<endpoint>.jsonl`) or a root holding several. It lifts the same
+in-process path (file fetcher → normalizer → queue → writer) into a
+command, upserts the session `finished` regardless of the window, and is
+idempotent — a second run inserts 0.
+
 ## OpenF1 facts that shape this code
 
 - The free tier locks out during any live session.

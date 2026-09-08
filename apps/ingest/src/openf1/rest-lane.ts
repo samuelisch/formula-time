@@ -69,6 +69,43 @@ const defaultFetcher: Fetcher = async (url) => {
   return response.json();
 };
 
+export interface EmitRowsResult {
+  newRows: number;
+  malformed: number;
+  /** The normalized (already-deduped-against-`normalizer`) payloads, for a caller that also records them (e.g. the jsonl recorder's `onNewRows`). */
+  payloads: RawRecord[];
+}
+
+/**
+ * The one normalize-and-enqueue path (issue #63: "same `emitRows` path so
+ * the ids match a live run") — pushed out of `RestLane` so the one-shot
+ * recording loader (`load-recording.ts`) can drive the same normalizer +
+ * queue a live session does, both for the static `ENTRY_LIST_2026`
+ * `drivers` emission and for every `raw/*.jsonl` endpoint. `RestLane`
+ * itself now calls this too (see `emitAndRecord` below) — no second
+ * normalize path.
+ */
+export function emitRows(
+  normalizer: LiveNormalizer,
+  queue: EventQueue<QueueItem>,
+  endpoint: string,
+  sessionKey: number,
+  rows: RawRecord[],
+): EmitRowsResult {
+  if (rows.length === 0) return { newRows: 0, malformed: 0, payloads: [] };
+  const { rows: normalized, malformed } = normalizer.normalize(endpoint, rows);
+  if (normalized.length === 0) return { newRows: 0, malformed, payloads: [] };
+  const items: QueueItem[] = normalized.map((n) => ({
+    eventId: n.eventId,
+    sessionKey: BigInt(sessionKey),
+    endpoint,
+    sourceTime: n.sourceTime ? new Date(n.sourceTime) : null,
+    payload: n.payload,
+  }));
+  queue.pushAll(items);
+  return { newRows: normalized.length, malformed, payloads: normalized.map((n) => n.payload) };
+}
+
 export interface RestLaneOptions {
   fetcher?: Fetcher;
   year?: number;
@@ -227,7 +264,7 @@ export class RestLane {
         team_name: driver.team_name,
         team_colour: driver.team_colour,
       }));
-      await this.emitRows("drivers", key, driverRows);
+      await this.emitAndRecord("drivers", key, driverRows);
     }
   }
 
@@ -253,33 +290,22 @@ export class RestLane {
       return { endpoint, rows: 0, newRows: 0, malformed: 0 };
     }
     const rawRows = Array.isArray(rows) ? (rows as RawRecord[]) : [];
-    const { newRows, malformed } = await this.emitRows(endpoint, this.sessionKey, rawRows);
+    const { newRows, malformed } = await this.emitAndRecord(endpoint, this.sessionKey, rawRows);
     this.log(`rest: poll endpoint=${endpoint} rows=${rawRows.length} new=${newRows} malformed=${malformed}`);
     return { endpoint, rows: rawRows.length, newRows, malformed };
   }
 
-  private async emitRows(
+  /** Thin wrapper around the free `emitRows()` that also feeds the jsonl recorder's `onNewRows`, once per call, only when there's something new (same as before this was pulled out to be shared with the loader). */
+  private async emitAndRecord(
     endpoint: string,
     sessionKey: number,
     rows: RawRecord[],
   ): Promise<{ newRows: number; malformed: number }> {
-    if (rows.length === 0) return { newRows: 0, malformed: 0 };
-    const { rows: normalized, malformed } = this.normalizer.normalize(endpoint, rows);
-    if (normalized.length === 0) return { newRows: 0, malformed };
-    const items: QueueItem[] = normalized.map((n) => ({
-      eventId: n.eventId,
-      sessionKey: BigInt(sessionKey),
-      endpoint,
-      sourceTime: n.sourceTime ? new Date(n.sourceTime) : null,
-      payload: n.payload,
-    }));
-    this.queue.pushAll(items);
-    await this.onNewRows?.(
-      sessionKey,
-      endpoint,
-      normalized.map((n) => n.payload),
-    );
-    return { newRows: normalized.length, malformed };
+    const result = emitRows(this.normalizer, this.queue, endpoint, sessionKey, rows);
+    if (result.payloads.length > 0) {
+      await this.onNewRows?.(sessionKey, endpoint, result.payloads);
+    }
+    return { newRows: result.newRows, malformed: result.malformed };
   }
 
   /** Production loop: discovery while idle, rotation while a session is live. */

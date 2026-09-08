@@ -100,9 +100,21 @@ export function sessionFieldsFromRaw(raw: RawRecord, nowMs: number): SessionFiel
   };
 }
 
+export interface UpsertSessionOptions {
+  /**
+   * Forces `status` instead of deriving it from `nowMs` vs. the session's
+   * window (issue #63: the loader upserts a past recording's session as
+   * `finished` regardless of the ±30min live window `computeSessionStatus`
+   * would otherwise apply). One `upsertSession` with a status override,
+   * not a second upsert function.
+   */
+  status?: SessionStatus;
+}
+
 /**
  * Upserts the `sessions` row for a raw OpenF1 `sessions` record. `nowMs`
- * drives the `upcoming` / `live` / `finished` status (issue deliverable 4).
+ * drives the `upcoming` / `live` / `finished` status (issue deliverable 4)
+ * unless `opts.status` overrides it.
  *
  * Validates first (`sessionKeyOf`, `sessionFieldsFromRaw`): a malformed
  * `session_key`, `date_start`, or `date_end` throws a descriptive error
@@ -110,9 +122,15 @@ export function sessionFieldsFromRaw(raw: RawRecord, nowMs: number): SessionFiel
  * corrupt row. The caller (`RestLane.discoverOnce()`) catches this per row
  * so one bad session doesn't stop the others from being upserted.
  */
-export async function upsertSession(db: SessionsDb, raw: RawRecord, nowMs: number): Promise<void> {
+export async function upsertSession(
+  db: SessionsDb,
+  raw: RawRecord,
+  nowMs: number,
+  opts: UpsertSessionOptions = {},
+): Promise<void> {
   const sessionKey = sessionKeyOf(raw);
   const fields = sessionFieldsFromRaw(raw, nowMs);
+  if (opts.status) fields.status = opts.status;
   await db.session.upsert({
     where: { sessionKey },
     create: { sessionKey, ...fields },

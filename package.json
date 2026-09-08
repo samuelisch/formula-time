@@ -15,6 +15,7 @@
     "dev:domain": "tsc -b packages/domain --watch",
     "dev:api": "pnpm --filter @formula-time/api dev",
     "dev:ingest": "pnpm --filter @formula-time/ingest dev",
+    "ingest:load": "pnpm --filter @formula-time/ingest load --",
     "dev:web": "pnpm --filter @formula-time/web dev",
     "sim": "pnpm --filter @formula-time/ingest sim --",
     "db:up": "docker compose up -d postgres",
