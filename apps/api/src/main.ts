@@ -7,7 +7,7 @@ import { createDb } from "@formula-time/db";
 import { Fanout } from "./fanout/fanout.js";
 import { prismaEventSource } from "./projector/event-source.js";
 import { pickSession } from "./projector/session-picker.js";
-import { registerLiveRoute } from "./routes/live.js";
+import { liveRoutes } from "./routes/live.js";
 import { createSessionLifecycle } from "./session-lifecycle.js";
 
 const port = Number(process.env.PORT ?? 3000);
@@ -36,9 +36,13 @@ const lifecycle = createSessionLifecycle({
   log,
 });
 
+// /health stays at the root: it is the platform's probe (Railway
+// healthcheck, .railway/railway.ts), not a client route.
 app.get("/health", async () => lifecycle.health());
 
-registerLiveRoute(app, fanout);
+// Every client-facing route lives under /api (owner decision) -- the
+// public path is /api/live/events.
+await app.register(liveRoutes, { prefix: "/api", fanout });
 
 let sessionWatcher: ReturnType<typeof setInterval> | null = null;
 
@@ -53,7 +57,7 @@ process.on("SIGTERM", () => {
 
 // Listen first: Railway's healthcheck is /health (.railway/railway.ts), and
 // it must succeed on a fresh, session-less database rather than block
-// behind session discovery. /live/events also joins normally with no
+// behind session discovery. /api/live/events also joins normally with no
 // session yet -- the fan-out has no `latest`, so the socket gets the
 // `catching_up` status frame the brief already specifies.
 await app.listen({ port, host: "0.0.0.0" });

@@ -1,6 +1,8 @@
+import Fastify from "fastify";
 import { describe, expect, test, vi } from "vitest";
 
-import { liveEventsHandler } from "./live.js";
+import type { Fanout } from "../fanout/fanout.js";
+import { liveEventsHandler, liveRoutes } from "./live.js";
 
 function fakeRequest(acceptEncoding: string | undefined) {
   const closeHandlers: Array<() => void> = [];
@@ -97,5 +99,20 @@ describe("GET /live/events handler", () => {
     request.raw.emitClose();
 
     expect(fanout.remove).toHaveBeenCalledWith(reply.raw);
+  });
+});
+
+describe("liveRoutes plugin", () => {
+  test("registered with prefix /api: the public path is /api/live/events, not /live/events", async () => {
+    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const app = Fastify();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await app.register(liveRoutes, { prefix: "/api", fanout: fanout as any as Fanout });
+    await app.ready();
+
+    expect(app.hasRoute({ method: "GET", url: "/api/live/events" })).toBe(true);
+    expect(app.hasRoute({ method: "GET", url: "/live/events" })).toBe(false);
+
+    await app.close();
   });
 });

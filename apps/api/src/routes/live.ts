@@ -1,9 +1,16 @@
-// GET /live/events -- the thin SSE route (ADR-0001 §1 "thin router").
+// GET /api/live/events -- the thin SSE route (ADR-0001 §1 "thin router").
 // Hand-written on the raw response: compression middleware would gzip per
 // viewer, which the fan-out's one-serialize-once-per-push design forbids
 // (apps/api/AGENTS.md). This handler never touches the projector: it only
 // ever talks to the Fanout, which already holds the newest frame.
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+//
+// Registered as a plugin under the `/api` prefix (owner decision: every
+// client-facing route lives under `/api`) -- the route itself stays
+// relative (`/live/events`), so the public path becomes
+// `/api/live/events`. `/health` is the platform's probe (Railway
+// healthcheck, `.railway/railway.ts`), not a client route, and stays at
+// the root, registered separately in main.ts.
+import type { FastifyInstance, FastifyPluginCallback, FastifyReply, FastifyRequest } from "fastify";
 
 import type { Encoding, Fanout } from "../fanout/fanout.js";
 
@@ -37,6 +44,12 @@ export function liveEventsHandler(fanout: Fanout) {
   };
 }
 
-export function registerLiveRoute(app: FastifyInstance, fanout: Fanout): void {
-  app.get("/live/events", liveEventsHandler(fanout));
+export interface LiveRoutesOptions {
+  fanout: Fanout;
 }
+
+/** Fastify plugin: registered with `app.register(liveRoutes, { prefix: "/api", fanout })`. */
+export const liveRoutes: FastifyPluginCallback<LiveRoutesOptions> = (app: FastifyInstance, opts, done) => {
+  app.get("/live/events", liveEventsHandler(opts.fanout));
+  done();
+};
