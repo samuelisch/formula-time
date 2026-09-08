@@ -5,7 +5,9 @@
 // events before the raw-file rows, in file order; the session is upserted
 // `finished` regardless of its window; a malformed sibling session doesn't
 // lose the others' rows (round 1 fix); a live session is refused, never
-// written (ADR-0010).
+// written (ADR-0010); the session is upserted `upcoming`, then its events
+// are written, then it is updated to `finished`, in that order, and a
+// writer failure leaves it `upcoming` (issue #71).
 
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,18 +23,32 @@ import type { LoaderDb } from "./load-recording.js";
 function fakeDb(): LoaderDb & {
   sessions: Map<string, { status?: string; [key: string]: unknown }>;
   insertOrder: string[];
+  // Records every `session.upsert` (as `upsert:<status>`) and every
+  // `event.createMany` (as `events:<row count>`) call, in call order — how
+  // the issue #71 tests pin the upcoming -> events -> finished sequence.
+  callLog: string[];
+  // `failEvents` fails every `event.createMany` call; `failSessionKeys`
+  // fails only batches whose rows belong to one of these session keys
+  // (round 1 fix: a cross-session queue-poisoning test needs one session's
+  // writes to fail forever while a sibling session's succeed).
+  flags: { failEvents: boolean; failSessionKeys: Set<string> };
 } {
   const sessions = new Map<string, { status?: string; [key: string]: unknown }>();
   const events = new Map<string, unknown>();
   const insertOrder: string[] = [];
+  const callLog: string[] = [];
+  const flags = { failEvents: false, failSessionKeys: new Set<string>() };
   return {
     sessions,
     insertOrder,
+    callLog,
+    flags,
     session: {
       async upsert(args) {
         const key = args.where.sessionKey.toString();
         const row = sessions.has(key) ? { sessionKey: args.where.sessionKey, ...args.update } : args.create;
         sessions.set(key, row);
+        callLog.push(`upsert:${String(row.status)}`);
         return row;
       },
       async findUnique(args) {
@@ -43,6 +59,11 @@ function fakeDb(): LoaderDb & {
     },
     event: {
       async createMany(args) {
+        const batchKey = args.data[0] ? String(args.data[0].sessionKey) : undefined;
+        if (flags.failEvents || (batchKey !== undefined && flags.failSessionKeys.has(batchKey))) {
+          throw new Error("fake writer failure");
+        }
+        callLog.push(`events:${args.data.length}`);
         let count = 0;
         for (const row of args.data) {
           if (events.has(row.eventId)) continue;
@@ -139,6 +160,76 @@ describe("loadRecordings", () => {
 
     const second = await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
     expect(second).toEqual({ inserted: 0, skipped: 25, sessionsAttempted: 1, sessionsSkipped: 0 });
+  });
+});
+
+// Issue #71: the loader upserted `finished` first (to satisfy the events FK)
+// and streamed events afterwards, so the api's exporter (ADR-0009 §2) could
+// export the session — once, immutably — before any event existed. Fix:
+// upsert `upcoming` first, write and drain every event, then update to
+// `finished`; a failure part-way leaves the row `upcoming`.
+describe("loadRecordings: issue #71 — upcoming, then events, then finished", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "load-recording-status-order-test-"));
+    await mkdir(path.join(dir, "raw"), { recursive: true });
+    await writeFile(
+      path.join(dir, "session.json"),
+      sessionJson({ sessionKey: 9401, dateStart: "2026-01-01T13:00:00+00:00", dateEnd: "2026-01-01T15:00:00+00:00" }),
+    );
+    await writeFile(
+      path.join(dir, "raw", "position.jsonl"),
+      jsonlLine({ session_key: 9401, driver_number: 1, date: "2026-01-01T13:00:01Z", x: 1, y: 1 }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("the fake db sees the upsert with upcoming, then the events, then the update to finished, in that order", async () => {
+    const db = fakeDb();
+    const totals = await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
+
+    expect(totals.sessionsSkipped).toBe(0);
+    const upsertCalls = db.callLog.filter((entry) => entry.startsWith("upsert:"));
+    expect(upsertCalls).toEqual(["upsert:upcoming", "upsert:finished"]);
+
+    const upcomingIndex = db.callLog.indexOf("upsert:upcoming");
+    const finishedIndex = db.callLog.indexOf("upsert:finished");
+    const firstEventsIndex = db.callLog.findIndex((entry) => entry.startsWith("events:"));
+    expect(upcomingIndex).toBeGreaterThanOrEqual(0);
+    expect(firstEventsIndex).toBeGreaterThan(upcomingIndex);
+    expect(finishedIndex).toBeGreaterThan(firstEventsIndex);
+
+    expect(db.sessions.get("9401")?.status).toBe("finished");
+  });
+
+  test("a writer failure leaves the row upcoming and posts no finished update", async () => {
+    const db = fakeDb();
+    db.flags.failEvents = true;
+    const logs: string[] = [];
+    const totals = await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: (line) => logs.push(line) });
+
+    expect(db.sessions.get("9401")?.status).toBe("upcoming");
+    expect(db.callLog).toEqual(["upsert:upcoming"]);
+    expect(totals.sessionsSkipped).toBe(1);
+    expect(logs.some((line) => line.includes("9401") && line.toLowerCase().includes("upcoming"))).toBe(true);
+  });
+
+  test("a rerun against an already-finished session never demotes it to upcoming (round 1 fix, #74)", async () => {
+    const db = fakeDb();
+    await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
+    expect(db.sessions.get("9401")?.status).toBe("finished");
+
+    const callsBeforeRerun = db.callLog.length;
+    const totals = await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
+
+    const callsDuringRerun = db.callLog.slice(callsBeforeRerun);
+    expect(callsDuringRerun).not.toContain("upsert:upcoming");
+    expect(db.sessions.get("9401")?.status).toBe("finished");
+    expect(totals.sessionsSkipped).toBe(0);
   });
 });
 
@@ -242,5 +333,69 @@ describe("loadRecordings: a malformed sibling session doesn't lose the others' r
     expect(logs.some((line) => line.startsWith("load: session skipped 9102:") && line.includes("date_start"))).toBe(
       true,
     );
+  });
+});
+
+// Round 1 (PR #74 review): one shared `queue`/`writer` serves every session
+// in a multi-dir load. When a session's `drainAll()` gives up on a
+// deterministically failing batch, `EventWriter` requeues it at the FRONT
+// of the queue (writer.ts) — so without clearing it, every later session's
+// own `drainAll()` call hits that stuck batch first (or gets merged into
+// the same batch, since drain isn't session-aware) and is wrongly marked
+// skipped for a failure that was never its own.
+describe("loadRecordings: round 1 fix — a stuck session's queue doesn't poison a later session", () => {
+  let rootDir: string;
+
+  beforeEach(async () => {
+    rootDir = await mkdtemp(path.join(tmpdir(), "load-recording-poison-test-"));
+
+    const dirA = path.join(rootDir, "9701");
+    await mkdir(path.join(dirA, "raw"), { recursive: true });
+    await writeFile(
+      path.join(dirA, "session.json"),
+      sessionJson({ sessionKey: 9701, dateStart: "2026-01-01T13:00:00+00:00", dateEnd: "2026-01-01T15:00:00+00:00" }),
+    );
+    await writeFile(
+      path.join(dirA, "raw", "position.jsonl"),
+      jsonlLine({ session_key: 9701, driver_number: 1, date: "2026-01-01T13:00:01Z", x: 1, y: 1 }),
+    );
+
+    const dirB = path.join(rootDir, "9702");
+    await mkdir(path.join(dirB, "raw"), { recursive: true });
+    await writeFile(
+      path.join(dirB, "session.json"),
+      sessionJson({ sessionKey: 9702, dateStart: "2026-01-01T13:00:00+00:00", dateEnd: "2026-01-01T15:00:00+00:00" }),
+    );
+    await writeFile(
+      path.join(dirB, "raw", "position.jsonl"),
+      jsonlLine({ session_key: 9702, driver_number: 1, date: "2026-01-01T13:00:01Z", x: 1, y: 1 }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  test("session A (writer rejects it forever) is skipped for its own reason; session B still commits and finishes", async () => {
+    const db = fakeDb();
+    db.flags.failSessionKeys.add("9701");
+    const logs: string[] = [];
+    const totals = await loadRecordings([rootDir], db, {
+      now: () => Date.parse("2026-06-01T00:00:00Z"),
+      onLog: (line) => logs.push(line),
+    });
+
+    expect(totals.sessionsAttempted).toBe(2);
+    expect(totals.sessionsSkipped).toBe(1);
+    // Only B's 22 entry-list + 1 position rows ever committed — A's batch
+    // never succeeded, so it contributes nothing to the total.
+    expect(totals.inserted).toBe(23);
+    expect(db.insertOrder).toHaveLength(23);
+
+    expect(db.sessions.get("9701")?.status).toBe("upcoming");
+    expect(db.sessions.get("9702")?.status).toBe("finished");
+
+    expect(logs.some((line) => line.includes("9701") && line.toLowerCase().includes("writer failed"))).toBe(true);
+    expect(logs.some((line) => line.startsWith("load: dropped") && line.includes("9701"))).toBe(true);
   });
 });
