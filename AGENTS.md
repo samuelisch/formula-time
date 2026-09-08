@@ -93,3 +93,8 @@ re-review; "none" on a PR that needed a round is a false record.
 Design-bearing tracks (ADR-0001 §4: the Postgres fetcher / projector
 cursor, and vote acknowledgement) are owner-reviewed in person. Whether the
 owner writes them or an agent does is the owner's call per task.
+
+Which model a dispatching session uses for an implementer or reviewer is
+that session's concern, not the repo's; the repo's requirement is only that
+issue bodies carry exact values and quoted facts so any tier can implement
+them.
