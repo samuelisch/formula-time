@@ -1,7 +1,8 @@
 // Wires the pure `PlaybackClock` and `foldAt` to React: a `requestAnimationFrame`
 // loop while playing, and the folded push handed to `BoardSourceProvider`.
-// Not unit-tested on its own (issue #57's test list covers this through
-// `ReplayPage.test.tsx`); the clock math itself is `playbackClock.test.ts`.
+// Unit-tested in `useReplayPlayback.test.tsx` (a stubbed rAF/`performance.now`)
+// and end to end through `ReplayPage.test.tsx`; the clock math itself is
+// `playbackClock.test.ts`.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { numberField, stringField } from "../lib/format.ts";
