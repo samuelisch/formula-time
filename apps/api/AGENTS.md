@@ -2,7 +2,10 @@
 
 `api` is the "app service" of ADR-0001, named by ADR-0003: one process, one
 deploy unit. This file adds local convention on top of the root
-`AGENTS.md`; it restates nothing there.
+`AGENTS.md`; it restates nothing there. Vocabulary used below: *fold*
+(reduce over the event log), *projector*/*authority* (the class / the role
+— exactly one), *push* (one serialized RaceState + tallies sent to every
+socket), *lock* (a poll's pre-resolve state, not "close").
 
 ## What this service owns
 
@@ -48,12 +51,9 @@ gzip per viewer, which the fan-out design forbids.
 - Unit tests: `*.test.ts` next to the source, vitest, in-memory fakes only.
   Integration tests: `*.integration.test.ts`, need Postgres from
   `docker-compose.yml` (`DATABASE_URL`). Playwright is e2e only.
-- `@formula-time/domain` is browser-safe: no `node:*` imports. Types and
-  the reducer live there; identity hashing does not.
+- `@formula-time/domain` is browser-safe: no `node:*` imports (its
+  tsconfig enforces `types: []`, `lib: ["ES2022"]`). Types and the reducer
+  live there; identity hashing does not.
 - Config is read from the platform secret store, never from files in the
   image: `DATABASE_URL`, `OPENF1_LOGIN`, `OPENF1_PASSWORD`, `PORT`,
   `LIVE_SOURCE`.
-- Vocabulary: *fold* (reduce over the event log), *projector*/*authority*
-  (the class / the role — exactly one), *push* (one serialized RaceState +
-  tallies sent to every socket), *lock* (a poll's pre-resolve state, not
-  "close").
