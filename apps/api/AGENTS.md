@@ -20,11 +20,13 @@ One process holding:
   (`polls/poll-read.ts`) reads `polls`/`votes` straight from Postgres for
   any race, live or historical; it never touches the poll module's
   in-memory state.
-- **The fan-out** — one `JSON.stringify` + one gzip per push *per format it
-  has sockets for*: legacy sockets get a full `state` push; a delta socket
-  (`?format=delta`, ADR-0011) gets a `state` push at join, then a
-  hand-written JSON Patch `delta` each tick, keyframed back to `state`
-  every 200th push — identical bytes to every socket of the same format. A
+- **The fan-out** — one `JSON.stringify` + one gzip for the full `state`
+  push, unconditionally, every push (joins of either format and `GET
+  /api/live/snapshot` need it on demand regardless of legacy-socket
+  count); a delta socket (`?format=delta`, ADR-0011) additionally gets a
+  hand-written JSON Patch `delta` each tick — one more serialize+gzip pass,
+  built only while a delta socket is attached — keyframed back to `state`
+  every 200th push. Identical bytes to every socket of the same format. A
   vote never triggers a push.
 - **The SSE route handler** — live: attach the socket to the fan-out.
   Finished: redirect to the export. It never touches state.
