@@ -4,7 +4,7 @@
 // `ReplayPage.test.tsx`); the clock math itself is `playbackClock.test.ts`.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { numberField, text } from "../lib/format.ts";
+import { numberField, stringField } from "../lib/format.ts";
 import type { LivePush } from "../live/types.ts";
 import { foldAt, type FoldedRace, type LapMarker } from "./foldRace.ts";
 import { createPlaybackClock, type PlaybackClock, type PlaybackSpeed } from "./playbackClock.ts";
@@ -30,7 +30,10 @@ function pushFor(folded: FoldedRace, sourceMs: number): LivePush {
     type: "state",
     seq: String(state.sequence),
     sent_at: Date.now(),
-    session_key: text(numberField(folded.session, "session_key")),
+    // `foldRace` normalizes `session_key` to a string (matching the live
+    // projector's `sessionAsRawRecord()`), so this reads it as one rather
+    // than `numberField` -- see foldRace.ts's `normalizedSessionRow`.
+    session_key: stringField(folded.session, "session_key") ?? "",
     total_laps: numberField(folded.session, "total_laps"),
     state,
     polls: [],

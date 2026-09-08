@@ -81,6 +81,22 @@ function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * Normalizes the session row before it becomes `state.session`: the export
+ * file's `session_key` travels as a JSON number (`apps/api/src/export/exporter.ts`
+ * `buildDoc`), but the live projector's `sessionAsRawRecord()` sends it
+ * `.toString()`'d -- "session_key travels as a string, same as everywhere
+ * else this service puts a bigint on the wire" -- so a folded `RaceState`
+ * would otherwise disagree with a live one on this field's type (ADR-0009
+ * §5 "must stay identical to the server's"). Every other field
+ * (`total_laps`, `circuit_key`, ...) is already the same shape both ways.
+ */
+function normalizedSessionRow(session: RawRecord): RawRecord {
+  const sessionKey = session["session_key"];
+  if (typeof sessionKey !== "number") return session;
+  return { ...session, session_key: String(sessionKey) };
+}
+
 /** The first occurrence of each `event_id`, in `seq` order -- see the "Dedup fix" header note. */
 function dedupeEvents(events: RaceEvent[]): RaceEvent[] {
   const seen = new Set<string>();
@@ -114,8 +130,9 @@ export function truncationBoundary(events: RaceEvent[], targetSourceMs: number, 
  * for the transport bar. Pure given its inputs; the only side effect is
  * yielding to the event loop between chunks.
  */
-export async function foldRace(rawEvents: RaceEvent[], session: RawRecord): Promise<FoldedRace> {
+export async function foldRace(rawEvents: RaceEvent[], rawSession: RawRecord): Promise<FoldedRace> {
   const events = dedupeEvents(rawEvents);
+  const session = normalizedSessionRow(rawSession);
   const liveState = createInitialState({ sessions: [session], drivers: [] });
   const reducer = new RaceStateReducer(liveState);
 

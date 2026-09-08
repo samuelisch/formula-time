@@ -90,6 +90,19 @@ describe("foldRace", () => {
     ]);
   });
 
+  it("stringifies session_key to match the live projector's shape (sessionAsRawRecord)", async () => {
+    // The export file's session_key travels as a JSON number (exporter.ts
+    // buildDoc); the live projector sends it .toString()'d. A folded
+    // RaceState must match the live shape (ADR-0009 §5), so both
+    // FoldedRace.session and state.session (the same normalized object)
+    // carry it as a string here, even though SESSION's own session_key is
+    // a plain number, exactly as the real export file's is.
+    const folded = await foldRace(tenEventFixture(), SESSION);
+    expect(typeof SESSION["session_key"]).toBe("number");
+    expect(folded.session["session_key"]).toBe("11361");
+    expect(folded.finalState.session?.["session_key"]).toBe("11361");
+  });
+
   it("reports the first and last source times seen", async () => {
     const folded = await foldRace(tenEventFixture(), SESSION);
     expect(folded.firstSourceMs).toBe(Date.parse(isoAt(0)));
