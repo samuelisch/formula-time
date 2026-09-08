@@ -3,15 +3,18 @@
 // settles server-side, never in the browser. A vote is acknowledged only
 // after its insert commits."
 //
-// This slice carries the poll lifecycle only (open from templates, lock,
-// resolve, void, tallies, publicPolls). `vote()` lands in a follow-up slice
-// (#24) once this is merged; it will call a conditional upsert (vote-path.ts)
-// under the same rule this file already follows: the Postgres write lands
-// first, and only once it resolves does the in-memory status change.
+// Lock / resolve / void all follow the same rule: the Postgres write lands
+// first, and only once it resolves does the in-memory status change. A vote
+// that commits before a lock write is valid and must be in the tally; a
+// vote that races the write and loses gets 0 rows from vote-path's
+// conditional upsert (see vote-path.ts for why that check lives inside the
+// write rather than before it).
 import type { Prisma, PrismaClient } from "@formula-time/db";
 import { isChequered, leaderLap } from "@formula-time/domain";
 import type { RaceState } from "@formula-time/domain";
 import { locksAtLap } from "@formula-time/domain";
+
+import { upsertVote } from "./vote-path.js";
 
 export type PollTemplateKind = "winner" | "podium";
 export type PollLifecycleStatus = "open" | "locked" | "resolved" | "void";
@@ -32,6 +35,10 @@ export interface PollPublic {
   total_votes: number;
   winning_option_ids: string[] | null;
 }
+
+export type VoteResult =
+  | { ok: true; poll: PollPublic; option_id: string }
+  | { ok: false; status: 404 | 400 | 409; error: string };
 
 export interface PollModuleLogger {
   info(msg: string): void;
@@ -168,6 +175,30 @@ export class PollModule {
 
   public publicPolls(): PollPublic[] {
     return Array.from(this.polls.values(), toPublic);
+  }
+
+  public async vote(pollId: string, viewerId: string, optionId: string): Promise<VoteResult> {
+    const poll = this.polls.get(pollId);
+    if (poll === undefined) {
+      return { ok: false, status: 404, error: `unknown poll ${pollId}` };
+    }
+    if (!poll.options.some((option) => option.id === optionId)) {
+      return { ok: false, status: 400, error: `unknown option ${optionId}` };
+    }
+    if (poll.status !== "open") {
+      return { ok: false, status: 409, error: "poll is locked" };
+    }
+
+    // Fast reject above is only a hint; the conditional upsert below is the
+    // truth (see vote-path.ts). Only a row count of 1 changes the tally, and
+    // only after it resolves is the vote acknowledged to the caller.
+    const rowCount = await upsertVote(this.db, pollId, viewerId, optionId);
+    if (rowCount === 0) {
+      return { ok: false, status: 409, error: "poll is locked" };
+    }
+
+    poll.votes.set(viewerId, optionId);
+    return { ok: true, poll: toPublic(poll), option_id: optionId };
   }
 
   private async applyState(state: RaceState): Promise<void> {

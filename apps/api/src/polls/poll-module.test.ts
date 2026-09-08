@@ -12,6 +12,7 @@ function makeFakeDb() {
   const pollRows: Record<string, unknown>[] = [];
   const voteRows: Record<string, unknown>[] = [];
   let failNextUpdateManyCall = false;
+  let executeRawResult = 1;
 
   const db = {
     calls,
@@ -20,6 +21,9 @@ function makeFakeDb() {
     /** The next poll.updateMany call rejects instead of resolving; only that one. */
     failNextUpdateMany() {
       failNextUpdateManyCall = true;
+    },
+    setExecuteRawResult(n: number) {
+      executeRawResult = n;
     },
     poll: {
       findMany: vi.fn(async ({ where }: { where: { sessionKey: bigint } }) => {
@@ -62,6 +66,10 @@ function makeFakeDb() {
         return voteRows.filter((row) => where.pollId.in.includes(row["pollId"] as string));
       }),
     },
+    $executeRaw: vi.fn(async (_strings: TemplateStringsArray, ..._values: unknown[]) => {
+      calls.push("$executeRaw");
+      return executeRawResult;
+    }),
   };
 
   return db;
@@ -437,5 +445,94 @@ describe("PollModule.onSessionFinished — void", () => {
     const lastLockIndex = db.calls.reduce((last, c, i) => (c.includes("open->locked") ? i : last), -1);
     expect(firstVoidIndex).toBeGreaterThan(lastLockIndex);
     expect(module.publicPolls().every((p) => p.status === "void")).toBe(true);
+  });
+});
+
+describe("PollModule.vote — fast rejects", () => {
+  let db: ReturnType<typeof makeFakeDb>;
+  let module: PollModule;
+
+  beforeEach(async () => {
+    db = makeFakeDb();
+    module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, name_acronym: "VER" }) },
+      }),
+    );
+    await module.waitForIdle();
+  });
+
+  it("404s an unknown poll without touching the fake db", async () => {
+    db.calls.length = 0;
+    const result = await module.vote("nope", "viewer-1", "1");
+    expect(result).toEqual({ ok: false, status: 404, error: "unknown poll nope" });
+    expect(db.calls).not.toContain("$executeRaw");
+  });
+
+  it("400s an unknown option without touching the fake db", async () => {
+    db.calls.length = 0;
+    const result = await module.vote(`${SESSION_KEY}:winner`, "viewer-1", "999");
+    expect(result).toEqual({ ok: false, status: 400, error: "unknown option 999" });
+    expect(db.calls).not.toContain("$executeRaw");
+  });
+
+  it("409s when the in-memory status is not open, without touching the fake db", async () => {
+    // Lock the poll via a lap event first.
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, current_lap: 40 }) },
+        driver_order: [1],
+      }),
+    );
+    await module.waitForIdle();
+
+    db.calls.length = 0;
+    const result = await module.vote(`${SESSION_KEY}:winner`, "viewer-1", "1");
+    expect(result).toEqual({ ok: false, status: 409, error: "poll is locked" });
+    expect(db.calls).not.toContain("$executeRaw");
+  });
+});
+
+describe("PollModule.vote — the conditional upsert", () => {
+  let db: ReturnType<typeof makeFakeDb>;
+  let module: PollModule;
+
+  beforeEach(async () => {
+    db = makeFakeDb();
+    module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+    module.onState(
+      raceState({
+        drivers: {
+          "1": driver({ driver_number: 1, name_acronym: "VER" }),
+          "44": driver({ driver_number: 44, name_acronym: "HAM" }),
+        },
+      }),
+    );
+    await module.waitForIdle();
+  });
+
+  it("a row count of 0 returns 409 and leaves the tally unchanged", async () => {
+    db.setExecuteRawResult(0);
+    const result = await module.vote(`${SESSION_KEY}:winner`, "viewer-1", "1");
+    expect(result).toEqual({ ok: false, status: 409, error: "poll is locked" });
+    expect(module.publicPolls().find((p) => p.poll_id === `${SESSION_KEY}:winner`)?.total_votes).toBe(0);
+  });
+
+  it("a row count of 1 updates the tally, and a re-vote moves the count between options", async () => {
+    db.setExecuteRawResult(1);
+    const first = await module.vote(`${SESSION_KEY}:winner`, "viewer-1", "1");
+    expect(first.ok).toBe(true);
+    let winner = module.publicPolls().find((p) => p.poll_id === `${SESSION_KEY}:winner`);
+    expect(winner?.tally).toEqual({ "1": 1 });
+    expect(winner?.total_votes).toBe(1);
+
+    const second = await module.vote(`${SESSION_KEY}:winner`, "viewer-1", "44");
+    expect(second.ok).toBe(true);
+    winner = module.publicPolls().find((p) => p.poll_id === `${SESSION_KEY}:winner`);
+    expect(winner?.tally).toEqual({ "44": 1 });
+    expect(winner?.total_votes).toBe(1);
   });
 });
