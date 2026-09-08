@@ -180,6 +180,16 @@ async function loadOneSession(
   // here.
   const drainResult = await writer.drainAll();
   if (!queue.isEmpty()) {
+    // Round 1 fix (PR #74 review): the queue and writer are shared across
+    // every session in this `loadRecordings()` call, and a batch that gave
+    // up is left sitting at the FRONT of the queue (requeueFront in
+    // writer.ts) — the next session's own `drainAll()` would hit that stuck
+    // batch first (or get merged into the same batch) and be wrongly marked
+    // skipped for a failure that was never its own. Clear it here so the
+    // failure stays attributed to *this* session and the next one starts
+    // from an empty queue.
+    const dropped = queue.clear();
+    log(`load: dropped ${dropped} unwritten rows for ${sessionKey}`);
     log(
       `load: session=${sessionKey} writer failed to write all events; session left upcoming for the next run`,
     );

@@ -54,6 +54,16 @@ describe("EventQueue", () => {
     expect(queue.drain(10)).toEqual(["rest:1", "mqtt:1", "rest:2"]);
   });
 
+  test("clear() empties the queue and returns how many items it dropped (round 1 fix, issue #71)", () => {
+    const queue = new EventQueue<number>();
+    queue.pushAll([1, 2, 3]);
+
+    expect(queue.clear()).toBe(3);
+    expect(queue.isEmpty()).toBe(true);
+    expect(queue.size).toBe(0);
+    expect(queue.clear()).toBe(0); // already empty
+  });
+
   test("requeueFront puts a failed batch back at the head, in its original order", () => {
     const queue = new EventQueue<number>();
     queue.pushAll([3, 4, 5]);

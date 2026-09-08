@@ -27,13 +27,17 @@ function fakeDb(): LoaderDb & {
   // `event.createMany` (as `events:<row count>`) call, in call order — how
   // the issue #71 tests pin the upcoming -> events -> finished sequence.
   callLog: string[];
-  flags: { failEvents: boolean };
+  // `failEvents` fails every `event.createMany` call; `failSessionKeys`
+  // fails only batches whose rows belong to one of these session keys
+  // (round 1 fix: a cross-session queue-poisoning test needs one session's
+  // writes to fail forever while a sibling session's succeed).
+  flags: { failEvents: boolean; failSessionKeys: Set<string> };
 } {
   const sessions = new Map<string, { status?: string; [key: string]: unknown }>();
   const events = new Map<string, unknown>();
   const insertOrder: string[] = [];
   const callLog: string[] = [];
-  const flags = { failEvents: false };
+  const flags = { failEvents: false, failSessionKeys: new Set<string>() };
   return {
     sessions,
     insertOrder,
@@ -55,7 +59,8 @@ function fakeDb(): LoaderDb & {
     },
     event: {
       async createMany(args) {
-        if (flags.failEvents) {
+        const batchKey = args.data[0] ? String(args.data[0].sessionKey) : undefined;
+        if (flags.failEvents || (batchKey !== undefined && flags.failSessionKeys.has(batchKey))) {
           throw new Error("fake writer failure");
         }
         callLog.push(`events:${args.data.length}`);
@@ -314,5 +319,69 @@ describe("loadRecordings: a malformed sibling session doesn't lose the others' r
     expect(logs.some((line) => line.startsWith("load: session skipped 9102:") && line.includes("date_start"))).toBe(
       true,
     );
+  });
+});
+
+// Round 1 (PR #74 review): one shared `queue`/`writer` serves every session
+// in a multi-dir load. When a session's `drainAll()` gives up on a
+// deterministically failing batch, `EventWriter` requeues it at the FRONT
+// of the queue (writer.ts) — so without clearing it, every later session's
+// own `drainAll()` call hits that stuck batch first (or gets merged into
+// the same batch, since drain isn't session-aware) and is wrongly marked
+// skipped for a failure that was never its own.
+describe("loadRecordings: round 1 fix — a stuck session's queue doesn't poison a later session", () => {
+  let rootDir: string;
+
+  beforeEach(async () => {
+    rootDir = await mkdtemp(path.join(tmpdir(), "load-recording-poison-test-"));
+
+    const dirA = path.join(rootDir, "9701");
+    await mkdir(path.join(dirA, "raw"), { recursive: true });
+    await writeFile(
+      path.join(dirA, "session.json"),
+      sessionJson({ sessionKey: 9701, dateStart: "2026-01-01T13:00:00+00:00", dateEnd: "2026-01-01T15:00:00+00:00" }),
+    );
+    await writeFile(
+      path.join(dirA, "raw", "position.jsonl"),
+      jsonlLine({ session_key: 9701, driver_number: 1, date: "2026-01-01T13:00:01Z", x: 1, y: 1 }),
+    );
+
+    const dirB = path.join(rootDir, "9702");
+    await mkdir(path.join(dirB, "raw"), { recursive: true });
+    await writeFile(
+      path.join(dirB, "session.json"),
+      sessionJson({ sessionKey: 9702, dateStart: "2026-01-01T13:00:00+00:00", dateEnd: "2026-01-01T15:00:00+00:00" }),
+    );
+    await writeFile(
+      path.join(dirB, "raw", "position.jsonl"),
+      jsonlLine({ session_key: 9702, driver_number: 1, date: "2026-01-01T13:00:01Z", x: 1, y: 1 }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  test("session A (writer rejects it forever) is skipped for its own reason; session B still commits and finishes", async () => {
+    const db = fakeDb();
+    db.flags.failSessionKeys.add("9701");
+    const logs: string[] = [];
+    const totals = await loadRecordings([rootDir], db, {
+      now: () => Date.parse("2026-06-01T00:00:00Z"),
+      onLog: (line) => logs.push(line),
+    });
+
+    expect(totals.sessionsAttempted).toBe(2);
+    expect(totals.sessionsSkipped).toBe(1);
+    // Only B's 22 entry-list + 1 position rows ever committed — A's batch
+    // never succeeded, so it contributes nothing to the total.
+    expect(totals.inserted).toBe(23);
+    expect(db.insertOrder).toHaveLength(23);
+
+    expect(db.sessions.get("9701")?.status).toBe("upcoming");
+    expect(db.sessions.get("9702")?.status).toBe("finished");
+
+    expect(logs.some((line) => line.includes("9701") && line.toLowerCase().includes("writer failed"))).toBe(true);
+    expect(logs.some((line) => line.startsWith("load: dropped") && line.includes("9701"))).toBe(true);
   });
 });

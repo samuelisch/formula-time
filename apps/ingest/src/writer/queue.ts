@@ -60,6 +60,19 @@ export class EventQueue<T> {
     return this.items.length === 0;
   }
 
+  /**
+   * Drops every item currently queued, returning how many. Round 1 fix
+   * (PR #74, issue #71): after a caller decides a stuck batch (still at the
+   * front from `requeueFront`) is never going to write — `EventWriter`'s
+   * `drainAll()` gave up on it — the queue must not carry that batch into
+   * whatever the caller does next, or it poisons the next thing drained.
+   */
+  public clear(): number {
+    const count = this.items.length;
+    this.items.length = 0;
+    return count;
+  }
+
   /** Rows dropped (cap hit) since the last call. Reading resets the count to 0. */
   public takeDropped(): number {
     const count = this.droppedSinceLastTake;
