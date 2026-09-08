@@ -69,6 +69,17 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
     opts.log(`poll hook ${hook} failed`, { error: err instanceof Error ? err.message : String(err) });
   }
 
+  /** Void the current session's polls, once per session. Safe to call again. */
+  async function notifyFinished(): Promise<void> {
+    if (finishedNotified) return;
+    finishedNotified = true;
+    try {
+      await opts.polls.onSessionFinished();
+    } catch (err) {
+      logPollHookFailure("onSessionFinished", err);
+    }
+  }
+
   function wireProjector(p: RaceStateProjector, forSession: Session): void {
     p.subscribe((state, cursor) => {
       // The poll module folds from the same authority state before the one
@@ -104,27 +115,17 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
 
       if (candidate.sessionKey === session?.sessionKey) {
         session = candidate;
-        if (candidate.status === "finished" && !finishedNotified) {
-          finishedNotified = true;
-          try {
-            await opts.polls.onSessionFinished();
-          } catch (err) {
-            logPollHookFailure("onSessionFinished", err);
-          }
+        if (candidate.status === "finished") {
+          await notifyFinished();
         }
         return;
       }
 
-      const previousSession = session;
+      // Retire the outgoing session's polls before the new one loads.
       projector?.stop();
       projector = null;
-
-      if (previousSession !== null) {
-        try {
-          await opts.polls.onSessionFinished();
-        } catch (err) {
-          logPollHookFailure("onSessionFinished", err);
-        }
+      if (session !== null) {
+        await notifyFinished();
       }
 
       try {
@@ -138,7 +139,14 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
       }
 
       session = candidate;
-      finishedNotified = candidate.status === "finished";
+      finishedNotified = false;
+      // A session that is already finished when first seen (restart after
+      // the race, or pickSession's most-recent fallback) still had its
+      // open/locked polls reloaded by start(); void them now, before the
+      // projector's first push, or they stay votable forever.
+      if (candidate.status === "finished") {
+        await notifyFinished();
+      }
       projector = new RaceStateProjector({ source: opts.source, session: candidate, log: opts.log });
       wireProjector(projector, candidate);
     },

@@ -302,6 +302,64 @@ describe("createSessionLifecycle", () => {
       expect(polls.onSessionFinished).toHaveBeenCalledTimes(1);
     });
 
+    test("a session already finished on first discovery: start() then onSessionFinished(), once", async () => {
+      vi.useFakeTimers();
+      const calls: string[] = [];
+      const polls = fakePollHooks(calls);
+      const pusher: Pusher = {
+        push: vi.fn(async () => {
+          calls.push("push");
+        }),
+        size: () => 0,
+      };
+      const finished = session({ status: "finished" });
+
+      const lifecycle = createSessionLifecycle({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        db: {} as any,
+        source: new FakeSource([driverRow(1, 1)]),
+        pusher,
+        pickSession: vi.fn(async () => finished),
+        polls,
+        log: noopLog,
+      });
+      projectors.push({ stop: () => lifecycle.stop() });
+
+      await lifecycle.check(); // first ever discovery, already finished
+      await vi.advanceTimersByTimeAsync(0); // first tick
+      await lifecycle.check(); // same key, still finished: no second void
+
+      expect(calls.slice(0, 2)).toEqual(["start", "onSessionFinished"]);
+      expect(calls.indexOf("onSessionFinished")).toBeLessThan(calls.indexOf("push"));
+      expect(polls.onSessionFinished).toHaveBeenCalledTimes(1);
+    });
+
+    test("a key change onto an already-finished session voids the new session's polls too", async () => {
+      vi.useFakeTimers();
+      const calls: string[] = [];
+      const polls = fakePollHooks(calls);
+      const live = session({ sessionKey: 1n, status: "live" });
+      const finished = session({ sessionKey: 2n, status: "finished" });
+      const pickSession = vi.fn(async () => live);
+
+      const lifecycle = createSessionLifecycle({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        db: {} as any,
+        source: new FakeSource([]),
+        pusher: fakePusher(),
+        pickSession,
+        polls,
+        log: noopLog,
+      });
+      projectors.push({ stop: () => lifecycle.stop() });
+
+      await lifecycle.check();
+      pickSession.mockImplementation(async () => finished);
+      await lifecycle.check();
+
+      expect(calls).toEqual(["start", "onSessionFinished", "start", "onSessionFinished"]);
+    });
+
     test("a session-key change retires the old session then starts the new one", async () => {
       vi.useFakeTimers();
       const calls: string[] = [];
