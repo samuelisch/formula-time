@@ -42,6 +42,7 @@ export function makeState(overrides: Partial<RaceState> = {}): RaceState {
     position: 1,
     current_lap: 12,
     tyre: { stint_number: 2, compound: "MEDIUM", lap_start: 8, lap_end: null, age_at_start: 0, age: 4 },
+    pit_stops: [{ lap_number: 7, pit_duration: 2.4 }],
     latest_pit_stop: { lap_number: 7, pit_duration: 2.4 },
   });
   const hamilton = makeDriver({
