@@ -67,7 +67,7 @@ Load only what the task needs. Nothing below is loaded by default.
 | Working inside one app | That app's own `AGENTS.md` (`apps/<name>/AGENTS.md`, created with the scaffold). It overrides nothing here; it adds the local conventions. |
 | Ingest, fetcher, projector, votes, SSE | `docs/decisions-adr/0001` §2 and §4 verbatim, `docs/HLD.md` §4–§7, then the POC's `CLAUDE.md` for OpenF1 facts. |
 | Frontend | `docs/HLD.md` §7 (alignment, rewind tiers, browser fold), ADR-0002 (Vite + React, shared reducer). The `frontend-design` plugin for any visual decision. |
-| Reviewing a PR | `/review-pr <n>` (`.claude/skills/review-pr`): runs `/code-review` for correctness, the `seam-reviewer` agent (`.claude/agents/`) for the invariants, seam contracts, and accepted-ADR consistency, and `/security-review` for anything under `apps/`, `db/`, or `.github/`, then classifies findings and posts the verdict. |
+| Reviewing a PR | `/review-pr <n> [--seam] [--security]` (`.claude/skills/review-pr`): one Sonnet correctness pass against the issue; the `seam-reviewer` agent (`.claude/agents/`) for the invariants, seam contracts, and accepted-ADR consistency when `apps/`, `packages/`, `db/`, or ADRs change; `/security-review` when `apps/`, `db/`, or `.github/` change; then classifies findings and posts the verdict. In CI the flags come from the changed paths. |
 | Debugging | `superpowers:systematic-debugging` before proposing a fix. |
 | Recording a decision | New numbered file in `docs/decisions-adr/`; the ADR-guard hook refuses edits to accepted ones. |
 | Running the stack, rehearsing a race | Project skills under `.claude/skills/` once the scaffold exists; until then the POC's `CLAUDE.md` commands. |
@@ -84,11 +84,13 @@ state are quoted in the body; a paraphrase of a quoted fact is a review
 finding, not a style choice.
 
 Per-task loop: claim (`in-progress`) → worktree branch → tests pass →
-`gh pr create` with "Closes #N" → the review bot (`claude[bot]`, running
-`/review-pr` from the Claude Code Review workflow) posts findings and a
-verdict: approve on a clean pass, changes requested, or owner decision
-needed → **the owner merges; merging is never automated** →
-label `done` → next `ready`. A local `/review-pr` prints the verdict and
+`gh pr create --draft` with "Closes #N", label `in-review` → when the
+branch is done and CI is green, `gh pr ready` → the review bot
+(`claude[bot]`, `/review-pr` from the Claude Code Review workflow) runs
+once and posts a verdict: approve on a clean pass, changes requested, or
+owner decision needed → after a fix round, remove and re-add `in-review`
+for a re-review; a push never triggers one → **the owner merges; merging
+is never automated** → label `done` → next `ready`. A local `/review-pr` prints the verdict and
 posts nothing, so approvals only ever come from the bot or the owner.
 After a fix round, the implementer updates the PR's Friction line before
 re-review; "none" on a PR that needed a round is a false record.
