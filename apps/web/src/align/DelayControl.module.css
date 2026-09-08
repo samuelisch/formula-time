@@ -1,0 +1,72 @@
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  min-width: 4.5ch;
+}
+
+.row button,
+.jump button {
+  background: var(--color-raised);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.row button:hover,
+.jump button:hover {
+  border-color: var(--color-muted);
+}
+
+.live {
+  color: var(--color-green);
+  border-color: var(--color-green) !important;
+}
+
+.slider {
+  width: 100%;
+}
+
+.meta {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+.warning {
+  color: var(--color-accent);
+  font-size: 0.8rem;
+}
+
+.jump {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.jump input {
+  width: 4.5rem;
+  background: var(--color-raised);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 0.35rem;
+  padding: 0.3rem 0.5rem;
+}

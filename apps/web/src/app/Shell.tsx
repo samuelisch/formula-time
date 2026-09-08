@@ -2,6 +2,7 @@ import type { RawRecord } from "@formula-time/domain";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router";
 
+import { DelayControl } from "../align/DelayControl.tsx";
 import { Pill, type PillTone } from "../components/Pill.tsx";
 import { useCatchingUp, useConnection, useLastMessageAt, useSessionMeta } from "../live/selectors.ts";
 import { useLiveStream } from "../live/useLiveStream.ts";
@@ -82,6 +83,10 @@ export function Shell() {
         </nav>
         <Pill tone={pill.tone}>{pill.text}</Pill>
       </header>
+      {/* #48 (the board issue) adds a `toolbar` slot to BoardPage; once it
+          merges, DelayControl moves there instead of sitting under the
+          header for every page. */}
+      <DelayControl />
       <main className={styles.main}>
         <Outlet />
       </main>

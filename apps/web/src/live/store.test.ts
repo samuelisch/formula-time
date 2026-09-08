@@ -1,8 +1,14 @@
+import type { DriverState } from "@formula-time/domain";
 import { describe, expect, it } from "vitest";
 import { createLiveStore } from "./store.ts";
 import type { LivePush } from "./types.ts";
 
-function racePush(overrides: { sourceTime: string | null; sentAt: number; seq?: string }): LivePush {
+function racePush(overrides: {
+  sourceTime: string | null;
+  sentAt: number;
+  seq?: string;
+  drivers?: Record<string, DriverState>;
+}): LivePush {
   return {
     type: "state",
     seq: overrides.seq ?? String(overrides.sentAt),
@@ -13,7 +19,7 @@ function racePush(overrides: { sourceTime: string | null; sentAt: number; seq?: 
       sequence: 1,
       latest_source_time: overrides.sourceTime,
       session: null,
-      drivers: {},
+      drivers: overrides.drivers ?? {},
       driver_order: [],
       race_control: {
         session_status: null,
@@ -128,5 +134,71 @@ describe("live store", () => {
     const store = createLiveStore();
     store.getState().setDelayMs(-500, 0);
     expect(store.getState().delayMs).toBe(0);
+  });
+
+  it("starts with empty anchors and folds each push's drivers/race-control into them", () => {
+    const store = createLiveStore();
+    expect(store.getState().anchors).toEqual({ lights_out: null, laps: [], restarts: [] });
+
+    const lap1Driver: DriverState = {
+      driver_number: 44,
+      full_name: null,
+      name_acronym: null,
+      team_name: null,
+      team_colour: null,
+      position: null,
+      interval: null,
+      gap_to_leader: null,
+      current_lap: 1,
+      lap_duration: null,
+      sector_durations: { sector_1: null, sector_2: null, sector_3: null },
+      is_pit_out_lap: null,
+      tyre: { stint_number: null, compound: null, lap_start: null, lap_end: null, age_at_start: null, age: null },
+      pit_stops: [],
+      latest_pit_stop: null,
+      source_timestamps: { lap: "2026-09-08T12:00:00.000Z" },
+    };
+    const push = racePush({ sourceTime: "2026-09-08T12:00:00.000Z", sentAt: 0, drivers: { "44": lap1Driver } });
+    store.getState().onState(JSON.stringify(push), push, 0);
+
+    expect(store.getState().anchors).toEqual({
+      lights_out: "2026-09-08T12:00:00.000Z",
+      laps: [{ lap: 1, source_time: "2026-09-08T12:00:00.000Z" }],
+      restarts: [],
+    });
+  });
+
+  it("keeps each store instance's anchors independent", () => {
+    const storeA = createLiveStore();
+    const storeB = createLiveStore();
+    const push = racePush({
+      sourceTime: "2026-09-08T12:00:00.000Z",
+      sentAt: 0,
+      drivers: {
+        "1": {
+          driver_number: 1,
+          full_name: null,
+          name_acronym: null,
+          team_name: null,
+          team_colour: null,
+          position: null,
+          interval: null,
+          gap_to_leader: null,
+          current_lap: 1,
+          lap_duration: null,
+          sector_durations: { sector_1: null, sector_2: null, sector_3: null },
+          is_pit_out_lap: null,
+          tyre: { stint_number: null, compound: null, lap_start: null, lap_end: null, age_at_start: null, age: null },
+          pit_stops: [],
+          latest_pit_stop: null,
+          source_timestamps: { lap: "2026-09-08T12:00:00.000Z" },
+        },
+      },
+    });
+
+    storeA.getState().onState(JSON.stringify(push), push, 0);
+
+    expect(storeA.getState().anchors.laps).toHaveLength(1);
+    expect(storeB.getState().anchors).toEqual({ lights_out: null, laps: [], restarts: [] });
   });
 });

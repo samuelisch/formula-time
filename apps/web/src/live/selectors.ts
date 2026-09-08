@@ -4,6 +4,7 @@ import { leaderLap } from "@formula-time/domain";
 import type { RawRecord } from "@formula-time/domain";
 import { useMemo } from "react";
 
+import type { Anchors } from "./anchors.ts";
 import { span } from "./buffer.ts";
 import { useLiveStore } from "./store.ts";
 import type { Connection, LivePush } from "./types.ts";
@@ -67,4 +68,9 @@ export function useLeaderLap(): number {
 /** Wall-clock time of the last received push, or null before the first one. Drives the shell's quiet-feed pill. */
 export function useLastMessageAt(): number | null {
   return useLiveStore((state) => state.lastMessageAt);
+}
+
+/** Jump targets folded from pushes seen since this tab connected (lights-out, lap starts, restarts). */
+export function useAnchors(): Anchors {
+  return useLiveStore((state) => state.anchors);
 }
