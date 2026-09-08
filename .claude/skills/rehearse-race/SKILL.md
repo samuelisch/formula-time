@@ -40,6 +40,11 @@ the green light:
 pnpm sim --recording live-logs/11361 --speed 20 --start race
 ```
 
+`pnpm sim` and `pnpm dev:ingest` both run with `apps/ingest` as their
+working directory (same as `LIVE_SOURCE`/`LIVE_LOG_DIR` today), so
+`--recording`, `--out-root`, and `LIVE_SOURCE` below are all relative to
+`apps/ingest` — put a recording at `apps/ingest/live-logs/11361`.
+
 Terminal 2 — ingest, pointed at the simulator's output directory instead of
 OpenF1:
 
