@@ -21,6 +21,9 @@ else.
 - Always on: discovers sessions itself, captures during a session window.
   The jsonl recording is still written — it is the irreplaceable artefact,
   not a stopgap.
+- The drip simulator (`src/sim/`, `pnpm sim`) and the `rehearse-race` skill
+  that runs the whole local stack against it: replays a recording through
+  the unmodified REST lane via `LIVE_SOURCE`, no network involved.
 
 ## OpenF1 facts that shape this code
 
