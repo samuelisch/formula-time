@@ -70,28 +70,70 @@ describe("Shell", () => {
     expect(screen.getByText("Waiting for a session")).toBeInTheDocument();
   });
 
-  it("shows Live · connected once open with no catch-up and a recent message", () => {
-    resetStore({ connection: "open", lastMessageAt: Date.now() });
+  it("shows Live · connected once open with no catch-up, a recent message, and a live session", () => {
+    resetStore({ connection: "open", lastMessageAt: Date.now(), displayed: displayedWithSession({ status: "live" }) });
     renderShell();
     expect(screen.getByText("Live · connected")).toBeInTheDocument();
   });
 
-  it("shows Live · catching up while the fanout is replaying", () => {
-    resetStore({ connection: "open", catchingUp: true, lastMessageAt: Date.now() });
+  it("shows Live · catching up while the fanout is replaying a live session", () => {
+    resetStore({
+      connection: "open",
+      catchingUp: true,
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ status: "live" }),
+    });
     renderShell();
     expect(screen.getByText("Live · catching up")).toBeInTheDocument();
   });
 
-  it("shows Live · reconnecting… when the connection drops", () => {
-    resetStore({ connection: "reconnecting" });
+  it("shows Live · reconnecting… when the connection drops mid live session", () => {
+    resetStore({ connection: "reconnecting", displayed: displayedWithSession({ status: "live" }) });
     renderShell();
     expect(screen.getByText("Live · reconnecting…")).toBeInTheDocument();
   });
 
-  it("shows a quiet-feed pill once the feed has been silent for 5s or more", () => {
-    resetStore({ connection: "open", lastMessageAt: Date.now() - 6_000 });
+  it("shows a quiet-feed pill once a live feed has been silent for 5s or more", () => {
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now() - 6_000,
+      displayed: displayedWithSession({ status: "live" }),
+    });
     renderShell();
     expect(screen.getByText(/Live · last update \d+s ago/)).toBeInTheDocument();
+  });
+
+  it('drops the "Live" word to "Connected" once open with no live session', () => {
+    resetStore({ connection: "open", lastMessageAt: Date.now() });
+    renderShell();
+    expect(screen.getByText("Connected")).toBeInTheDocument();
+  });
+
+  it("shows Connected · catching up when the fanout replays a non-live session", () => {
+    resetStore({
+      connection: "open",
+      catchingUp: true,
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ status: "finished" }),
+    });
+    renderShell();
+    expect(screen.getByText("Connected · catching up")).toBeInTheDocument();
+  });
+
+  it("shows Connected · reconnecting… when the connection drops with no live session", () => {
+    resetStore({ connection: "reconnecting", displayed: displayedWithSession({ status: "upcoming" }) });
+    renderShell();
+    expect(screen.getByText("Connected · reconnecting…")).toBeInTheDocument();
+  });
+
+  it("shows Connected · last update Ns ago once a non-live feed has been silent for 5s or more", () => {
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now() - 6_000,
+      displayed: displayedWithSession({ status: "finished" }),
+    });
+    renderShell();
+    expect(screen.getByText(/Connected · last update \d+s ago/)).toBeInTheDocument();
   });
 
   it("renders the session line from the projector's real fields (country, name)", () => {
@@ -101,17 +143,37 @@ describe("Shell", () => {
     resetStore({
       connection: "open",
       lastMessageAt: Date.now(),
-      displayed: displayedWithSession({ name: "Race", country: "Italy", circuit_key: 39 }),
+      displayed: displayedWithSession({ status: "live", name: "Race", country: "Italy", circuit_key: 39 }),
     });
     renderShell();
     expect(screen.getByText("Italy · Race")).toBeInTheDocument();
+  });
+
+  it("suffixes the session line with · finished when the session has finished", () => {
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ status: "finished", name: "Race", country: "Italy" }),
+    });
+    renderShell();
+    expect(screen.getByText("Italy · Race · finished")).toBeInTheDocument();
+  });
+
+  it("suffixes the session line with · upcoming when the session has not started", () => {
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ status: "upcoming", name: "Race", country: "Italy" }),
+    });
+    renderShell();
+    expect(screen.getByText("Italy · Race · upcoming")).toBeInTheDocument();
   });
 
   it("shows waiting-for-a-session when the session record is missing a field", () => {
     resetStore({
       connection: "open",
       lastMessageAt: Date.now(),
-      displayed: displayedWithSession({ country: "Italy" }),
+      displayed: displayedWithSession({ status: "live", country: "Italy" }),
     });
     renderShell();
     expect(screen.getByText("Waiting for a session")).toBeInTheDocument();

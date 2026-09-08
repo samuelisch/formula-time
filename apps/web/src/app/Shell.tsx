@@ -5,7 +5,14 @@ import { NavLink, Outlet } from "react-router";
 import { AlignPanel } from "../align/AlignPanel.tsx";
 import { DelayControl } from "../align/DelayControl.tsx";
 import { Pill, type PillTone } from "../components/Pill.tsx";
-import { useCatchingUp, useConnection, useLastMessageAt, useSessionMeta } from "../live/selectors.ts";
+import {
+  useCatchingUp,
+  useConnection,
+  useLastMessageAt,
+  useSessionMeta,
+  useSessionStatus,
+  type SessionStatusValue,
+} from "../live/selectors.ts";
 import { useLiveStream } from "../live/useLiveStream.ts";
 import { stringField } from "../lib/format.ts";
 import styles from "./Shell.module.css";
@@ -20,12 +27,15 @@ const QUIET_AFTER_MS = 5_000;
 // `country_name`) and `name` (the session name, e.g. "Race"; there is no
 // persisted circuit display name at all). Render from the real fields
 // (owner-vetoable, flagged in the PR).
-function sessionLine(session: RawRecord | null): string {
+function sessionLine(session: RawRecord | null, status: SessionStatusValue | null): string {
   if (session === null) return "Waiting for a session";
   const country = stringField(session, "country");
   const name = stringField(session, "name");
   if (country === null || name === null) return "Waiting for a session";
-  return `${country} · ${name}`;
+  const base = `${country} · ${name}`;
+  if (status === "finished") return `${base} · finished`;
+  if (status === "upcoming") return `${base} · upcoming`;
+  return base;
 }
 
 function pillState(
@@ -33,20 +43,25 @@ function pillState(
   catchingUp: boolean,
   lastMessageAt: number | null,
   now: number,
+  status: SessionStatusValue | null,
 ): { text: string; tone: PillTone } {
   if (connection === "connecting") return { text: "connecting…", tone: "neutral" };
-  if (connection === "reconnecting") return { text: "Live · reconnecting…", tone: "warn" };
 
-  if (catchingUp) return { text: "Live · catching up", tone: "live" };
+  const live = status === "live";
+  const prefix = live ? "Live" : "Connected";
+
+  if (connection === "reconnecting") return { text: `${prefix} · reconnecting…`, tone: "warn" };
+
+  if (catchingUp) return { text: `${prefix} · catching up`, tone: live ? "live" : "neutral" };
 
   if (lastMessageAt !== null) {
     const quietSeconds = Math.floor((now - lastMessageAt) / 1000);
     if (now - lastMessageAt >= QUIET_AFTER_MS) {
-      return { text: `Live · last update ${quietSeconds}s ago`, tone: "live" };
+      return { text: `${prefix} · last update ${quietSeconds}s ago`, tone: live ? "live" : "neutral" };
     }
   }
 
-  return { text: "Live · connected", tone: "live" };
+  return { text: live ? "Live · connected" : "Connected", tone: live ? "live" : "neutral" };
 }
 
 export function Shell() {
@@ -56,6 +71,7 @@ export function Shell() {
   const catchingUp = useCatchingUp();
   const lastMessageAt = useLastMessageAt();
   const { session } = useSessionMeta();
+  const status = useSessionStatus();
 
   // Ticks once a second so the "last update Ns ago" pill keeps advancing
   // even when no new push arrives.
@@ -65,13 +81,13 @@ export function Shell() {
     return () => clearInterval(interval);
   }, []);
 
-  const pill = pillState(connection, catchingUp, lastMessageAt, now);
+  const pill = pillState(connection, catchingUp, lastMessageAt, now, status);
 
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
         <h1 className={styles.title}>FormulaTime</h1>
-        <span className={styles.session}>{sessionLine(session)}</span>
+        <span className={styles.session}>{sessionLine(session, status)}</span>
         <nav className={styles.nav}>
           <NavLink to="/" end>
             Races
