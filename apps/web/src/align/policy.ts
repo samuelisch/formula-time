@@ -44,7 +44,7 @@ export function createLightsGate(): LightsGate {
       firedThisArming = true;
     },
     isRestart() {
-      return abortBaselineLap !== null && abortBaselineLap >= 1;
+      return abortBaselineLap !== null;
     },
   };
 }

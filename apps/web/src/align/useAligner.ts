@@ -156,6 +156,11 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   const everReadRef = useRef(false);
   const noReadNudgeShownRef = useRef(false);
   const stoppedRef = useRef(true);
+  // Bumped on every start()/stop(): start()'s async setup chain checks this
+  // after each await and abandons itself (releasing whatever it already
+  // acquired) the moment it no longer matches -- a Stop mid-setup, or a
+  // Stop-then-Start that starts a second chain before the first settles.
+  const startGenRef = useRef(0);
 
   const pipelineBiasMsRef = useRef(resolvePipelineBiasMs(window.location.search));
 
@@ -424,10 +429,22 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     video.srcObject = null;
+    const worker = workerRef.current;
+    workerRef.current = null;
+    if (worker) {
+      void (async () => {
+        try {
+          await worker.terminate();
+        } catch {
+          /* the worker/tab is already gone; nothing to clean up further */
+        }
+      })();
+    }
     setPhase("idle");
   }, [stopAutoDetect, video]);
 
   const stop = useCallback(() => {
+    startGenRef.current += 1; // orphans any in-flight start() chain -- see its per-await checks below
     releaseResources();
     setVisible(false);
     setStatus(IDLE_STATUS);
@@ -436,6 +453,7 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   const start = useCallback(() => {
     if (phase !== "idle") return; // in-flight guard against a double click during setup
     stoppedRef.current = false;
+    const gen = ++startGenRef.current;
     // Show the panel and busy state IMMEDIATELY, before the async setup, so
     // the click always has visible feedback and a failure is never written
     // into a hidden panel.
@@ -445,15 +463,46 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
     void (async () => {
       try {
         const tesseract = await loadTesseractImpl();
+        // Re-checked after every await below: a Stop mid-setup (stoppedRef)
+        // or a Stop-then-Start that let a second chain start (gen mismatch)
+        // must not let this chain go on to show "running" with capture/OCR
+        // the user already asked to stop, or clobber the newer chain's
+        // stream/worker. Each branch releases only what THIS chain itself
+        // acquired by that point -- the shared refs are never touched by a
+        // chain once it no longer owns them.
+        if (gen !== startGenRef.current || stoppedRef.current) return;
         setStatus("Pick the window playing the broadcast");
+
         const stream = await captureDisplayMediaImpl();
+        if (gen !== startGenRef.current || stoppedRef.current) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
         streamRef.current = stream;
         stream.getVideoTracks()[0]?.addEventListener("ended", stop); // browser's own "stop sharing"
         video.srcObject = stream;
+
         await video.play();
-        if (!workerRef.current) {
-          workerRef.current = await createOcrWorkerImpl(tesseract);
+        if (gen !== startGenRef.current || stoppedRef.current) {
+          streamRef.current?.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+          video.srcObject = null;
+          return;
         }
+
+        let worker = workerRef.current;
+        if (!worker) {
+          worker = await createOcrWorkerImpl(tesseract);
+          if (gen !== startGenRef.current || stoppedRef.current) {
+            void worker.terminate().catch(() => {});
+            streamRef.current?.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+            video.srcObject = null;
+            return;
+          }
+          workerRef.current = worker;
+        }
+
         setPhase("running");
         previewTimerRef.current = setInterval(drawPreview, PREVIEW_MS);
         beginSampling(); // the lights watch is live from this moment, box or not
@@ -466,10 +515,15 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
           startAutoDetect();
         }
       } catch (error) {
-        releaseResources();
-        // panel stays visible so the failure is seen (unlike the Stop
-        // button, this does not reset status to the idle message).
-        setStatus(formatStartFailure(error));
+        // A stale chain's own error (e.g. its getDisplayMedia rejects after
+        // it's already been superseded) must not stomp the current chain's
+        // state -- only the chain that still owns `gen` reports failure.
+        if (gen === startGenRef.current) {
+          releaseResources();
+          // panel stays visible so the failure is seen (unlike the Stop
+          // button, this does not reset status to the idle message).
+          setStatus(formatStartFailure(error));
+        }
       }
     })();
   }, [

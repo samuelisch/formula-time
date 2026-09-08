@@ -56,6 +56,22 @@ describe("createLightsGate", () => {
     gate.shouldWatch(5, "SESSION ABORTED");
     expect(gate.isRestart()).toBe(true);
   });
+
+  it("arms and reports isRestart on an abort seen at leaderLap 0 -- an aborted start before lap 1 completes", () => {
+    const gate = createLightsGate();
+    expect(gate.shouldWatch(0, "SESSION ABORTED")).toBe(true); // armed at the abort lap
+    expect(gate.isRestart()).toBe(true);
+
+    // The following lights-out fire is labelled a restart, and selects the
+    // latest restart anchor rather than the stale lights_out anchor.
+    expect(lightsLabel(gate.isRestart())).toBe("Restart lights out");
+    const anchors: Anchors = {
+      lights_out: "2026-01-01T00:00:00.000Z",
+      laps: [],
+      restarts: ["2026-01-01T00:10:00.000Z", "2026-01-01T00:20:00.000Z"],
+    };
+    expect(chooseTarget(anchors, "lights", 0, gate.isRestart())).toBe(anchors.restarts.at(-1));
+  });
 });
 
 // --- Lap verdict -> action ---------------------------------------------------
