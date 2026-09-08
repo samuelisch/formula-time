@@ -11,11 +11,16 @@ function makeFakeDb() {
   const calls: string[] = [];
   const pollRows: Record<string, unknown>[] = [];
   const voteRows: Record<string, unknown>[] = [];
+  let failNextUpdateManyCall = false;
 
   const db = {
     calls,
     pollRows,
     voteRows,
+    /** The next poll.updateMany call rejects instead of resolving; only that one. */
+    failNextUpdateMany() {
+      failNextUpdateManyCall = true;
+    },
     poll: {
       findMany: vi.fn(async ({ where }: { where: { sessionKey: bigint } }) => {
         calls.push("poll.findMany");
@@ -38,6 +43,11 @@ function makeFakeDb() {
           where: { pollId: string; status: string };
           data: Record<string, unknown>;
         }) => {
+          if (failNextUpdateManyCall) {
+            failNextUpdateManyCall = false;
+            calls.push(`poll.updateMany:${where.pollId}:${where.status}->FAILED`);
+            throw new Error("simulated db failure");
+          }
           calls.push(`poll.updateMany:${where.pollId}:${where.status}->${String(data["status"])}`);
           const row = pollRows.find((r) => r["pollId"] === where.pollId && r["status"] === where.status);
           if (row === undefined) return { count: 0 };
@@ -187,6 +197,44 @@ describe("PollModule.onState — locking", () => {
     // the DB write is recorded before we can observe the in-memory flip —
     // by construction (await before assignment) the call log entry always
     // precedes the status read above.
+  });
+
+  it("a rejected write does not poison the chain: the next onState still locks", async () => {
+    const db = makeFakeDb();
+    const log = fakeLog();
+    const module = new PollModule({ db: db as unknown as PrismaClient, log });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Dutch" }); // locks_at_lap = 5
+
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, position: 1, current_lap: 1 }) },
+        driver_order: [1],
+      }),
+    );
+    await module.waitForIdle();
+    expect(module.publicPolls().every((p) => p.status === "open")).toBe(true);
+
+    // The lock write on this tick rejects; the chain must still resolve.
+    db.failNextUpdateMany();
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, position: 1, current_lap: 5 }) },
+        driver_order: [1],
+      }),
+    );
+    await expect(module.waitForIdle()).resolves.toBeUndefined();
+    // The failed write never landed, so the poll is still open.
+    expect(module.publicPolls().every((p) => p.status === "open")).toBe(true);
+
+    // The next onState is unaffected — the chain kept running.
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, position: 1, current_lap: 5 }) },
+        driver_order: [1],
+      }),
+    );
+    await module.waitForIdle();
+    expect(module.publicPolls().every((p) => p.status === "locked")).toBe(true);
   });
 });
 

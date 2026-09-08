@@ -125,12 +125,20 @@ export class PollModule {
 
   /** Called from the projector's single authority subscription. Must not await: schedules its own writes. */
   public onState(state: RaceState): void {
-    this.writeChain = this.writeChain.then(() => this.applyState(state));
+    this.writeChain = this.writeChain.then(() => this.applyState(state)).catch((err) => this.logWriteFailure(err));
   }
 
   /** Test-only: resolves once every write scheduled by onState() so far has landed. */
   public async waitForIdle(): Promise<void> {
     await this.writeChain;
+  }
+
+  private logWriteFailure(err: unknown): void {
+    // The chain must always resolve: an unhandled rejection here would
+    // poison it forever, and each write is already retryable on the next
+    // tick since every updateMany in this file is conditional on the
+    // poll's current status rather than assuming success.
+    this.log.info(`poll write failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   public async onSessionFinished(): Promise<void> {
