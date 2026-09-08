@@ -5,9 +5,11 @@
 // `event.createMany({ skipDuplicates: true })` on `event_id`, same as
 // writer.integration.test.ts), and `sessions.status = finished`.
 
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
 
@@ -83,3 +85,67 @@ test("loading the same fixture twice: row count unchanged on the second run, ses
   const countAfterSecond = await db.event.count({ where: { sessionKey: SESSION_KEY } });
   expect(countAfterSecond).toBe(24);
 }, 30_000);
+
+// Issue #77: a bulk read of a complete recording used to emit every
+// `position`/`intervals` row before any `laps` row (RECORDING_ENDPOINT_ORDER
+// is a per-endpoint read order, not a time order), so `events.seq` for a
+// loaded session was blocked by endpoint — the browser fold (seq order up to
+// `source_time`) read that as "no lap yet" for most of a scrubbed replay.
+// Real recording, not a fixture (`recordings/11361` — the Italian GP capture
+// that surfaced the bug, psql-confirmed in the issue). `recordings/` is
+// gitignored on purpose ("not repo content") — same shape as
+// `replay.integration.test.ts`'s `REPLAY_RECORDING_DIR`: skipped, loudly,
+// wherever the directory isn't present (CI, a reviewer's machine), and
+// overridable by env var for a different layout.
+const RECORDING_11361_DIR =
+  process.env["RECORDING_11361_DIR"] ??
+  path.resolve(fileURLToPath(import.meta.url), "../../../../recordings/11361");
+const RECORDING_SESSION_KEY = 11361n;
+
+async function wipeRecording11361(): Promise<void> {
+  // `exports` (api's writer, ADR-0009) and `polls`/`votes` (api's writer)
+  // both FK to `sessions` — a prior manual/local run of the stack against
+  // this same recording can leave them behind; clear everything downstream
+  // before the session row itself.
+  await db.vote.deleteMany({ where: { poll: { sessionKey: RECORDING_SESSION_KEY } } });
+  await db.poll.deleteMany({ where: { sessionKey: RECORDING_SESSION_KEY } });
+  await db.export.deleteMany({ where: { sessionKey: RECORDING_SESSION_KEY } });
+  await db.event.deleteMany({ where: { sessionKey: RECORDING_SESSION_KEY } });
+  await db.session.deleteMany({ where: { sessionKey: RECORDING_SESSION_KEY } });
+}
+
+test.skipIf(!existsSync(RECORDING_11361_DIR))(
+  "loading recordings/11361: the first laps row's seq is below the last position row's seq; a second load inserts no new rows",
+  async () => {
+    await wipeRecording11361();
+    try {
+      const first = await loadRecordings([RECORDING_11361_DIR], db, { onLog: () => {} });
+      expect(first.sessionsAttempted).toBe(1);
+      expect(first.sessionsSkipped).toBe(0);
+      expect(first.inserted).toBeGreaterThan(0);
+
+      const session = await db.session.findUniqueOrThrow({ where: { sessionKey: RECORDING_SESSION_KEY } });
+      expect(session.status).toBe("finished");
+
+      const firstLap = await db.event.findFirstOrThrow({
+        where: { sessionKey: RECORDING_SESSION_KEY, endpoint: "laps" },
+        orderBy: { seq: "asc" },
+      });
+      const lastPosition = await db.event.findFirstOrThrow({
+        where: { sessionKey: RECORDING_SESSION_KEY, endpoint: "position" },
+        orderBy: { seq: "desc" },
+      });
+      expect(firstLap.seq).toBeLessThan(lastPosition.seq);
+
+      // Dedup: a second load of the same recording inserts nothing new.
+      const second = await loadRecordings([RECORDING_11361_DIR], db, { onLog: () => {} });
+      expect(second.inserted).toBe(0);
+      expect(second.skipped).toBe(first.inserted);
+      const countAfterSecond = await db.event.count({ where: { sessionKey: RECORDING_SESSION_KEY } });
+      expect(countAfterSecond).toBe(first.inserted);
+    } finally {
+      await wipeRecording11361();
+    }
+  },
+  120_000,
+);

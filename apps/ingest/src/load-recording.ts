@@ -31,10 +31,11 @@ import type { SessionStatus } from "@formula-time/db";
 import { createDb } from "@formula-time/db";
 
 import { ENTRY_LIST_2026 } from "./openf1/entry-list.js";
-import { createFileFetcher } from "./openf1/file-fetcher.js";
+import { createFileFetcher, readRecordingEndpoint } from "./openf1/file-fetcher.js";
+import type { RecordedRow } from "./openf1/file-fetcher.js";
 import { LiveNormalizer } from "./openf1/normalize.js";
-import { OPENF1_BASE, buildPollUrl, emitRows } from "./openf1/rest-lane.js";
-import type { Fetcher, QueueItem, RawRecord } from "./openf1/types.js";
+import { OPENF1_BASE, POLL_ROTATION, emitRows } from "./openf1/rest-lane.js";
+import type { QueueItem, RawRecord } from "./openf1/types.js";
 import { EventQueue } from "./writer/queue.js";
 import type { DrainResult, EventWriterDb } from "./writer/writer.js";
 import { EventWriter } from "./writer/writer.js";
@@ -61,7 +62,9 @@ export type LoaderDb = SessionsDb & EventWriterDb & SessionStatusReader;
 // intervals, laps, stints, pit, race_control, weather`". "drivers" here is
 // the recorded OpenF1 `drivers` fetch (`raw/drivers.jsonl`, distinct fields
 // from the static `ENTRY_LIST_2026` payload below) — the entry list is
-// emitted separately, first, "exactly as session selection does".
+// emitted separately, first, "exactly as session selection does". This list
+// is still the read order for `raw/*.jsonl` files (issue #77 below reorders
+// only the *emitted* order, by `received_at`).
 export const RECORDING_ENDPOINT_ORDER = [
   "drivers",
   "position",
@@ -72,6 +75,62 @@ export const RECORDING_ENDPOINT_ORDER = [
   "race_control",
   "weather",
 ] as const;
+
+// Issue #77: a bulk read of a complete recording emitted one endpoint fully
+// before the next, so a loaded session's `events.seq` ended up blocked by
+// endpoint instead of following time — every `laps` row landed after every
+// `position`/`intervals` row, which the browser fold (`foldAt`, seq order up
+// to `source_time`) reads as "no lap yet" for most of the race. Fix: read
+// every endpoint's rows (with `received_at`, via `readRecordingEndpoint`)
+// and emit them in `received_at` order instead, reproducing the order live
+// capture would have produced. When two rows tie exactly on `received_at`,
+// break the tie by endpoint using `POLL_ROTATION`'s order (rest-lane.ts) —
+// the order one live poll cycle visits them in; `drivers` never appears in
+// `POLL_ROTATION` (fetched once at session selection, not polled), so it
+// keeps its `RECORDING_ENDPOINT_ORDER` position, first. Do not touch
+// `RestLane` — the live REST lane already emits in time order, one poll's
+// rows at a time; only a bulk recording load needs this sort (see the
+// scope note on issue #77: `replay.integration.test.ts`'s per-endpoint
+// block order is expected there too, and is unaffected by this fix).
+const ENDPOINT_TIE_BREAK_ORDER: readonly string[] = [
+  "drivers",
+  ...POLL_ROTATION.filter((endpoint, index) => POLL_ROTATION.indexOf(endpoint) === index),
+];
+
+function endpointTieBreakIndex(endpoint: string): number {
+  const index = ENDPOINT_TIE_BREAK_ORDER.indexOf(endpoint);
+  return index === -1 ? ENDPOINT_TIE_BREAK_ORDER.length : index;
+}
+
+/**
+ * Reads every `RECORDING_ENDPOINT_ORDER` endpoint's rows for one session and
+ * merges them into `received_at` order (stable): ties within one endpoint
+ * keep file order (the per-endpoint arrays are read and concatenated in
+ * order, untouched by the first sort); ties across endpoints keep
+ * `ENDPOINT_TIE_BREAK_ORDER`'s order, because that first sort — grouping by
+ * endpoint before the stable `received_at` sort — is what a same-key stable
+ * sort preserves.
+ */
+async function readSessionRowsInTimeOrder(dir: string, sessionKey: number): Promise<RecordedRow[]> {
+  const perEndpoint = await Promise.all(
+    RECORDING_ENDPOINT_ORDER.map((endpoint) => readRecordingEndpoint(dir, sessionKey, endpoint)),
+  );
+  const byEndpointOrder = RECORDING_ENDPOINT_ORDER.map((endpoint, index) => ({
+    endpoint,
+    rows: perEndpoint[index]!,
+  }))
+    .sort((a, b) => endpointTieBreakIndex(a.endpoint) - endpointTieBreakIndex(b.endpoint))
+    .flatMap((group) => group.rows);
+
+  // Array.prototype.sort is stable (ES2019+): rows with an equal (or both
+  // missing) `received_at` keep the relative order `byEndpointOrder` above
+  // already gave them.
+  return byEndpointOrder.sort((a, b) => {
+    const aMs = a.receivedAt ? Date.parse(a.receivedAt) : Number.POSITIVE_INFINITY;
+    const bMs = b.receivedAt ? Date.parse(b.receivedAt) : Number.POSITIVE_INFINITY;
+    return aMs - bMs;
+  });
+}
 
 export interface LoadRecordingsOptions {
   now?: () => number;
@@ -101,7 +160,7 @@ interface LoadOneSessionResult {
 }
 
 async function loadOneSession(
-  fetcher: Fetcher,
+  dir: string,
   session: RawRecord,
   db: LoaderDb,
   writer: EventWriter,
@@ -177,10 +236,21 @@ async function loadOneSession(
     `load: session=${sessionKey} endpoint=drivers(entry-list) rows=${driverRows.length} new=${entryResult.newRows}`,
   );
 
-  for (const endpoint of RECORDING_ENDPOINT_ORDER) {
-    const url = buildPollUrl(endpoint, sessionKey, null);
-    const raw = await fetcher(url);
-    const rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
+  // Issue #77: emit in `received_at` order across every endpoint, not one
+  // endpoint's rows fully before the next — see `readSessionRowsInTimeOrder`
+  // above. Consecutive rows that share an endpoint are still batched into
+  // one `emitRows` call each (same identity/dedup path, fewer/larger writer
+  // batches and log lines than one row at a time); only the batch
+  // boundaries move, not the per-row order within/across batches.
+  const merged = await readSessionRowsInTimeOrder(dir, sessionKey);
+  let mergedIndex = 0;
+  while (mergedIndex < merged.length) {
+    const endpoint = merged[mergedIndex]!.endpoint;
+    const rows: RawRecord[] = [];
+    while (mergedIndex < merged.length && merged[mergedIndex]!.endpoint === endpoint) {
+      rows.push(merged[mergedIndex]!.payload);
+      mergedIndex += 1;
+    }
     const result = emitRows(normalizer, queue, endpoint, sessionKey, rows);
     log(`load: session=${sessionKey} endpoint=${endpoint} rows=${rows.length} new=${result.newRows}`);
   }
@@ -265,7 +335,7 @@ export async function loadRecordings(
     for (const session of sessions) {
       sessionsAttempted += 1;
       try {
-        const result = await loadOneSession(fetcher, session, db, writer, queue, nowMs, log);
+        const result = await loadOneSession(dir, session, db, writer, queue, nowMs, log);
         fold(result.drainResult);
         if (result.skipped) sessionsSkipped += 1;
       } catch (error) {
