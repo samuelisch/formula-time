@@ -1,0 +1,67 @@
+.races {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.quiet {
+  color: var(--color-muted);
+  margin: 0;
+}
+
+.liveCard {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.liveBadge {
+  background: var(--color-accent);
+  color: #fff;
+  border-radius: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.liveDetails {
+  font-size: 0.95rem;
+}
+
+.heading {
+  font-size: 1rem;
+  margin: 0 0 0.75rem;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.raceRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.raceRow:hover {
+  border-color: var(--color-muted);
+}
+
+.raceMeta {
+  color: var(--color-muted);
+}
