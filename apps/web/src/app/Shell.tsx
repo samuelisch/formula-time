@@ -16,18 +16,18 @@ function stringField(session: RawRecord, key: string): string | null {
 }
 
 // The issue's literal format is "{country_name} · {circuit_short_name}", the
-// raw OpenF1 field names. What the projector actually puts on the wire today
-// (apps/api/src/projector/projector.ts sessionAsRawRecord) is the sessions
-// table's own columns: `country` (not `country_name`) and `circuit_key` (a
-// number; there is no persisted `circuit_short_name`). Read both so this
-// renders correctly against the real feed now and stays forward-compatible
-// if a circuit name ever gets threaded through -- flagged in the PR.
+// raw OpenF1 field names. The wire never carries those: the projector's
+// sessionAsRawRecord() (apps/api/src/projector/projector.ts) puts the
+// sessions table's own columns on the wire instead -- `country` (not
+// `country_name`) and `name` (the session name, e.g. "Race"; there is no
+// persisted circuit display name at all). Render from the real fields
+// (owner-vetoable, flagged in the PR).
 function sessionLine(session: RawRecord | null): string {
   if (session === null) return "Waiting for a session";
-  const country = stringField(session, "country_name") ?? stringField(session, "country");
-  const circuit = stringField(session, "circuit_short_name");
-  if (country === null) return "Waiting for a session";
-  return circuit === null ? country : `${country} · ${circuit}`;
+  const country = stringField(session, "country");
+  const name = stringField(session, "name");
+  if (country === null || name === null) return "Waiting for a session";
+  return `${country} · ${name}`;
 }
 
 function pillState(

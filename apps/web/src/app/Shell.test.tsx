@@ -94,25 +94,26 @@ describe("Shell", () => {
     expect(screen.getByText(/Live · last update \d+s ago/)).toBeInTheDocument();
   });
 
-  it("renders the session line from country_name and circuit_short_name once a session arrives", () => {
-    resetStore({
-      connection: "open",
-      lastMessageAt: Date.now(),
-      displayed: displayedWithSession({ country_name: "Netherlands", circuit_short_name: "Zandvoort" }),
-    });
-    renderShell();
-    expect(screen.getByText("Netherlands · Zandvoort")).toBeInTheDocument();
-  });
-
-  it("falls back to the projector's actual session shape (country, no circuit name)", () => {
-    // apps/api/src/projector/projector.ts sessionAsRawRecord() puts `country`
-    // on the wire, not `country_name`, and no circuit display name at all.
+  it("renders the session line from the projector's real fields (country, name)", () => {
+    // apps/api/src/projector/projector.ts sessionAsRawRecord() puts
+    // `country` and `name` (the session name, e.g. "Race") on the wire --
+    // never `country_name`/`circuit_short_name`, which the wire has no field for.
     resetStore({
       connection: "open",
       lastMessageAt: Date.now(),
       displayed: displayedWithSession({ name: "Race", country: "Italy", circuit_key: 39 }),
     });
     renderShell();
-    expect(screen.getByText("Italy")).toBeInTheDocument();
+    expect(screen.getByText("Italy · Race")).toBeInTheDocument();
+  });
+
+  it("shows waiting-for-a-session when the session record is missing a field", () => {
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ country: "Italy" }),
+    });
+    renderShell();
+    expect(screen.getByText("Waiting for a session")).toBeInTheDocument();
   });
 });
