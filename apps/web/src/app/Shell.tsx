@@ -6,15 +6,11 @@ import { DelayControl } from "../align/DelayControl.tsx";
 import { Pill, type PillTone } from "../components/Pill.tsx";
 import { useCatchingUp, useConnection, useLastMessageAt, useSessionMeta } from "../live/selectors.ts";
 import { useLiveStream } from "../live/useLiveStream.ts";
+import { stringField } from "../lib/format.ts";
 import styles from "./Shell.module.css";
 
 // A stoppage must read as a quiet feed, never a frozen app (POC quiet-feed rule).
 const QUIET_AFTER_MS = 5_000;
-
-function stringField(session: RawRecord, key: string): string | null {
-  const value = session[key];
-  return typeof value === "string" ? value : null;
-}
 
 // The issue's literal format is "{country_name} · {circuit_short_name}", the
 // raw OpenF1 field names. The wire never carries those: the projector's
@@ -77,8 +73,9 @@ export function Shell() {
         <span className={styles.session}>{sessionLine(session)}</span>
         <nav className={styles.nav}>
           <NavLink to="/" end>
-            Board
+            Races
           </NavLink>
+          <NavLink to="/live">Live</NavLink>
           <NavLink to="/polls">Polls</NavLink>
         </nav>
         <Pill tone={pill.tone}>{pill.text}</Pill>
