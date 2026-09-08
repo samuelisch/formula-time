@@ -1,4 +1,7 @@
+# docs/ holds untracked drafts; only decisions and retros are committed
 /docs/*
+!/docs/decisions-adr/
+!/docs/retros/
 
 # toolchain
 node_modules/

@@ -20,7 +20,7 @@
           {
             "type": "command",
             "if": "Bash(git commit *)",
-            "command": "pnpm typecheck && pnpm test:unit",
+            "command": "\"$CLAUDE_PROJECT_DIR/scripts/pre-commit-check.sh\"",
             "timeout": 300,
             "statusMessage": "typecheck + tests before commit"
           }
@@ -31,7 +31,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=$(jq -r .tool_input.file_path); case \"$f\" in */docs/adr/*) grep -q 'Status:\\*\\* Accepted' \"$f\" 2>/dev/null && { echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Accepted ADR; write a superseding one\"}}'; };; esac; exit 0"
+            "command": "f=$(jq -r .tool_input.file_path); case \"$f\" in */docs/decisions-adr/*) grep -q 'Status:\\*\\* Accepted' \"$f\" 2>/dev/null && { echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Accepted ADR; write a superseding one\"}}'; };; esac; exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(gh pr create *)",
+            "command": "\"$CLAUDE_PROJECT_DIR/scripts/check-pr-body.sh\""
           }
         ]
       }
