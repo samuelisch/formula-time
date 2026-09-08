@@ -10,3 +10,7 @@ dist/
 .env
 .env.*
 coverage/
+
+# agent worktrees and SDD scratch
+/.claude/worktrees/
+/.superpowers/
