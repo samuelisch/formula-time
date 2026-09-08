@@ -76,7 +76,9 @@ Tasks live in GitHub Issues. Labels are the state machine:
 `ready` → `in-progress` → `in-review` → `done`; `owner` marks a task no
 agent may pick up. An issue body is self-contained: goal, the relevant seam
 contracts pasted verbatim (ADR-0001 §4), files it may touch, acceptance
-criteria as commands, and "blocked by #N".
+criteria as commands, and "blocked by #N". Facts the deliverable must
+state are quoted in the body; a paraphrase of a quoted fact is a review
+finding, not a style choice.
 
 Per-task loop: claim (`in-progress`) → worktree branch → tests pass →
 `gh pr create` with "Closes #N" → the review bot (`claude[bot]`, running
@@ -85,6 +87,8 @@ verdict: approve on a clean pass, changes requested, or owner decision
 needed → **the owner merges; merging is never automated** →
 label `done` → next `ready`. A local `/review-pr` prints the verdict and
 posts nothing, so approvals only ever come from the bot or the owner.
+After a fix round, the implementer updates the PR's Friction line before
+re-review; "none" on a PR that needed a round is a false record.
 
 Design-bearing tracks (ADR-0001 §4: the Postgres fetcher / projector
 cursor, and vote acknowledgement) are owner-reviewed in person. Whether the
