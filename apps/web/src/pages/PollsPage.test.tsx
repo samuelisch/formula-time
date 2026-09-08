@@ -226,4 +226,22 @@ describe("PollsPage", () => {
     await screen.findByText("No polls for this race");
     expect(screen.queryByText(/^LAP /)).not.toBeInTheDocument();
   });
+
+  it("fix round 1: falls back to the newest race's own polls (not the empty current-session branch) when there is no current session at all", async () => {
+    // No push ever arrives -- session-lifecycle.ts's pickSession() === null
+    // path (a genuinely session-less deploy, e.g. off-season), not the
+    // transient pre-first-push window. RaceSelect has nothing to list as
+    // "current" and defaults its dropdown to the newest race; the poll list
+    // must show that same race's polls rather than the current-session
+    // fallback, which was PR #85's review finding.
+    resetStore({ displayed: null });
+    const historicalPoll = makePoll({ poll_id: "11361:winner", question: "Podium order?" });
+    stubFetch({ polls: [], races, racePolls: { "11361": [historicalPoll] } });
+
+    renderPage();
+
+    expect(await screen.findByText("Podium order?")).toBeInTheDocument();
+    const select = (await screen.findByRole("combobox")) as HTMLSelectElement;
+    expect(select.value).toBe("11361");
+  });
 });

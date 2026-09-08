@@ -1,11 +1,17 @@
 // The Polls page organised by race (issue #80). Selection lives in the URL
-// (`?race=<session_key>`); no param means "the current session" (the live
-// socket's session, whatever it turns out to be) -- that default holds even
-// before the session key is known, which is what keeps the pre-push
-// initial-fill fallback below working the same as it always has. An
-// explicit `?race=<key>` that doesn't (yet) match the known current session
-// is treated as a historical race until it does, so a link built before the
-// first push resolves on its own once the push lands.
+// (`?race=<session_key>`); no param resolves to `defaultKey` below: the
+// current session if one is known, else the newest race from `/api/races`
+// -- both the RaceSelect value and the current-vs-historical branch read
+// this same resolved key (fix round 1: they used to diverge -- a genuinely
+// session-less deploy, `session-lifecycle.ts`'s `pickSession() === null`,
+// showed the newest race selected while still rendering the empty
+// current-session branch). When neither a current session nor any race is
+// known yet, `defaultKey` is null, which this page treats as "current
+// (still resolving)" -- that's what keeps the pre-first-push initial-fill
+// fallback below working exactly as before. An explicit `?race=<key>` that
+// doesn't (yet) match the known current session is treated as a historical
+// race until it does, so a link built before the first push resolves on
+// its own once the push lands.
 //
 // Current-session polls: GET /api/polls only fills the page before the
 // first push arrives; once a push has been received, the displayed push's
@@ -71,8 +77,12 @@ export function PollsPage() {
   const races = racesQuery.data ?? [];
 
   const currentSessionKey = sessionMeta.sessionKey;
-  const isCurrentSelected = paramKey === null || paramKey === currentSessionKey;
-  const historicalKey = isCurrentSelected ? null : paramKey;
+  // Single resolved selection, shared by the dropdown value and the
+  // current-vs-historical branch below -- see the file header.
+  const defaultKey = currentSessionKey ?? (races[0] !== undefined ? String(races[0].session_key) : null);
+  const selectedKey = paramKey ?? defaultKey;
+  const isCurrentSelected = selectedKey === null || selectedKey === currentSessionKey;
+  const historicalKey = !isCurrentSelected && selectedKey !== null ? selectedKey : null;
 
   const historicalPolls = useQuery({
     queryKey: ["race-polls", historicalKey],
@@ -91,7 +101,7 @@ export function PollsPage() {
 
   const current = currentSessionKey !== null ? { sessionKey: currentSessionKey, label: currentLabel, status: sessionStatus } : null;
 
-  const selectValue = paramKey ?? currentSessionKey ?? (races[0] !== undefined ? String(races[0].session_key) : "");
+  const selectValue = selectedKey ?? "";
 
   function handleRaceChange(sessionKey: string): void {
     setSearchParams((previous) => {
