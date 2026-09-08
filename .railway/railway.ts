@@ -46,7 +46,7 @@ export default defineRailway(() => {
     preDeploy: "pnpm db:migrate:deploy",
     healthcheck: "/health",
     deploy: { restartPolicyType: "ON_FAILURE" },
-    // CORS_ORIGIN: the web bundle's origins, comma-separated (ADR-0007).
+    // CORS_ORIGIN: the web bundle's origins, comma-separated (ADR-0008).
     // Set in the dashboard once the custom domain exists; preserved here.
     env: { ...secrets, CORS_ORIGIN: preserve() },
   });

@@ -9,6 +9,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.3.0",
     "@formula-time/db": "workspace:*",
     "@formula-time/domain": "workspace:*",

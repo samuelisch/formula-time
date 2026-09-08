@@ -1,4 +1,4 @@
-// CORS for the split-hosted web bundle (ADR-0007). The bundle lives on its
+// CORS for the split-hosted web bundle (ADR-0008). The bundle lives on its
 // own origin (Cloudflare Pages on the apex of the custom domain); the api
 // answers on `api.<domain>`. Both share one registrable domain, so the
 // SameSite=Lax viewer cookie still travels on a credentialed fetch.

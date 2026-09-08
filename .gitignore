@@ -11,6 +11,12 @@ dist/
 .env.*
 coverage/
 
+# ingest's jsonl recording (LIVE_LOG_DIR default ./live-logs) — the
+# irreplaceable artefact, but not repo content (issue #22 deliverable 3/5).
+# Not root-anchored: LIVE_LOG_DIR is relative to cwd, and `pnpm dev:ingest`
+# runs with cwd apps/ingest, so the directory can appear there too.
+live-logs/
+
 # agent worktrees and SDD scratch
 /.claude/worktrees/
 /.superpowers/

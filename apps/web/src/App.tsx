@@ -19,7 +19,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const es = new EventSource(apiUrl("/live/events"));
+    const es = new EventSource(apiUrl("/api/live/events"));
     es.onopen = () => setStream("connected");
     es.onerror = () => setStream("reconnecting");
     return () => es.close();

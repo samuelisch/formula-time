@@ -1,4 +1,4 @@
-// One place that knows where the api lives (ADR-0007). `VITE_API_URL` is
+// One place that knows where the api lives (ADR-0008). `VITE_API_URL` is
 // the api origin baked in at build time on the static host; unset in dev,
 // where the Vite proxy makes the api same-origin.
 const base: string = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";

@@ -1,4 +1,4 @@
-# ADR-0007 — Web bundle on a static host (Netlify), api on its own origin
+# ADR-0008 — Web bundle on a static host (Netlify), api on its own origin
 
 - **Status:** Proposed (accepted when this PR merges)
 - **Date:** 2026-09-08
@@ -52,10 +52,11 @@ expose yet.
 - Bundle and api deploy independently, so a RaceState field added on one
   side is not on the other for a few minutes. Accepted; changes to the
   wire shape are coordinated by hand until it hurts.
-- Any future hijacked route must merge the cors headers itself, or the
-  browser refuses it. `replyHeaders()` in `apps/api/src/cors.ts` is the
-  hook; #38's live route needs it on rebase.
+- Any hijacked route must merge the cors headers itself, or the browser
+  refuses it. `replyHeaders()` in `apps/api/src/cors.ts` is the hook; the
+  live route (`routes/live.ts`) uses it and joins `vary`.
 - Finished-race exports (ADR-0001 §1) have no home yet on this shape; a
   later ADR picks object storage.
-- An `/api` path prefix is no longer needed for route collisions and is
-  not introduced here.
+- The `/api` prefix on client routes (owner decision, #38) is unrelated
+  to this split: on separate origins nothing collides. `/health` stays at
+  the root as the platform probe.

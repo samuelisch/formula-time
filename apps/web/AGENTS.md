@@ -4,7 +4,7 @@
 
 - Vite + React. Built assets are static, hosted on Netlify (interim
   `*.netlify.app`, target the apex of a custom domain); the api answers
-  on its own origin (ADR-0007). `public/_redirects` is the SPA fallback,
+  on its own origin (ADR-0008). `public/_redirects` is the SPA fallback,
   `public/_headers` the asset cache policy. `VITE_API_URL` is the api's origin at build time; unset
   means relative URLs, which is the dev setup: the dev server
   (`vite.config.ts`) proxies `/health`, `/api`, `/live`, `/polls` to the
