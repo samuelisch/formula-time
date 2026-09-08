@@ -14,6 +14,20 @@
 
 - `docs/decisions-adr/` holds every architectural decision, numbered and dated. New decisions are appended.
 
+## Local Postgres
+
+`pnpm db:up` / `pnpm db:down` / `pnpm db:migrate:dev` / `pnpm db:migrate:deploy`
+/ `pnpm test:integration` all run through `scripts/with-db-env.sh`, which
+exports a `COMPOSE_PROJECT_NAME` and `DB_PORT` computed by `scripts/db-env.sh`
+from a hash of `git rev-parse --show-toplevel` — so each worktree gets its own
+compose project and its own Postgres host port, and two worktrees can run
+`pnpm test:integration` at the same time without sharing a database. A plain
+checkout (not under `.claude/worktrees/`) always gets port 5433, matching the
+rest of this repo's docs; other worktrees land in 5440-5489. `db:up`/`db:down`
+only ever touch their own worktree's containers. Override either value by
+exporting it yourself before running a script — `DB_PORT=<port>` wins if the
+computed port collides with something else already listening.
+
 ## Deploy
 
 Railway, two services (`api`, `ingest`) plus a managed `Postgres`, from one

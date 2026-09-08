@@ -48,7 +48,10 @@ Read `docs/` before doing anything. What each part holds:
   `typecheck` + unit + the ADR check before a commit (the hook); the same
   plus integration and build in CI on every PR, required for merge
   (ADR-0006). The PR's Verified section is prose about what CI does not
-  cover, never pasted output.
+  cover, never pasted output. `db:up`/`db:down`/`db:migrate:*`/
+  `test:integration` derive a per-worktree compose project and Postgres port
+  from `scripts/db-env.sh` (README "Local Postgres"), so concurrent worktrees
+  never share a database.
 - `docs/` is gitignored on purpose (drafts), except `docs/decisions-adr/` and `docs/retros/`, which are tracked — do not change
   `.gitignore` unless asked. Consequence: `PRD.md`, `HLD.md` and the other
   drafts are invisible inside git worktrees. Task bodies must be
