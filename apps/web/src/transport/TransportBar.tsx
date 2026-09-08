@@ -4,9 +4,10 @@
 // and the replay-only `TransportBar`. Mounted by both `BoardPage` and
 // `ReplayPage` inside a `TimeTargetProvider`, in the board's toolbar
 // `transport` slot (`board/Board.tsx`).
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { clock } from "../lib/format.ts";
+import { SliderWithTicks, type TickMark } from "./SliderWithTicks.tsx";
 import { useTimeTarget } from "./TimeTarget.ts";
 import styles from "./TransportBar.module.css";
 
@@ -44,6 +45,15 @@ export function TransportBar() {
   // row in the same style as a failed jump: on live this is the store's
   // `bufferShort` ("showing the oldest"), on replay always null.
   const notice = target.notice();
+
+  // Tick marks (PR 2, issue #81): each lap anchor within `range()`, so a
+  // tick never renders past the slider's own bounds.
+  const ticks = useMemo<TickMark[]>(() => {
+    if (range === null) return [];
+    return anchors.laps
+      .map((anchor) => ({ lap: anchor.lap, value: Date.parse(anchor.source_time) }))
+      .filter((tick) => Number.isFinite(tick.value) && tick.value >= range.startMs && tick.value <= range.endMs);
+  }, [anchors, range]);
 
   /** Race-start and lap jumps move the position and, on replay, pause -- live has no playback to pause. */
   function seekAndMaybePause(atMs: number): void {
@@ -119,16 +129,14 @@ export function TransportBar() {
           +10s
         </button>
 
-        <input
-          className={styles.slider}
-          type="range"
+        <SliderWithTicks
           min={range?.startMs ?? 0}
           max={range?.endMs ?? 0}
-          step={100}
           value={displayedAtMs ?? range?.startMs ?? 0}
+          ticks={ticks}
           disabled={range === null || range.startMs === range.endMs}
-          aria-label="Playback position"
-          onChange={(event) => target.seekTo(Number(event.target.value))}
+          ariaLabel="Playback position"
+          onChange={(value) => target.seekTo(value)}
         />
 
         <span className={styles.clock}>{positionLabel}</span>
