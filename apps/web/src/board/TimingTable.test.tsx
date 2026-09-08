@@ -9,14 +9,18 @@ import { BoardSourceProvider } from "./useBoardState.ts";
 // Wrapped in a MemoryRouter: DriverRow reads/writes the driver selection
 // through useDriverSelection() (useSearchParams), which needs a Router
 // context even when a row's click is never simulated (issue #90).
-function renderWith(push: ReturnType<typeof makePush> | null): void {
-  render(
+function tree(push: ReturnType<typeof makePush> | null) {
+  return (
     <MemoryRouter>
       <BoardSourceProvider push={push}>
         <TimingTable />
       </BoardSourceProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function renderWith(push: ReturnType<typeof makePush> | null) {
+  return render(tree(push));
 }
 
 describe("TimingTable ordering", () => {
@@ -74,5 +78,33 @@ describe("TimingTable row formatting", () => {
     expect(screen.getAllByText("—s")).toHaveLength(2); // gap and interval
     // position, full name, team name, tyre, and last pit all fall back to "—"
     expect(screen.getAllByText("—")).toHaveLength(5);
+  });
+});
+
+// TimingTable wires useBoardPositionDeltas() (issue #91) to each DriverRow.
+// A single render never has a previous push to compare against, so these
+// cases render once and then push a second, changed state.
+describe("TimingTable position cues", () => {
+  function pushWithPosition(position: number) {
+    const driver = makeDriver({ driver_number: 1, name_acronym: "VER", position });
+    return makePush({}, { drivers: { "1": driver }, driver_order: [1] });
+  }
+
+  it("renders a gain cue for a driver who moved up since the previous push", () => {
+    const { rerender } = renderWith(pushWithPosition(3));
+    rerender(tree(pushWithPosition(1)));
+    expect(screen.getByText("▲ 2")).toBeInTheDocument();
+  });
+
+  it("renders a loss cue for a driver who moved down since the previous push", () => {
+    const { rerender } = renderWith(pushWithPosition(1));
+    rerender(tree(pushWithPosition(4)));
+    expect(screen.getByText("▼ 3")).toBeInTheDocument();
+  });
+
+  it("renders no cue text for a driver whose position did not change", () => {
+    const { rerender } = renderWith(pushWithPosition(2));
+    rerender(tree(pushWithPosition(2)));
+    expect(screen.queryByText(/^[▲▼]/)).not.toBeInTheDocument();
   });
 });
