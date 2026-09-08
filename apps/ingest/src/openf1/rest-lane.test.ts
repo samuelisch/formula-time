@@ -176,70 +176,14 @@ describe("RestLane discovery", () => {
     expect(lane.status()).toEqual({ active: true, sessionKey: 11361 });
   });
 
-  test("selects the live session and fetches drivers once at discovery", async () => {
-    const { fetcher, calls } = fakeFetcher({
-      sessions: [SESSION],
-      drivers: [{ driver_number: 1 }],
-    });
+  test("selects the live session", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [SESSION] });
     const queue = new EventQueue<QueueItem>();
     const lane = new RestLane(queue, { fetcher, now: () => START, onLog: () => {} });
 
     await lane.discoverOnce();
 
     expect(lane.status()).toEqual({ active: true, sessionKey: 11361 });
-    expect(calls.some((u) => u.includes("drivers?session_key=11361"))).toBe(true);
-    expect(queue.size).toBe(1); // the one driver row, queued as endpoint "drivers"
-  });
-
-  test("a second discoverOnce while still live does not re-fetch drivers", async () => {
-    const { fetcher, calls } = fakeFetcher({ sessions: [SESSION], drivers: [{ driver_number: 1 }] });
-    const queue = new EventQueue<QueueItem>();
-    const lane = new RestLane(queue, { fetcher, now: () => START, onLog: () => {} });
-
-    await lane.discoverOnce();
-    const driversCallsAfterFirst = calls.filter((u) => u.includes("drivers")).length;
-    await lane.discoverOnce();
-    const driversCallsAfterSecond = calls.filter((u) => u.includes("drivers")).length;
-
-    expect(driversCallsAfterSecond).toBe(driversCallsAfterFirst);
-  });
-
-  test("fetches the meeting entry list once the meeting's first session has passed", async () => {
-    const practice: RawRecord = {
-      session_key: 11350,
-      meeting_key: 1293,
-      date_start: "2026-09-04T10:00:00Z",
-      date_end: "2026-09-04T11:00:00Z",
-    };
-    const { fetcher, calls } = fakeFetcher({
-      sessions: [practice, SESSION],
-      drivers: [{ driver_number: 1 }],
-    });
-    const queue = new EventQueue<QueueItem>();
-    // now: after practice has passed, well before the race window opens.
-    const now = Date.parse("2026-09-05T00:00:00Z");
-    const lane = new RestLane(queue, { fetcher, now: () => now, onLog: () => {} });
-
-    await lane.discoverOnce();
-
-    expect(calls.some((u) => u.includes("drivers?meeting_key=1293"))).toBe(true);
-  });
-
-  test("does not fetch the meeting entry list before the first session has happened", async () => {
-    const practice: RawRecord = {
-      session_key: 11350,
-      meeting_key: 1293,
-      date_start: "2026-09-04T10:00:00Z",
-      date_end: "2026-09-04T11:00:00Z",
-    };
-    const { fetcher, calls } = fakeFetcher({ sessions: [practice, SESSION], drivers: [] });
-    const queue = new EventQueue<QueueItem>();
-    const now = Date.parse("2026-09-03T00:00:00Z"); // before practice
-    const lane = new RestLane(queue, { fetcher, now: () => now, onLog: () => {} });
-
-    await lane.discoverOnce();
-
-    expect(calls.some((u) => u.includes("meeting_key"))).toBe(false);
   });
 });
 
@@ -255,11 +199,10 @@ describe("RestLane.pollOnce", () => {
 
   test("polls the rotation endpoint with session_key only and enqueues normalized rows", async () => {
     const row = { driver_number: 1, date: "2026-09-06T13:00:00Z" };
-    const { fetcher, calls } = fakeFetcher({ sessions: [SESSION], drivers: [], position: [row] });
+    const { fetcher, calls } = fakeFetcher({ sessions: [SESSION], position: [row] });
     const queue = new EventQueue<QueueItem>();
     const lane = new RestLane(queue, { fetcher, now: () => START, onLog: () => {} });
     await lane.discoverOnce(); // selects the session
-    queue.drain(1000); // clear the drivers-at-discovery row
 
     const result = await lane.pollOnce();
 
@@ -299,25 +242,6 @@ describe("RestLane.pollOnce", () => {
   });
 });
 
-describe("RestLane.maybeFetchPreRaceDrivers", () => {
-  test("fetches drivers again once within the pre-race lead time, only once", async () => {
-    const { fetcher, calls } = fakeFetcher({ sessions: [SESSION], drivers: [{ driver_number: 1 }] });
-    const queue = new EventQueue<QueueItem>();
-    let now = START - 10 * 60 * 1000; // 10 min before start: inside the live window
-    const lane = new RestLane(queue, { fetcher, now: () => now, driversPreRaceLeadMs: 5 * 60 * 1000, onLog: () => {} });
-    await lane.discoverOnce(); // "at discovery" drivers fetch
-    const afterDiscovery = calls.filter((u) => u.includes("drivers")).length;
-
-    await lane.maybeFetchPreRaceDrivers(); // still 10 min out: no-op
-    expect(calls.filter((u) => u.includes("drivers")).length).toBe(afterDiscovery);
-
-    now = START - 4 * 60 * 1000; // now inside the 5-minute lead
-    await lane.maybeFetchPreRaceDrivers();
-    await lane.maybeFetchPreRaceDrivers(); // idempotent
-    expect(calls.filter((u) => u.includes("drivers")).length).toBe(afterDiscovery + 1);
-  });
-});
-
 async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
   const start = Date.now();
   while (!predicate()) {
@@ -325,109 +249,6 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<vo
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
-
-describe("RestLane retries a failed drivers fetch instead of giving up forever", () => {
-  test("driversAtDiscoveryDone is set only on success: a failed at-discovery fetch retries on the next discoverOnce()", async () => {
-    // No meeting_key: isolates this from the Friday entry-list path (its
-    // own drivers?meeting_key= fetch), which is covered separately below.
-    const { meeting_key: _omit, ...sessionWithoutMeeting } = SESSION;
-    let driversCallCount = 0;
-    const fetcher = (url: string): Promise<unknown> => {
-      if (url.includes("/sessions")) return Promise.resolve([sessionWithoutMeeting]);
-      if (url.includes("/drivers")) {
-        driversCallCount += 1;
-        if (driversCallCount === 1) return Promise.reject(new Error("network blip"));
-        return Promise.resolve([{ driver_number: 1 }]);
-      }
-      return Promise.resolve([]);
-    };
-    const queue = new EventQueue<QueueItem>();
-    const lane = new RestLane(queue, { fetcher, now: () => START, onLog: () => {} });
-
-    await lane.discoverOnce(); // drivers?session_key= fails
-    expect(queue.size).toBe(0); // nothing enqueued from the failed fetch
-
-    await lane.discoverOnce(); // same session still selected: retries drivers
-    expect(driversCallCount).toBe(2);
-    expect(queue.size).toBe(1); // the retry's row landed
-
-    await lane.discoverOnce(); // now marked done: no further retry
-    expect(driversCallCount).toBe(2);
-  });
-
-  test("meetingEntryListFetched is set only on success: a failed Friday fetch retries on the next discoverOnce()", async () => {
-    const practice: RawRecord = {
-      session_key: 11350,
-      meeting_key: 1293,
-      date_start: "2026-09-04T10:00:00Z",
-      date_end: "2026-09-04T11:00:00Z",
-    };
-    let meetingFetchCount = 0;
-    const now = Date.parse("2026-09-05T00:00:00Z"); // after practice, well before the race window
-    const fetcher = (url: string): Promise<unknown> => {
-      if (url.includes("/sessions")) return Promise.resolve([practice, SESSION]);
-      if (url.includes("meeting_key")) {
-        meetingFetchCount += 1;
-        if (meetingFetchCount === 1) return Promise.reject(new Error("network blip"));
-        return Promise.resolve([{ driver_number: 1 }]);
-      }
-      // The SESSION isn't live at `now`, and drivers?session_key= isn't
-      // reached in this scenario, but return [] defensively either way.
-      return Promise.resolve([]);
-    };
-    const queue = new EventQueue<QueueItem>();
-    const lane = new RestLane(queue, { fetcher, now: () => now, onLog: () => {} });
-
-    await lane.discoverOnce(); // meeting entry-list fetch fails
-    expect(meetingFetchCount).toBe(1);
-    expect(queue.size).toBe(0);
-
-    await lane.discoverOnce(); // still not marked fetched: retries
-    expect(meetingFetchCount).toBe(2);
-    expect(queue.size).toBe(1); // the retry's row landed
-
-    await lane.discoverOnce(); // now marked done: no further retry
-    expect(meetingFetchCount).toBe(2);
-  });
-
-  test("driversPreRaceDone is set only on success: a failed pre-race fetch retries on the next tick", async () => {
-    // No meeting_key: isolates this from the Friday entry-list path.
-    const { meeting_key: _omit, ...sessionWithoutMeeting } = SESSION;
-    let driversCallCount = 0;
-    const fetcher = (url: string): Promise<unknown> => {
-      if (url.includes("/sessions")) return Promise.resolve([sessionWithoutMeeting]);
-      if (url.includes("/drivers")) {
-        driversCallCount += 1;
-        // Call 1 is the "at discovery" fetch (succeeds); call 2 is the
-        // pre-race fetch's first attempt (fails); call 3 is its retry.
-        if (driversCallCount === 2) return Promise.reject(new Error("network blip"));
-        return Promise.resolve([{ driver_number: 1 }]);
-      }
-      return Promise.resolve([]);
-    };
-    const queue = new EventQueue<QueueItem>();
-    let now = START - 10 * 60 * 1000; // 10 min before start: inside the live window
-    const lane = new RestLane(queue, {
-      fetcher,
-      now: () => now,
-      driversPreRaceLeadMs: 5 * 60 * 1000,
-      onLog: () => {},
-    });
-
-    await lane.discoverOnce(); // "at discovery" fetch succeeds
-    expect(driversCallCount).toBe(1);
-
-    now = START - 4 * 60 * 1000; // now inside the 5-minute lead
-    await lane.maybeFetchPreRaceDrivers(); // fails
-    expect(driversCallCount).toBe(2);
-
-    await lane.maybeFetchPreRaceDrivers(); // not marked done: retries, succeeds
-    expect(driversCallCount).toBe(3);
-
-    await lane.maybeFetchPreRaceDrivers(); // now marked done: no further retry
-    expect(driversCallCount).toBe(3);
-  });
-});
 
 describe("RestLane.stop() and an in-flight tick (SIGTERM race)", () => {
   test("stop() does not resolve until the in-flight poll's fetch resolves, and its rows are in the queue by then", async () => {

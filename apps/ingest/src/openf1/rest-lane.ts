@@ -76,8 +76,6 @@ export interface RestLaneOptions {
   tickMs?: number;
   /** Discovery cadence while no session is in its window. Issue: "every 60 s". */
   discoveryIntervalMs?: number;
-  /** "again 5 min before `date_start`" (issue deliverable 2). */
-  driversPreRaceLeadMs?: number;
   /** Sessions upsert (issue deliverable 4) — called for every session row discovery sees. */
   onSession?: (session: RawRecord, nowMs: number) => void | Promise<void>;
   /**
@@ -105,7 +103,6 @@ export class RestLane {
   private readonly now: () => number;
   private readonly tickMs: number;
   private readonly discoveryIntervalMs: number;
-  private readonly driversPreRaceLeadMs: number;
   private readonly onSession: RestLaneOptions["onSession"];
   private readonly onSessionSelected: RestLaneOptions["onSessionSelected"];
   private readonly onNewRows: RestLaneOptions["onNewRows"];
@@ -115,9 +112,6 @@ export class RestLane {
   private session: RawRecord | null = null;
   private sessionKey: number | null = null;
   private rotationIndex = 0;
-  private driversAtDiscoveryDone = false;
-  private driversPreRaceDone = false;
-  private readonly meetingEntryListFetched = new Set<number>();
 
   private running = false;
   private timer: NodeJS.Timeout | null = null;
@@ -136,7 +130,6 @@ export class RestLane {
     this.now = opts.now ?? Date.now;
     this.tickMs = opts.tickMs ?? 2200;
     this.discoveryIntervalMs = opts.discoveryIntervalMs ?? 60_000;
-    this.driversPreRaceLeadMs = opts.driversPreRaceLeadMs ?? 5 * 60 * 1000;
     this.onSession = opts.onSession;
     this.onSessionSelected = opts.onSessionSelected;
     this.onNewRows = opts.onNewRows;
@@ -149,9 +142,8 @@ export class RestLane {
 
   /**
    * `sessions?year=<current>` (issue: "every 60 s until a session is inside
-   * its ±30 min window"). Upserts every session it sees, fetches the Friday
-   * entry list for any meeting whose first session has passed, and selects
-   * the live session (if any) for the rotation.
+   * its ±30 min window"). Upserts every session it sees, and selects the
+   * live session (if any) for the rotation.
    */
   public async discoverOnce(): Promise<{ sessionCount: number; live: boolean }> {
     const nowMs = this.now();
@@ -183,42 +175,9 @@ export class RestLane {
       }
     }
 
-    // Session selection first: it may reset the normalizer's dedup state for
-    // a newly-selected session, and it does its own "at discovery" drivers
-    // fetch. Running the Friday entry-list check after means a meeting whose
-    // first session IS the one just selected doesn't double-fetch drivers.
     await this.ensureLiveSession(rows, nowMs, upserted);
-    await this.fetchFridayEntryLists(rows, nowMs);
 
     return { sessionCount: rows.length, live: this.sessionKey !== null };
-  }
-
-  // "on discovery of a meeting whose first session has passed, drivers?meeting_key="
-  // (PRD: polls open Friday). The rows are recorded against that first
-  // session's session_key — the session that made the entry list available.
-  private async fetchFridayEntryLists(sessions: RawRecord[], nowMs: number): Promise<void> {
-    const firstByMeeting = new Map<number, RawRecord>();
-    for (const row of sessions) {
-      const meetingKey = Number(row["meeting_key"]);
-      if (!Number.isFinite(meetingKey)) continue;
-      const start = Date.parse(String(row["date_start"] ?? ""));
-      if (Number.isNaN(start)) continue;
-      const existing = firstByMeeting.get(meetingKey);
-      if (!existing || start < Date.parse(String(existing["date_start"] ?? ""))) {
-        firstByMeeting.set(meetingKey, row);
-      }
-    }
-    for (const [meetingKey, firstSession] of firstByMeeting) {
-      if (this.meetingEntryListFetched.has(meetingKey)) continue;
-      const start = Date.parse(String(firstSession["date_start"] ?? ""));
-      if (Number.isNaN(start) || nowMs < start) continue; // first session hasn't happened yet
-      const sessionKeyForRows = Number(firstSession["session_key"]);
-      if (!Number.isFinite(sessionKeyForRows)) continue;
-      // Marked done only on success: a transient failure must retry on the
-      // next discovery tick, not be skipped forever.
-      const ok = await this.fetchDrivers(`${OPENF1_BASE}/drivers?meeting_key=${meetingKey}`, sessionKeyForRows);
-      if (ok) this.meetingEntryListFetched.add(meetingKey);
-    }
   }
 
   private async ensureLiveSession(
@@ -243,8 +202,6 @@ export class RestLane {
       this.sessionKey = key;
       this.normalizer = new LiveNormalizer();
       this.rotationIndex = 0;
-      this.driversAtDiscoveryDone = false;
-      this.driversPreRaceDone = false;
       this.log(
         `rest: following session_key=${key} (${String(live["country_name"] ?? "?")})`,
       );
@@ -254,39 +211,6 @@ export class RestLane {
       // every 60s while nothing was live).
       await this.onSessionSelected?.(live, nowMs);
     }
-    if (!this.driversAtDiscoveryDone) {
-      // Marked done only on success: a transient failure must retry on the
-      // next discovery tick, not be skipped forever.
-      const ok = await this.fetchDrivers(`${OPENF1_BASE}/drivers?session_key=${key}`, key);
-      if (ok) this.driversAtDiscoveryDone = true;
-    }
-  }
-
-  /** "again 5 min before `date_start`" — call once per tick while a session is active. */
-  public async maybeFetchPreRaceDrivers(): Promise<void> {
-    if (this.sessionKey === null || this.session === null || this.driversPreRaceDone) return;
-    const start = Date.parse(String(this.session["date_start"] ?? ""));
-    if (Number.isNaN(start)) return;
-    if (this.now() >= start - this.driversPreRaceLeadMs) {
-      // Marked done only on success: a transient failure must retry on the
-      // next tick, not be skipped forever (same pattern as
-      // driversAtDiscoveryDone / meetingEntryListFetched above).
-      const ok = await this.fetchDrivers(`${OPENF1_BASE}/drivers?session_key=${this.sessionKey}`, this.sessionKey);
-      if (ok) this.driversPreRaceDone = true;
-    }
-  }
-
-  /** Returns whether the fetch succeeded, so callers only mark a "done" flag on success. */
-  private async fetchDrivers(url: string, sessionKeyForRows: number): Promise<boolean> {
-    let rows: unknown;
-    try {
-      rows = await this.fetcher(url);
-    } catch (error) {
-      this.log(`rest: drivers fetch failed: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
-    }
-    await this.emitRows("drivers", sessionKeyForRows, Array.isArray(rows) ? (rows as RawRecord[]) : []);
-    return true;
   }
 
   /** One rotation step: fetch, normalize, enqueue. `null` when no session is active. */
@@ -357,7 +281,6 @@ export class RestLane {
       if (this.sessionKey === null) {
         await this.discoverOnce();
       } else {
-        await this.maybeFetchPreRaceDrivers();
         await this.pollOnce();
       }
     } catch (error) {
