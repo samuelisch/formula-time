@@ -68,7 +68,7 @@ export function makeState(overrides: Partial<RaceState> = {}): RaceState {
       date_start: "2026-09-08T12:00:00.000Z",
       date_end: "2026-09-08T15:00:00.000Z",
       total_laps: 53,
-      status: "Started",
+      status: "live",
     },
     drivers: { "1": verstappen, "44": hamilton },
     driver_order: [1, 44],
