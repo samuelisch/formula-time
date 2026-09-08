@@ -2,6 +2,16 @@
 // -- later). Lists the current session first (labelled with its status),
 // then the historical races from `GET /api/races`, newest first as served,
 // deduplicated against the current session's key.
+//
+// `current === null` means "no session has been confirmed yet" (fix round
+// 2 on PR #85's review): this still renders a leading, disabled placeholder
+// entry rather than silently letting the browser's native <select> fallback
+// pick the first *historical* race as visually selected. A caller (e.g.
+// PollsPage) must never treat "no current session known yet" as license to
+// show a different, unrelated race's data -- that was the actual bug this
+// placeholder exists to make impossible to reintroduce: if the dropdown can
+// only ever show a historical race as selected when its `value` explicitly
+// names one, the caller's content and the selector can't drift apart.
 import type { SessionStatusValue } from "../live/selectors.ts";
 import type { RaceIndexEntry } from "./api.ts";
 import styles from "./RaceSelect.module.css";
@@ -39,7 +49,11 @@ export function RaceSelect({ current, races, value, onChange, id }: RaceSelectPr
           {current.label}
           {current.status !== null ? ` — ${STATUS_LABEL[current.status]}` : ""}
         </option>
-      ) : null}
+      ) : (
+        <option value="" disabled>
+          Current session
+        </option>
+      )}
       {historicalRaces.map((race) => (
         <option key={race.session_key} value={String(race.session_key)}>
           {race.country} · {race.name}

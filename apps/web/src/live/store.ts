@@ -7,6 +7,8 @@ import { axisOf, type Connection, type LivePush } from "./types.ts";
 export interface LiveStore {
   connection: Connection;
   catchingUp: boolean;
+  /** True once at least one `status` SSE frame has landed -- distinguishes "still settling" (connected, nothing received yet) from "connected and confirmed no push is imminent" (issue #80/#94 fix round 2: PollsPage's default-race-selection needs this to know when it is safe to fall back to a historical race). */
+  statusReceived: boolean;
   lastMessageAt: number | null;
   live: LivePush | null; // newest push, the live edge
   buffer: PushBuffer;
@@ -70,6 +72,7 @@ export function createLiveStore(): LiveStoreApi {
   return create<LiveStore>()((set, get) => ({
     connection: "connecting",
     catchingUp: false,
+    statusReceived: false,
     lastMessageAt: null,
     live: null,
     buffer: emptyBuffer(),
@@ -80,7 +83,7 @@ export function createLiveStore(): LiveStoreApi {
 
     onOpen: () => set({ connection: "open" }),
     onError: () => set({ connection: "reconnecting" }),
-    onStatus: (status) => set({ catchingUp: status.catching_up }),
+    onStatus: (status) => set({ catchingUp: status.catching_up, statusReceived: true }),
 
     onState: (raw, push, now) => {
       const buffer = append(get().buffer, { at: axisOf(push), raw });

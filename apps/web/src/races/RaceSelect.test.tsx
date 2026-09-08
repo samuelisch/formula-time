@@ -65,11 +65,19 @@ describe("RaceSelect", () => {
     expect(options.map((option) => option.value)).toEqual(["11361", "11200"]);
   });
 
-  it("renders only the historical races when there is no current session", () => {
+  it("renders a disabled placeholder ahead of the historical races when there is no current session", () => {
     render(<RaceSelect current={null} races={races} value="11361" onChange={vi.fn()} />);
 
     const options = screen.getAllByRole("option") as HTMLOptionElement[];
-    expect(options.map((option) => option.value)).toEqual(["11361", "11200"]);
+    expect(options.map((option) => option.value)).toEqual(["", "11361", "11200"]);
+    expect(options.at(0)).toBeDisabled();
+  });
+
+  it("shows the placeholder as selected when the value is empty, never silently selecting a historical race (fix round 2 on PR #85)", () => {
+    render(<RaceSelect current={null} races={races} value="" onChange={vi.fn()} />);
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    expect(select.value).toBe("");
   });
 
   it("calls onChange with the selected session_key", () => {

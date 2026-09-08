@@ -18,12 +18,13 @@ import { useLiveStore } from "../live/store.ts";
 import { makePoll } from "../polls/pollFixtures.ts";
 import type { RaceIndexEntry } from "../races/api.ts";
 import { makePush } from "../test/fixtures.ts";
-import { PollsPage } from "./PollsPage.tsx";
+import { NO_SESSION_TIMEOUT_MS, PollsPage } from "./PollsPage.tsx";
 
 function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>> = {}): void {
   useLiveStore.setState({
     connection: "connecting",
     catchingUp: false,
+    statusReceived: false,
     lastMessageAt: null,
     live: null,
     buffer: emptyBuffer(),
@@ -32,6 +33,11 @@ function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>>
     bufferShort: false,
     ...overrides,
   });
+}
+
+/** Settled: the SSE connection is open and has delivered a status frame, but (per the test) not necessarily a push yet -- the state fix round 2 on PR #85 needs before it will show anything but "Connecting…". */
+function settledConnection(): Partial<ReturnType<typeof useLiveStore.getState>> {
+  return { connection: "open", statusReceived: true };
 }
 
 const races: RaceIndexEntry[] = [
@@ -96,6 +102,7 @@ describe("PollsPage", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
     resetStore();
   });
 
@@ -116,6 +123,9 @@ describe("PollsPage", () => {
 
   it("keeps a vote cast before the first push visible once the push lands", async () => {
     const poll = makePoll({ poll_id: "99911353:winner", status: "open" });
+    // Connected and settled, but the session hasn't pushed its first state
+    // yet -- past "Connecting…", into the GET /api/polls initial-fill window.
+    resetStore(settledConnection());
 
     stubFetch({
       polls: [poll],
@@ -227,21 +237,87 @@ describe("PollsPage", () => {
     expect(screen.queryByText(/^LAP /)).not.toBeInTheDocument();
   });
 
-  it("fix round 1: falls back to the newest race's own polls (not the empty current-session branch) when there is no current session at all", async () => {
-    // No push ever arrives -- session-lifecycle.ts's pickSession() === null
-    // path (a genuinely session-less deploy, e.g. off-season), not the
-    // transient pre-first-push window. RaceSelect has nothing to list as
-    // "current" and defaults its dropdown to the newest race; the poll list
-    // must show that same race's polls rather than the current-session
-    // fallback, which was PR #85's review finding.
-    resetStore({ displayed: null });
-    const historicalPoll = makePoll({ poll_id: "11361:winner", question: "Podium order?" });
-    stubFetch({ polls: [], races, racePolls: { "11361": [historicalPoll] } });
+  // Fix round 2 on PR #85: the previous (round 1) fix inferred "no current
+  // session" straight from `sessionKey === null`, which raced GET /api/races
+  // against the first SSE push -- a fast-resolving races fetch could show an
+  // unrelated race's polls moments before the real push landed. These four
+  // cases pin the settled-connection design that replaced it.
+  describe("default selection when no current session is known yet (fix round 2)", () => {
+    it("shows Connecting… while settling, even once GET /api/races has already resolved", async () => {
+      resetStore(); // connection: "connecting" (default) -- never settles in this test.
+      stubFetch({ races });
 
-    renderPage();
+      renderPage();
 
-    expect(await screen.findByText("Podium order?")).toBeInTheDocument();
-    const select = (await screen.findByRole("combobox")) as HTMLSelectElement;
-    expect(select.value).toBe("11361");
+      expect(await screen.findByText("Connecting…")).toBeInTheDocument();
+      expect(screen.queryByText("No polls for this race")).not.toBeInTheDocument();
+    });
+
+    it("leaves Connecting… for the normal current-session view once settled, then shows the push's polls once it lands", async () => {
+      resetStore(); // still "connecting"
+      const poll = makePoll({ poll_id: "9999:winner", question: "Who wins?" });
+      stubFetch({ polls: [], races: [] });
+
+      renderPage();
+      expect(await screen.findByText("Connecting…")).toBeInTheDocument();
+
+      // Settles (connection open, a status frame lands) -- still no push,
+      // but settling itself is over: falls through to the ordinary
+      // current-session view (the GET /api/polls initial fill, which
+      // resolved to [] here), not "Connecting…" any more.
+      act(() => {
+        useLiveStore.setState(settledConnection());
+      });
+      await waitFor(() => expect(screen.queryByText("Connecting…")).not.toBeInTheDocument());
+      expect(await screen.findByText("No polls for this race")).toBeInTheDocument();
+
+      act(() => {
+        useLiveStore.setState({
+          displayed: makePush({ session_key: "9999", polls: [poll] }, { session: { session_key: "9999", country: "Italy", name: "Race", status: "live" } }),
+        });
+      });
+      expect(await screen.findByText("Who wins?")).toBeInTheDocument();
+    });
+
+    it(`falls back to the newest race's own polls once settled and NO_SESSION_TIMEOUT_MS pass with still no push`, async () => {
+      resetStore(settledConnection()); // open + a status frame already landed, no push
+      const historicalPoll = makePoll({ poll_id: "11361:winner", question: "Podium order?" });
+      stubFetch({ polls: [], races, racePolls: { "11361": [historicalPoll] } });
+
+      vi.useFakeTimers();
+      try {
+        renderPage();
+        // Settled from the start (settledConnection()) -- no "Connecting…",
+        // straight to the normal (empty, so far) current-session view while
+        // the background timeout runs.
+        expect(screen.queryByText("Connecting…")).not.toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(NO_SESSION_TIMEOUT_MS);
+        });
+        // Flush whatever the resulting state change queued (TanStack
+        // Query's own scheduling) before real timers take back over.
+        await act(async () => {
+          await vi.runOnlyPendingTimersAsync();
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(await screen.findByText("Podium order?")).toBeInTheDocument();
+      const select = screen.getByRole("combobox") as HTMLSelectElement;
+      expect(select.value).toBe("11361");
+    });
+
+    it("an explicit ?race= param wins immediately, ignoring settling", async () => {
+      resetStore(); // connection stays "connecting" throughout -- never settles
+      const historicalPoll = makePoll({ poll_id: "11361:winner", question: "Podium order?" });
+      stubFetch({ races, racePolls: { "11361": [historicalPoll] } });
+
+      renderPage("/polls?race=11361");
+
+      expect(await screen.findByText("Podium order?")).toBeInTheDocument();
+      expect(screen.queryByText("Connecting…")).not.toBeInTheDocument();
+    });
   });
 });
