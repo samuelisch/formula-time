@@ -69,9 +69,14 @@ process.on("SIGTERM", () => {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log("ingest: SIGTERM received, draining queue");
-  restLane.stop();
-  void writer
+  // Wait for any in-flight poll to finish enqueueing before draining the
+  // writer — otherwise a tick already awaiting the network lands its rows
+  // on the queue after the writer has already drained and the process has
+  // exited (the SIGTERM race: restLane.stop() alone only stops scheduling
+  // future ticks, it doesn't wait for the current one).
+  void restLane
     .stop()
+    .then(() => writer.stop())
     .then((totals) => {
       console.log(`ingest: drained (inserted=${totals.inserted} skipped=${totals.skipped}); exiting`);
       return db.$disconnect();

@@ -246,3 +246,60 @@ describe("RestLane.maybeFetchPreRaceDrivers", () => {
     expect(calls.filter((u) => u.includes("drivers")).length).toBe(afterDiscovery + 1);
   });
 });
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error("waitUntil: timed out waiting for condition");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+describe("RestLane.stop() and an in-flight tick (SIGTERM race)", () => {
+  test("stop() does not resolve until the in-flight poll's fetch resolves, and its rows are in the queue by then", async () => {
+    const queue = new EventQueue<QueueItem>();
+    let resolvePosition: ((rows: RawRecord[]) => void) | null = null;
+    const fetcher = (url: string): Promise<unknown> => {
+      if (url.includes("/sessions")) return Promise.resolve([SESSION]);
+      if (url.includes("/drivers")) return Promise.resolve([]);
+      // The rotation poll (first endpoint in POLL_ROTATION is "position"):
+      // left pending until the test resolves it, simulating a slow network
+      // call still in flight when stop() is called.
+      return new Promise<RawRecord[]>((resolve) => {
+        resolvePosition = resolve;
+      });
+    };
+    const lane = new RestLane(queue, {
+      fetcher,
+      now: () => START,
+      tickMs: 5,
+      discoveryIntervalMs: 5,
+      onLog: () => {},
+    });
+
+    lane.start();
+    // Discovery (immediate) selects the session; the next tick (~5ms later)
+    // starts the rotation poll and blocks on the pending "position" fetch.
+    await waitUntil(() => resolvePosition !== null);
+
+    let stopped = false;
+    const stopPromise = lane.stop().then(() => {
+      stopped = true;
+    });
+
+    // The fetch is still pending: stop() must not have resolved yet, and no
+    // rows from this tick should be queued.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(stopped).toBe(false);
+    expect(queue.size).toBe(0);
+
+    // Let the fetch resolve — the tick can now finish enqueueing its rows.
+    resolvePosition!([{ driver_number: 1, date: "2026-09-06T13:00:00Z" }]);
+    await stopPromise;
+
+    expect(stopped).toBe(true);
+    expect(queue.size).toBeGreaterThan(0);
+    const [item] = queue.drain(10);
+    expect(item).toMatchObject({ endpoint: "position" });
+  });
+});

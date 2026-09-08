@@ -112,6 +112,11 @@ export class RestLane {
 
   private running = false;
   private timer: NodeJS.Timeout | null = null;
+  // Tracks the tick currently awaiting the network so `stop()` can wait for
+  // it instead of returning while a `pollOnce`/`discoverOnce` is still
+  // in-flight — otherwise it enqueues rows after the writer has already
+  // drained and the process has exited (SIGTERM race).
+  private currentTick: Promise<void> | null = null;
 
   public constructor(
     private readonly queue: EventQueue<QueueItem>,
@@ -286,16 +291,10 @@ export class RestLane {
     this.running = true;
     const loop = async (): Promise<void> => {
       if (!this.running) return;
-      try {
-        if (this.sessionKey === null) {
-          await this.discoverOnce();
-        } else {
-          await this.maybeFetchPreRaceDrivers();
-          await this.pollOnce();
-        }
-      } catch (error) {
-        this.log(`rest: tick failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
+      const tick = this.runOneTick();
+      this.currentTick = tick;
+      await tick;
+      this.currentTick = null;
       if (!this.running) return;
       const delay = this.sessionKey === null ? this.discoveryIntervalMs : this.tickMs;
       this.timer = setTimeout(() => void loop(), delay);
@@ -303,9 +302,28 @@ export class RestLane {
     this.timer = setTimeout(() => void loop(), 0);
   }
 
-  public stop(): void {
+  private async runOneTick(): Promise<void> {
+    try {
+      if (this.sessionKey === null) {
+        await this.discoverOnce();
+      } else {
+        await this.maybeFetchPreRaceDrivers();
+        await this.pollOnce();
+      }
+    } catch (error) {
+      this.log(`rest: tick failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Stops scheduling further ticks and resolves once any tick already
+   * in-flight (awaiting the network) has finished — so its rows are in the
+   * queue before the caller drains and exits (SIGTERM path in main.ts).
+   */
+  public async stop(): Promise<void> {
     this.running = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    if (this.currentTick) await this.currentTick;
   }
 }
