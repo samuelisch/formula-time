@@ -340,6 +340,44 @@ describe("RestLane retries a failed drivers fetch instead of giving up forever",
     await lane.discoverOnce(); // now marked done: no further retry
     expect(meetingFetchCount).toBe(2);
   });
+
+  test("driversPreRaceDone is set only on success: a failed pre-race fetch retries on the next tick", async () => {
+    // No meeting_key: isolates this from the Friday entry-list path.
+    const { meeting_key: _omit, ...sessionWithoutMeeting } = SESSION;
+    let driversCallCount = 0;
+    const fetcher = (url: string): Promise<unknown> => {
+      if (url.includes("/sessions")) return Promise.resolve([sessionWithoutMeeting]);
+      if (url.includes("/drivers")) {
+        driversCallCount += 1;
+        // Call 1 is the "at discovery" fetch (succeeds); call 2 is the
+        // pre-race fetch's first attempt (fails); call 3 is its retry.
+        if (driversCallCount === 2) return Promise.reject(new Error("network blip"));
+        return Promise.resolve([{ driver_number: 1 }]);
+      }
+      return Promise.resolve([]);
+    };
+    const queue = new EventQueue<QueueItem>();
+    let now = START - 10 * 60 * 1000; // 10 min before start: inside the live window
+    const lane = new RestLane(queue, {
+      fetcher,
+      now: () => now,
+      driversPreRaceLeadMs: 5 * 60 * 1000,
+      onLog: () => {},
+    });
+
+    await lane.discoverOnce(); // "at discovery" fetch succeeds
+    expect(driversCallCount).toBe(1);
+
+    now = START - 4 * 60 * 1000; // now inside the 5-minute lead
+    await lane.maybeFetchPreRaceDrivers(); // fails
+    expect(driversCallCount).toBe(2);
+
+    await lane.maybeFetchPreRaceDrivers(); // not marked done: retries, succeeds
+    expect(driversCallCount).toBe(3);
+
+    await lane.maybeFetchPreRaceDrivers(); // now marked done: no further retry
+    expect(driversCallCount).toBe(3);
+  });
 });
 
 describe("RestLane.stop() and an in-flight tick (SIGTERM race)", () => {

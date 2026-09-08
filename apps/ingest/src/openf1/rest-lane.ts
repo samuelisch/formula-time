@@ -235,8 +235,11 @@ export class RestLane {
     const start = Date.parse(String(this.session["date_start"] ?? ""));
     if (Number.isNaN(start)) return;
     if (this.now() >= start - this.driversPreRaceLeadMs) {
-      this.driversPreRaceDone = true;
-      await this.fetchDrivers(`${OPENF1_BASE}/drivers?session_key=${this.sessionKey}`, this.sessionKey);
+      // Marked done only on success: a transient failure must retry on the
+      // next tick, not be skipped forever (same pattern as
+      // driversAtDiscoveryDone / meetingEntryListFetched above).
+      const ok = await this.fetchDrivers(`${OPENF1_BASE}/drivers?session_key=${this.sessionKey}`, this.sessionKey);
+      if (ok) this.driversPreRaceDone = true;
     }
   }
 
