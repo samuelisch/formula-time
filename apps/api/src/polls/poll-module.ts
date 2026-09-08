@@ -3,15 +3,18 @@
 // settles server-side, never in the browser. A vote is acknowledged only
 // after its insert commits."
 //
-// This slice carries the poll lifecycle only (open from templates, lock,
-// resolve, void, tallies, publicPolls). `vote()` lands in a follow-up slice
-// (#24) once this is merged; it will call a conditional upsert (vote-path.ts)
-// under the same rule this file already follows: the Postgres write lands
-// first, and only once it resolves does the in-memory status change.
+// Lock / resolve / void all follow the same rule: the Postgres write lands
+// first, and only once it resolves does the in-memory status change. A vote
+// that commits before a lock write is valid and must be in the tally; a
+// vote that races the write and loses gets 0 rows from vote-path's
+// conditional upsert (see vote-path.ts for why that check lives inside the
+// write rather than before it).
 import type { Prisma, PrismaClient } from "@formula-time/db";
 import { isChequered, leaderLap } from "@formula-time/domain";
 import type { RaceState } from "@formula-time/domain";
 import { locksAtLap } from "@formula-time/domain";
+
+import { upsertVote } from "./vote-path.js";
 
 export type PollTemplateKind = "winner" | "podium";
 export type PollLifecycleStatus = "open" | "locked" | "resolved" | "void";
@@ -32,6 +35,10 @@ export interface PollPublic {
   total_votes: number;
   winning_option_ids: string[] | null;
 }
+
+export type VoteResult =
+  | { ok: true; poll: PollPublic; option_id: string }
+  | { ok: false; status: 404 | 400 | 409; error: string };
 
 export interface PollModuleLogger {
   info(msg: string): void;
@@ -85,6 +92,9 @@ export class PollModule {
   // onState must be synchronous-safe (called from the projector's tick); its
   // own DB writes are serialised through this promise chain instead.
   private writeChain: Promise<void> = Promise.resolve();
+  // Per-viewer vote serialization (see vote()'s comment): one chain per
+  // viewer currently mid-vote; absent once that viewer's votes have drained.
+  private readonly voteChains = new Map<string, Promise<VoteResult>>();
 
   public constructor(opts: { db: PrismaClient; log: PollModuleLogger }) {
     this.db = opts.db;
@@ -168,6 +178,63 @@ export class PollModule {
 
   public publicPolls(): PollPublic[] {
     return Array.from(this.polls.values(), toPublic);
+  }
+
+  // Two concurrent votes from the same viewer race: Postgres decides which
+  // option is stored last by commit order, but without serialization here,
+  // poll.votes.set(viewerId, ...) below would run in whichever order the
+  // two promises happen to resolve in on this process — not necessarily
+  // the DB's commit order — so memory could end up disagreeing with the
+  // table (CI caught this as tally drift under a same-viewer burst).
+  //
+  // A vote for a viewer waits for that viewer's previous vote (upsert and
+  // memory update both) to finish before starting; votes from different
+  // viewers still run fully concurrently. One process holds all votes
+  // (ADR-0001 §1), so this per-viewer ordering is authoritative — nothing
+  // else writes `votes`.
+  public vote(pollId: string, viewerId: string, optionId: string): Promise<VoteResult> {
+    const previous = this.voteChains.get(viewerId) ?? Promise.resolve();
+    const chained: Promise<VoteResult> = previous.then(
+      () => this.voteOnce(pollId, viewerId, optionId),
+      () => this.voteOnce(pollId, viewerId, optionId),
+    );
+    // Only clear the entry if nothing newer has been chained after this
+    // vote — a later call for the same viewer may already have replaced it.
+    const tracked = chained.finally(() => {
+      if (this.voteChains.get(viewerId) === tracked) {
+        this.voteChains.delete(viewerId);
+      }
+    });
+    this.voteChains.set(viewerId, tracked);
+    return tracked;
+  }
+
+  private async voteOnce(pollId: string, viewerId: string, optionId: string): Promise<VoteResult> {
+    const poll = this.polls.get(pollId);
+    if (poll === undefined) {
+      return { ok: false, status: 404, error: `unknown poll ${pollId}` };
+    }
+    if (!poll.options.some((option) => option.id === optionId)) {
+      return { ok: false, status: 400, error: `unknown option ${optionId}` };
+    }
+    if (poll.status !== "open") {
+      return { ok: false, status: 409, error: "poll is locked" };
+    }
+
+    // Fast reject above is only a hint; the conditional upsert below is the
+    // truth (see vote-path.ts). A returned row means the vote counted, and
+    // memory is set from the option_id Postgres actually stored — never
+    // from this call's own `optionId` argument — because the per-viewer
+    // chain above only rules out this process racing itself; the value
+    // Postgres returns is still the one fact that matches the committed
+    // row. Only after it resolves is the vote acknowledged to the caller.
+    const storedOptionId = await upsertVote(this.db, pollId, viewerId, optionId);
+    if (storedOptionId === null) {
+      return { ok: false, status: 409, error: "poll is locked" };
+    }
+
+    poll.votes.set(viewerId, storedOptionId);
+    return { ok: true, poll: toPublic(poll), option_id: storedOptionId };
   }
 
   private async applyState(state: RaceState): Promise<void> {
