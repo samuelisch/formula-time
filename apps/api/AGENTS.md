@@ -43,7 +43,7 @@ gzip per viewer, which the fan-out design forbids.
 ## Conventions
 
 - ESM everywhere: relative imports end in `.js` even from `.ts` (NodeNext).
-- One TypeScript at the repo root; `tsc -b` per package, `pnpm typecheck`
+- One TypeScript at the repo root; `tsc -b` per package; `pnpm typecheck`
   at the root must pass.
 - Unit tests: `*.test.ts` next to the source, vitest, in-memory fakes only.
   Integration tests: `*.integration.test.ts`, need Postgres from
