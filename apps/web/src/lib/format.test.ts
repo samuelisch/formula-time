@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clock, number, text } from "./format.ts";
+import { clock, lapTime, number, text } from "./format.ts";
 
 describe("text", () => {
   it("falls back on null, undefined, and empty string", () => {
@@ -31,6 +31,26 @@ describe("number", () => {
     expect(number(1.2345)).toBe("1.2");
     expect(number(1.2367, 3)).toBe("1.237");
     expect(number(1, 0)).toBe("1");
+  });
+});
+
+describe("lapTime", () => {
+  it("falls back to em dash on null, undefined, and non-numeric values", () => {
+    expect(lapTime(null)).toBe("—");
+    expect(lapTime(undefined)).toBe("—");
+    expect(lapTime("31.234")).toBe("—");
+  });
+
+  it("formats a sub-minute value as seconds to 3 decimals, like number(value, 3)", () => {
+    expect(lapTime(31.2)).toBe("31.200");
+    expect(lapTime(9.567)).toBe("9.567");
+  });
+
+  it("formats a value at or above 60s as m:ss.SSS, zero-padding the seconds", () => {
+    expect(lapTime(91.234)).toBe("1:31.234");
+    expect(lapTime(61.005)).toBe("1:01.005");
+    expect(lapTime(60)).toBe("1:00.000");
+    expect(lapTime(125.5)).toBe("2:05.500");
   });
 });
 
