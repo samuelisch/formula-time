@@ -156,7 +156,15 @@ export class RestLane {
     const rows = sessions as RawRecord[];
 
     for (const row of rows) {
-      await this.onSession?.(row, nowMs);
+      try {
+        await this.onSession?.(row, nowMs);
+      } catch (error) {
+        // One malformed row (bad session_key, bad date) must not throw out
+        // of this loop and starve ensureLiveSession()/the Friday entry-list
+        // check every discovery tick — sessions.ts's upsertSession is what
+        // actually validates and throws; this is where ingest survives it.
+        this.log(`rest: session row skipped: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
     // Session selection first: it may reset the normalizer's dedup state for

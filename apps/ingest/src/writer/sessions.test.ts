@@ -58,6 +58,13 @@ describe("computeSessionStatus", () => {
   test("more than 30 minutes after date_end -> finished", () => {
     expect(computeSessionStatus(start, end, END_MS + 31 * 60 * 1000)).toBe("finished");
   });
+
+  test("NaN dates never resolve to live — the safe default is upcoming", () => {
+    const invalid = new Date(NaN);
+    expect(computeSessionStatus(invalid, end, START_MS)).toBe("upcoming");
+    expect(computeSessionStatus(start, invalid, START_MS)).toBe("upcoming");
+    expect(computeSessionStatus(invalid, invalid, START_MS)).toBe("upcoming");
+  });
 });
 
 describe("upsertSession", () => {
@@ -95,5 +102,36 @@ describe("upsertSession", () => {
 
     expect(db.rows.size).toBe(1);
     expect((db.rows.get("11361") as Record<string, unknown>)["status"]).toBe("live");
+  });
+
+  test("an invalid date_start is rejected without touching the db", async () => {
+    const db = fakeDb();
+    await expect(
+      upsertSession(db, { ...RAW_SESSION, date_start: "not a date" }, START_MS),
+    ).rejects.toThrow(/date_start/);
+    expect(db.rows.size).toBe(0);
+  });
+
+  test("an invalid date_end is rejected without touching the db", async () => {
+    const db = fakeDb();
+    await expect(
+      upsertSession(db, { ...RAW_SESSION, date_end: "also not a date" }, START_MS),
+    ).rejects.toThrow(/date_end/);
+    expect(db.rows.size).toBe(0);
+  });
+
+  test("a non-integer session_key is rejected without touching the db", async () => {
+    const db = fakeDb();
+    await expect(upsertSession(db, { ...RAW_SESSION, session_key: 11_361.5 }, START_MS)).rejects.toThrow(
+      /session_key/,
+    );
+    expect(db.rows.size).toBe(0);
+  });
+
+  test("a missing session_key is rejected without touching the db", async () => {
+    const db = fakeDb();
+    const { session_key: _omit, ...withoutKey } = RAW_SESSION;
+    await expect(upsertSession(db, withoutKey, START_MS)).rejects.toThrow(/session_key/);
+    expect(db.rows.size).toBe(0);
   });
 });

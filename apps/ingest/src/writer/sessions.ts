@@ -35,6 +35,11 @@ const LIVE_WINDOW_MS = 30 * 60 * 1000;
 export function computeSessionStatus(dateStart: Date, dateEnd: Date, nowMs: number): SessionStatus {
   const start = dateStart.getTime();
   const end = dateEnd.getTime();
+  // Defense in depth: sessionFieldsFromRaw() validates both dates before
+  // this ever runs, so NaN here should be unreachable — but comparisons
+  // against NaN are always false in JS, which would otherwise fall through
+  // to "live" for malformed input. "upcoming" is the safe default instead.
+  if (Number.isNaN(start) || Number.isNaN(end)) return "upcoming";
   if (nowMs < start - LIVE_WINDOW_MS) return "upcoming";
   if (nowMs > end + LIVE_WINDOW_MS) return "finished";
   return "live";
@@ -42,8 +47,22 @@ export function computeSessionStatus(dateStart: Date, dateEnd: Date, nowMs: numb
 
 function sessionKeyOf(raw: RawRecord): bigint {
   const value = raw["session_key"];
-  if (typeof value === "number" || typeof value === "string") return BigInt(value);
-  throw new Error("upsertSession: raw session has no session_key");
+  if (typeof value !== "number" && typeof value !== "string") {
+    throw new Error("upsertSession: raw session has no session_key");
+  }
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new Error(`upsertSession: session_key is not finite: ${value}`);
+  }
+  try {
+    return BigInt(value);
+  } catch (error) {
+    // BigInt() throws SyntaxError for a non-integer-looking string and
+    // RangeError for a non-integer number (e.g. 11361.5) — both mean the
+    // row is malformed, not that ingest is broken.
+    throw new Error(
+      `upsertSession: session_key is not a valid integer: ${JSON.stringify(value)} (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
 }
 
 function stringField(raw: RawRecord, ...keys: string[]): string {
@@ -54,9 +73,21 @@ function stringField(raw: RawRecord, ...keys: string[]): string {
   return "";
 }
 
+function validDate(raw: RawRecord, key: string): Date {
+  const value = raw[key];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`upsertSession: missing ${key}`);
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`upsertSession: invalid ${key}: ${JSON.stringify(value)}`);
+  }
+  return date;
+}
+
 export function sessionFieldsFromRaw(raw: RawRecord, nowMs: number): SessionFields {
-  const dateStart = new Date(String(raw["date_start"]));
-  const dateEnd = new Date(String(raw["date_end"]));
+  const dateStart = validDate(raw, "date_start");
+  const dateEnd = validDate(raw, "date_end");
   const circuitKey = Number(raw["circuit_key"] ?? 0);
   return {
     name: stringField(raw, "session_name", "session_type"),
@@ -72,6 +103,12 @@ export function sessionFieldsFromRaw(raw: RawRecord, nowMs: number): SessionFiel
 /**
  * Upserts the `sessions` row for a raw OpenF1 `sessions` record. `nowMs`
  * drives the `upcoming` / `live` / `finished` status (issue deliverable 4).
+ *
+ * Validates first (`sessionKeyOf`, `sessionFieldsFromRaw`): a malformed
+ * `session_key`, `date_start`, or `date_end` throws a descriptive error
+ * before `db.session.upsert()` is ever called, rather than writing a
+ * corrupt row. The caller (`RestLane.discoverOnce()`) catches this per row
+ * so one bad session doesn't stop the others from being upserted.
  */
 export async function upsertSession(db: SessionsDb, raw: RawRecord, nowMs: number): Promise<void> {
   const sessionKey = sessionKeyOf(raw);
