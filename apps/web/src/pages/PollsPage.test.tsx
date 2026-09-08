@@ -65,6 +65,8 @@ interface FetchHandlers {
   polls?: unknown;
   races?: RaceIndexEntry[];
   racePolls?: Record<string, unknown>;
+  /** session_keys whose GET /api/races/:key/polls should answer 500 instead of the racePolls body. */
+  racePollsFail?: string[];
   vote?: unknown;
 }
 
@@ -76,6 +78,9 @@ function stubFetch(handlers: FetchHandlers): ReturnType<typeof vi.fn> {
     const racePollsMatch = /^\/api\/races\/([^/]+)\/polls$/.exec(url);
     if (racePollsMatch) {
       const key = racePollsMatch[1] as string;
+      if (handlers.racePollsFail?.includes(key) === true) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "boom" }), { status: 500 }));
+      }
       return Promise.resolve(new Response(JSON.stringify(handlers.racePolls?.[key] ?? []), { status: 200 }));
     }
     throw new Error(`unexpected fetch ${url}`);
@@ -318,6 +323,49 @@ describe("PollsPage", () => {
 
       expect(await screen.findByText("Podium order?")).toBeInTheDocument();
       expect(screen.queryByText("Connecting…")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows Loading polls… while a historical race's fetch is in flight", () => {
+    resetStore({
+      displayed: makePush(
+        { session_key: "9999", polls: [] },
+        { session: { session_key: "9999", country: "Italy", name: "Race", status: "finished" } },
+      ),
+    });
+    // A fetch that never resolves during this test -- the query stays pending.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === "/api/races") return Promise.resolve(new Response(JSON.stringify(races), { status: 200 }));
+        return new Promise<Response>(() => {});
+      }),
+    );
+
+    renderPage("/polls?race=11361");
+
+    expect(screen.getByText("Loading polls…")).toBeInTheDocument();
+  });
+
+  it("shows Could not load polls for this race on a failed fetch, and Retry triggers a second fetch", async () => {
+    resetStore({
+      displayed: makePush(
+        { session_key: "9999", polls: [] },
+        { session: { session_key: "9999", country: "Italy", name: "Race", status: "finished" } },
+      ),
+    });
+    const fetchStub = stubFetch({ races, racePollsFail: ["11361"] });
+
+    renderPage("/polls?race=11361");
+
+    expect(await screen.findByText("Could not load polls for this race")).toBeInTheDocument();
+    const callsBeforeRetry = fetchStub.mock.calls.filter((call: unknown[]) => call[0] === "/api/races/11361/polls").length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      const callsAfterRetry = fetchStub.mock.calls.filter((call: unknown[]) => call[0] === "/api/races/11361/polls").length;
+      expect(callsAfterRetry).toBeGreaterThan(callsBeforeRetry);
     });
   });
 });
