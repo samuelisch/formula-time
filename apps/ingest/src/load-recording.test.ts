@@ -217,6 +217,20 @@ describe("loadRecordings: issue #71 — upcoming, then events, then finished", (
     expect(totals.sessionsSkipped).toBe(1);
     expect(logs.some((line) => line.includes("9401") && line.toLowerCase().includes("upcoming"))).toBe(true);
   });
+
+  test("a rerun against an already-finished session never demotes it to upcoming (round 1 fix, #74)", async () => {
+    const db = fakeDb();
+    await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
+    expect(db.sessions.get("9401")?.status).toBe("finished");
+
+    const callsBeforeRerun = db.callLog.length;
+    const totals = await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
+
+    const callsDuringRerun = db.callLog.slice(callsBeforeRerun);
+    expect(callsDuringRerun).not.toContain("upsert:upcoming");
+    expect(db.sessions.get("9401")?.status).toBe("finished");
+    expect(totals.sessionsSkipped).toBe(0);
+  });
 });
 
 describe("loadRecordings: ADR-0010 — refuses a live session, writes nothing for it", () => {

@@ -144,7 +144,17 @@ async function loadOneSession(
   // `upcoming` first instead: it satisfies the `events` FK (the exporter's
   // query ignores `upcoming` rows) without ever exposing a finished session
   // with no events.
-  await upsertSession(db, session, nowMs, { status: "upcoming" });
+  //
+  // Round 1 fix (PR #74 review): skip that `upcoming` upsert when the row is
+  // already `finished` — a rerun of an already-loaded recording (idempotent
+  // by design; see `loadRecordings`'s doc comment) must not visibly demote a
+  // finished session back to `upcoming` and then straight back to
+  // `finished`. The final `upsertSession(..., { status: "finished" })` below
+  // still runs either way, so the net effect is unchanged: still finished.
+  const alreadyFinished = existing?.status === "finished";
+  if (!alreadyFinished) {
+    await upsertSession(db, session, nowMs, { status: "upcoming" });
+  }
 
   const normalizer = new LiveNormalizer();
 
