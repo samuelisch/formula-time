@@ -1,10 +1,14 @@
 import type { RaceEvent, RawRecord } from "@formula-time/domain";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
+import { useLiveStore } from "../live/store.ts";
+import { makePoll } from "../polls/pollFixtures.ts";
+import { usePollModalUiStore } from "../polls/pollModalStore.ts";
 import type { RaceFile } from "../races/api.ts";
+import { makePush } from "../test/fixtures.ts";
 import { ReplayPage } from "./ReplayPage.tsx";
 
 const SESSION: RawRecord = {
@@ -58,9 +62,17 @@ function renderPage(): void {
   );
 }
 
+function resetStores(): void {
+  useLiveStore.setState({ displayed: null });
+  usePollModalUiStore.setState({ isOpen: false, lastSignature: "", lastSessionKey: null });
+}
+
 describe("ReplayPage", () => {
+  beforeEach(resetStores);
+
   afterEach(() => {
     vi.unstubAllGlobals();
+    resetStores();
   });
 
   it("fetches the export file, folds it, and mounts the board through BoardSourceProvider with the transport bar's slider bounds", async () => {
@@ -88,5 +100,26 @@ describe("ReplayPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Could not load this race.")).toBeInTheDocument());
+  });
+
+  // Polls are live-only by product stance: a replay must never show or open
+  // them. `Shell` holds the live SSE connection open on every route, so the
+  // live store can hold an open poll while a replay is mounted; the replay's
+  // synthesized push carries `polls: []`, and `usePolls()`/`PollModal` read
+  // that push through `useBoardPush()`, not the live store directly. Against
+  // the pre-fix code this fails twice over: the toolbar button reads
+  // "Polls (1)" and the modal auto-pops for an unrelated live poll.
+  it("shows no poll count and never pops the modal while the live store holds an open poll", async () => {
+    useLiveStore.setState({
+      displayed: makePush({ session_key: "9999", polls: [makePoll({ poll_id: "9999:winner", status: "open" })] }),
+    });
+    stubFetch();
+    renderPage();
+
+    await waitFor(() => screen.getByRole("slider", { name: "Playback position" }));
+
+    expect(screen.getByRole("button", { name: "Polls" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Polls (1)" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Race polls" })).not.toBeInTheDocument();
   });
 });
