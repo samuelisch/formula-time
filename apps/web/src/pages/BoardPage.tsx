@@ -2,6 +2,7 @@ import { Link } from "react-router";
 
 import { AlignPanel } from "../align/AlignPanel.tsx";
 import { Board } from "../board/Board.tsx";
+import { DriverPanel } from "../board/DriverPanel.tsx";
 import { useBoardSessionMeta, useBoardSessionStatus } from "../board/useBoardState.ts";
 import { date, stringField } from "../lib/format.ts";
 import { PollModal } from "../polls/PollModal.tsx";
@@ -56,6 +57,7 @@ export function BoardPage() {
             <TransportBar />
           </TimeTargetProvider>
         }
+        side={<DriverPanel />}
       />
       <PollModal polls={polls} />
     </div>

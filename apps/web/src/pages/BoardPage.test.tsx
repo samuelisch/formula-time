@@ -4,8 +4,9 @@
 // These tests cover that furniture and the fact that it is mounted here, not
 // in the shell and not on a replay.
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { MemoryRouter } from "react-router";
+import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
 
 import { BoardSourceProvider } from "../board/useBoardState.ts";
 import { makePush } from "../test/fixtures.ts";
@@ -19,6 +20,26 @@ function renderWith(push: ReturnType<typeof makePush> | null): void {
       </BoardSourceProvider>
     </MemoryRouter>,
   );
+}
+
+// A real router (not a bare MemoryRouter) so the test can read back
+// `?driver=` from `router.state.location.search` after a click.
+function renderWithRouter(push: ReturnType<typeof makePush> | null) {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/live",
+        element: (
+          <BoardSourceProvider push={push}>
+            <BoardPage />
+          </BoardSourceProvider>
+        ),
+      },
+    ],
+    { initialEntries: ["/live"] },
+  );
+  render(<RouterProvider router={router} />);
+  return router;
 }
 
 describe("BoardPage", () => {
@@ -70,5 +91,33 @@ describe("BoardPage", () => {
     );
 
     expect(screen.getByText("Race starts 2026-09-08. Timing appears when the session goes live.")).toBeInTheDocument();
+  });
+
+  // The driver panel's selection lives in the URL (issue #90): a row click
+  // sets `?driver=`, clicking the same row again clears it, and Escape
+  // clears it regardless of which row was clicked.
+  it("clicking a row selects the driver (?driver=), clicking it again clears it, and Escape clears it", async () => {
+    const user = userEvent.setup();
+    const router = renderWithRouter(makePush());
+
+    // Once the panel is open, "VER" also appears in the panel itself; the
+    // table row is always the first match (TimingTable renders before the
+    // side column in Board.tsx).
+    const clickDriverRow = () => user.click(screen.getAllByText("VER")[0]!);
+
+    await clickDriverRow();
+    expect(router.state.location.search).toBe("?driver=1");
+    expect(screen.getByText("Sector 1")).toBeInTheDocument(); // the driver panel is now showing
+
+    await clickDriverRow();
+    expect(router.state.location.search).toBe("");
+    expect(screen.queryByText("Sector 1")).not.toBeInTheDocument();
+
+    await clickDriverRow();
+    expect(router.state.location.search).toBe("?driver=1");
+
+    await user.keyboard("{Escape}");
+    expect(router.state.location.search).toBe("");
+    expect(screen.queryByText("Sector 1")).not.toBeInTheDocument();
   });
 });
