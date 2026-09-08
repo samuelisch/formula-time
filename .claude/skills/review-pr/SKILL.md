@@ -58,3 +58,4 @@ Merge is the owner's call.
 - Treating the PR's Verified section as proof. It is a claim. If CI runs the command, CI is the proof; if nothing runs it and the claim matters, say so under Notes.
 - Running the test suite from this skill. CI proves tests; this skill proves the review.
 - Ending a `--post` run with the verdict only in the transcript. Nobody reads the transcript; the review on the PR is the output.
+- Ending the turn while review agents are still running. In the workflow there is no next turn: the job ends and nothing is posted. Wait for every agent (the workflow runs them in the foreground); if any is still running, block on it before writing the verdict.
