@@ -196,10 +196,12 @@ export class RestLane {
       if (this.meetingEntryListFetched.has(meetingKey)) continue;
       const start = Date.parse(String(firstSession["date_start"] ?? ""));
       if (Number.isNaN(start) || nowMs < start) continue; // first session hasn't happened yet
-      this.meetingEntryListFetched.add(meetingKey);
       const sessionKeyForRows = Number(firstSession["session_key"]);
       if (!Number.isFinite(sessionKeyForRows)) continue;
-      await this.fetchDrivers(`${OPENF1_BASE}/drivers?meeting_key=${meetingKey}`, sessionKeyForRows);
+      // Marked done only on success: a transient failure must retry on the
+      // next discovery tick, not be skipped forever.
+      const ok = await this.fetchDrivers(`${OPENF1_BASE}/drivers?meeting_key=${meetingKey}`, sessionKeyForRows);
+      if (ok) this.meetingEntryListFetched.add(meetingKey);
     }
   }
 
@@ -220,8 +222,10 @@ export class RestLane {
       );
     }
     if (!this.driversAtDiscoveryDone) {
-      this.driversAtDiscoveryDone = true;
-      await this.fetchDrivers(`${OPENF1_BASE}/drivers?session_key=${key}`, key);
+      // Marked done only on success: a transient failure must retry on the
+      // next discovery tick, not be skipped forever.
+      const ok = await this.fetchDrivers(`${OPENF1_BASE}/drivers?session_key=${key}`, key);
+      if (ok) this.driversAtDiscoveryDone = true;
     }
   }
 
@@ -236,15 +240,17 @@ export class RestLane {
     }
   }
 
-  private async fetchDrivers(url: string, sessionKeyForRows: number): Promise<void> {
+  /** Returns whether the fetch succeeded, so callers only mark a "done" flag on success. */
+  private async fetchDrivers(url: string, sessionKeyForRows: number): Promise<boolean> {
     let rows: unknown;
     try {
       rows = await this.fetcher(url);
     } catch (error) {
       this.log(`rest: drivers fetch failed: ${error instanceof Error ? error.message : String(error)}`);
-      return;
+      return false;
     }
     await this.emitRows("drivers", sessionKeyForRows, Array.isArray(rows) ? (rows as RawRecord[]) : []);
+    return true;
   }
 
   /** One rotation step: fetch, normalize, enqueue. `null` when no session is active. */

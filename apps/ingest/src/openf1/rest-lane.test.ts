@@ -277,6 +277,71 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<vo
   }
 }
 
+describe("RestLane retries a failed drivers fetch instead of giving up forever", () => {
+  test("driversAtDiscoveryDone is set only on success: a failed at-discovery fetch retries on the next discoverOnce()", async () => {
+    // No meeting_key: isolates this from the Friday entry-list path (its
+    // own drivers?meeting_key= fetch), which is covered separately below.
+    const { meeting_key: _omit, ...sessionWithoutMeeting } = SESSION;
+    let driversCallCount = 0;
+    const fetcher = (url: string): Promise<unknown> => {
+      if (url.includes("/sessions")) return Promise.resolve([sessionWithoutMeeting]);
+      if (url.includes("/drivers")) {
+        driversCallCount += 1;
+        if (driversCallCount === 1) return Promise.reject(new Error("network blip"));
+        return Promise.resolve([{ driver_number: 1 }]);
+      }
+      return Promise.resolve([]);
+    };
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START, onLog: () => {} });
+
+    await lane.discoverOnce(); // drivers?session_key= fails
+    expect(queue.size).toBe(0); // nothing enqueued from the failed fetch
+
+    await lane.discoverOnce(); // same session still selected: retries drivers
+    expect(driversCallCount).toBe(2);
+    expect(queue.size).toBe(1); // the retry's row landed
+
+    await lane.discoverOnce(); // now marked done: no further retry
+    expect(driversCallCount).toBe(2);
+  });
+
+  test("meetingEntryListFetched is set only on success: a failed Friday fetch retries on the next discoverOnce()", async () => {
+    const practice: RawRecord = {
+      session_key: 11350,
+      meeting_key: 1293,
+      date_start: "2026-09-04T10:00:00Z",
+      date_end: "2026-09-04T11:00:00Z",
+    };
+    let meetingFetchCount = 0;
+    const now = Date.parse("2026-09-05T00:00:00Z"); // after practice, well before the race window
+    const fetcher = (url: string): Promise<unknown> => {
+      if (url.includes("/sessions")) return Promise.resolve([practice, SESSION]);
+      if (url.includes("meeting_key")) {
+        meetingFetchCount += 1;
+        if (meetingFetchCount === 1) return Promise.reject(new Error("network blip"));
+        return Promise.resolve([{ driver_number: 1 }]);
+      }
+      // The SESSION isn't live at `now`, and drivers?session_key= isn't
+      // reached in this scenario, but return [] defensively either way.
+      return Promise.resolve([]);
+    };
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => now, onLog: () => {} });
+
+    await lane.discoverOnce(); // meeting entry-list fetch fails
+    expect(meetingFetchCount).toBe(1);
+    expect(queue.size).toBe(0);
+
+    await lane.discoverOnce(); // still not marked fetched: retries
+    expect(meetingFetchCount).toBe(2);
+    expect(queue.size).toBe(1); // the retry's row landed
+
+    await lane.discoverOnce(); // now marked done: no further retry
+    expect(meetingFetchCount).toBe(2);
+  });
+});
+
 describe("RestLane.stop() and an in-flight tick (SIGTERM race)", () => {
   test("stop() does not resolve until the in-flight poll's fetch resolves, and its rows are in the queue by then", async () => {
     const queue = new EventQueue<QueueItem>();
