@@ -2,12 +2,13 @@ import Fastify from "fastify";
 import { describe, expect, test, vi } from "vitest";
 
 import type { Fanout } from "../fanout/fanout.js";
-import { liveEventsHandler, liveRoutes } from "./live.js";
+import { liveEventsHandler, liveRoutes, liveSnapshotHandler } from "./live.js";
 
-function fakeRequest(acceptEncoding: string | undefined) {
+function fakeRequest(acceptEncoding: string | undefined, query: Record<string, unknown> = {}) {
   const closeHandlers: Array<() => void> = [];
   return {
     headers: acceptEncoding === undefined ? {} : { "accept-encoding": acceptEncoding },
+    query,
     raw: {
       on: (event: string, fn: () => void) => {
         if (event === "close") {
@@ -26,6 +27,9 @@ function fakeReply(decorated: Record<string, string> = {}) {
     hijack: vi.fn(),
     raw,
     getHeaders: () => decorated,
+    header: vi.fn(),
+    code: vi.fn(),
+    send: vi.fn((body: unknown) => body),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 }
@@ -81,7 +85,7 @@ describe("GET /live/events handler", () => {
       vary: "accept-encoding",
       "content-encoding": "gzip",
     });
-    expect(fanout.join).toHaveBeenCalledWith(reply.raw, "gzip");
+    expect(fanout.join).toHaveBeenCalledWith(reply.raw, "gzip", "state");
   });
 
   test("no gzip in accept-encoding: plain headers (no content-encoding), joins with encoding 'plain'", () => {
@@ -99,7 +103,7 @@ describe("GET /live/events handler", () => {
       "x-accel-buffering": "no",
       vary: "accept-encoding",
     });
-    expect(fanout.join).toHaveBeenCalledWith(reply.raw, "plain");
+    expect(fanout.join).toHaveBeenCalledWith(reply.raw, "plain", "state");
   });
 
   test("missing accept-encoding header: treated as plain", () => {
@@ -110,7 +114,7 @@ describe("GET /live/events handler", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     liveEventsHandler(fanout as any)(request, reply);
 
-    expect(fanout.join).toHaveBeenCalledWith(reply.raw, "plain");
+    expect(fanout.join).toHaveBeenCalledWith(reply.raw, "plain", "state");
   });
 
   test("removes the socket from the fanout when the client closes the connection", () => {
@@ -124,6 +128,58 @@ describe("GET /live/events handler", () => {
 
     expect(fanout.remove).toHaveBeenCalledWith(reply.raw);
   });
+
+  test("?format=delta selects the delta tag", () => {
+    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const reply = fakeReply();
+    const request = fakeRequest("gzip", { format: "delta" });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    liveEventsHandler(fanout as any)(request, reply);
+
+    expect(fanout.join).toHaveBeenCalledWith(reply.raw, "gzip", "delta");
+  });
+
+  test("an unrecognised format falls back to the default 'state' tag", () => {
+    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const reply = fakeReply();
+    const request = fakeRequest("gzip", { format: "something-else" });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    liveEventsHandler(fanout as any)(request, reply);
+
+    expect(fanout.join).toHaveBeenCalledWith(reply.raw, "gzip", "state");
+  });
+});
+
+describe("GET /live/snapshot handler", () => {
+  test("503 with { error } before the first push", () => {
+    const fanout = { snapshotJson: vi.fn(() => null) };
+    const reply = fakeReply();
+    const request = fakeRequest(undefined);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = liveSnapshotHandler(fanout as any)(request, reply);
+
+    expect(reply.code).toHaveBeenCalledWith(503);
+    expect(reply.header).toHaveBeenCalledWith("cache-control", "no-store");
+    expect(result).toEqual({ error: "no snapshot yet" });
+  });
+
+  test("returns the newest state push's JSON, verbatim, with no-store", () => {
+    const json = JSON.stringify({ type: "state", seq: "1" });
+    const fanout = { snapshotJson: vi.fn(() => json) };
+    const reply = fakeReply();
+    const request = fakeRequest(undefined);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    liveSnapshotHandler(fanout as any)(request, reply);
+
+    expect(reply.header).toHaveBeenCalledWith("cache-control", "no-store");
+    expect(reply.header).toHaveBeenCalledWith("content-type", "application/json");
+    expect(reply.send).toHaveBeenCalledWith(json);
+    expect(reply.code).not.toHaveBeenCalled();
+  });
 });
 
 describe("liveRoutes plugin", () => {
@@ -136,6 +192,22 @@ describe("liveRoutes plugin", () => {
 
     expect(app.hasRoute({ method: "GET", url: "/api/live/events" })).toBe(true);
     expect(app.hasRoute({ method: "GET", url: "/live/events" })).toBe(false);
+
+    await app.close();
+  });
+
+  test("registered with prefix /api: GET /api/live/snapshot exists", async () => {
+    const fanout = { join: vi.fn(async () => {}), remove: vi.fn(), snapshotJson: vi.fn(() => null) };
+    const app = Fastify();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await app.register(liveRoutes, { prefix: "/api", fanout: fanout as any as Fanout });
+    await app.ready();
+
+    expect(app.hasRoute({ method: "GET", url: "/api/live/snapshot" })).toBe(true);
+
+    const response = await app.inject({ method: "GET", url: "/api/live/snapshot" });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "no snapshot yet" });
 
     await app.close();
   });
