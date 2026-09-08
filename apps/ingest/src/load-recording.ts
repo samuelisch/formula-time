@@ -153,21 +153,32 @@ export interface LoadRecordingsResult {
   sessionsSkipped: number;
 }
 
-interface LoadOneSessionResult {
+export interface WriteSessionThroughLoaderResult {
   skipped: boolean;
   /** What this session's own drain wrote — folded into the running total by the caller. */
   drainResult: DrainResult;
 }
 
-async function loadOneSession(
-  dir: string,
+/**
+ * The write path shared by the recording loader and `fetch-race` (issue
+ * #88, ADR-0009: "a fetched race reaches the exporter the same way a loaded
+ * one does"): validate the session key, apply the ADR-0010 live guard,
+ * upsert `upcoming` (unless already `finished`), let `emitAll` push every
+ * event onto `queue` (via a fresh `LiveNormalizer` it is handed, per
+ * behaviour "normalise every row with the same LiveNormalizer"), drain, and
+ * only then upsert `finished` (issue #71's ordering — see the inline
+ * comments below, unchanged from before this was pulled out of
+ * `loadOneSession`).
+ */
+export async function writeSessionThroughLoader(
   session: RawRecord,
   db: LoaderDb,
   writer: EventWriter,
   queue: EventQueue<QueueItem>,
   nowMs: number,
   log: (line: string) => void,
-): Promise<LoadOneSessionResult> {
+  emitAll: (normalizer: LiveNormalizer, sessionKey: number) => Promise<void>,
+): Promise<WriteSessionThroughLoaderResult> {
   const noEvents: DrainResult = { inserted: 0, skipped: 0 };
   const sessionKey = Number(session["session_key"]);
   if (!Number.isFinite(sessionKey)) {
@@ -177,14 +188,14 @@ async function loadOneSession(
 
   // ADR-0010: the single-writer guarantee (ADR-0007) is per session, not
   // per process — the live `ingest` service owns any session inside its
-  // live window; the loader owns only sessions whose window has closed.
-  // Two checks, both against a *live* verdict: the recording's own dates
-  // (a directory can be loaded before its own session has actually ended,
-  // e.g. a stale/partial capture), and any existing `sessions` row (in
-  // case the live service is still tracking it under different dates).
-  // `sessionFieldsFromRaw` also validates `date_start`/`date_end` — a
-  // malformed date throws here and is caught by the caller (round 1 fix),
-  // same as it always was inside `upsertSession`.
+  // live window; the loader (and `fetch-race`) owns only sessions whose
+  // window has closed. Two checks, both against a *live* verdict: the
+  // session's own dates (it can be loaded/fetched before its window has
+  // actually ended, e.g. a stale/partial capture), and any existing
+  // `sessions` row (in case the live service is still tracking it under
+  // different dates). `sessionFieldsFromRaw` also validates
+  // `date_start`/`date_end` — a malformed date throws here and is caught by
+  // the caller (round 1 fix), same as it always was inside `upsertSession`.
   const fields = sessionFieldsFromRaw(session, nowMs);
   if (fields.status === "live") {
     log(`load: refused ${sessionKey}: session is live; the live ingest service owns it`);
@@ -219,41 +230,7 @@ async function loadOneSession(
   }
 
   const normalizer = new LiveNormalizer();
-
-  // The static entry list, "exactly as session selection does" (same
-  // `emitRows` path rest-lane.ts's `ensureLiveSession` uses) — so the
-  // `drivers` event ids match a live run of the same session.
-  const driverRows: RawRecord[] = ENTRY_LIST_2026.map((driver) => ({
-    session_key: sessionKey,
-    driver_number: driver.driver_number,
-    full_name: driver.full_name,
-    name_acronym: driver.name_acronym,
-    team_name: driver.team_name,
-    team_colour: driver.team_colour,
-  }));
-  const entryResult = emitRows(normalizer, queue, "drivers", sessionKey, driverRows);
-  log(
-    `load: session=${sessionKey} endpoint=drivers(entry-list) rows=${driverRows.length} new=${entryResult.newRows}`,
-  );
-
-  // Issue #77: emit in `received_at` order across every endpoint, not one
-  // endpoint's rows fully before the next — see `readSessionRowsInTimeOrder`
-  // above. Consecutive rows that share an endpoint are still batched into
-  // one `emitRows` call each (same identity/dedup path, fewer/larger writer
-  // batches and log lines than one row at a time); only the batch
-  // boundaries move, not the per-row order within/across batches.
-  const merged = await readSessionRowsInTimeOrder(dir, sessionKey);
-  let mergedIndex = 0;
-  while (mergedIndex < merged.length) {
-    const endpoint = merged[mergedIndex]!.endpoint;
-    const rows: RawRecord[] = [];
-    while (mergedIndex < merged.length && merged[mergedIndex]!.endpoint === endpoint) {
-      rows.push(merged[mergedIndex]!.payload);
-      mergedIndex += 1;
-    }
-    const result = emitRows(normalizer, queue, endpoint, sessionKey, rows);
-    log(`load: session=${sessionKey} endpoint=${endpoint} rows=${rows.length} new=${result.newRows}`);
-  }
+  await emitAll(normalizer, sessionKey);
 
   // Issue #71: wait for every queued event to actually commit before
   // flipping the row to `finished` — the whole point of the reordering
@@ -267,10 +244,10 @@ async function loadOneSession(
     // every session in this `loadRecordings()` call, and a batch that gave
     // up is left sitting at the FRONT of the queue (requeueFront in
     // writer.ts) — the next session's own `drainAll()` would hit that stuck
-    // batch first (or get merged into the same batch) and be wrongly marked
-    // skipped for a failure that was never its own. Clear it here so the
-    // failure stays attributed to *this* session and the next one starts
-    // from an empty queue.
+    // batch first (or get merged into the same batch, since drain isn't
+    // session-aware) and be wrongly marked skipped for a failure that was
+    // never its own. Clear it here so the failure stays attributed to
+    // *this* session and the next one starts from an empty queue.
     const dropped = queue.clear();
     log(`load: dropped ${dropped} unwritten rows for ${sessionKey}`);
     log(
@@ -282,11 +259,62 @@ async function loadOneSession(
   // Every event for this session has committed — only now is it safe to
   // mark the session `finished`. If the process had died anywhere above,
   // the row stays `upcoming`, the exporter never touches it (ADR-0009 §2),
-  // and the next `pnpm ingest:load` of the same recording finishes it —
-  // idempotent, per `loadRecordings`'s own doc comment above.
+  // and the next `pnpm ingest:load` (or `pnpm ingest:fetch-race`) of the
+  // same session finishes it — idempotent, per `loadRecordings`'s own doc
+  // comment above.
   await upsertSession(db, session, nowMs, { status: "finished" });
 
   return { skipped: false, drainResult };
+}
+
+type LoadOneSessionResult = WriteSessionThroughLoaderResult;
+
+async function loadOneSession(
+  dir: string,
+  session: RawRecord,
+  db: LoaderDb,
+  writer: EventWriter,
+  queue: EventQueue<QueueItem>,
+  nowMs: number,
+  log: (line: string) => void,
+): Promise<LoadOneSessionResult> {
+  return writeSessionThroughLoader(session, db, writer, queue, nowMs, log, async (normalizer, sessionKey) => {
+    // The static entry list, "exactly as session selection does" (same
+    // `emitRows` path rest-lane.ts's `ensureLiveSession` uses) — so the
+    // `drivers` event ids match a live run of the same session.
+    const driverRows: RawRecord[] = ENTRY_LIST_2026.map((driver) => ({
+      session_key: sessionKey,
+      driver_number: driver.driver_number,
+      full_name: driver.full_name,
+      name_acronym: driver.name_acronym,
+      team_name: driver.team_name,
+      team_colour: driver.team_colour,
+    }));
+    const entryResult = emitRows(normalizer, queue, "drivers", sessionKey, driverRows);
+    log(
+      `load: session=${sessionKey} endpoint=drivers(entry-list) rows=${driverRows.length} new=${entryResult.newRows}`,
+    );
+
+    // Issue #77: emit in `received_at` order across every endpoint, not one
+    // endpoint's rows fully before the next — see
+    // `readSessionRowsInTimeOrder` above. Consecutive rows that share an
+    // endpoint are still batched into one `emitRows` call each (same
+    // identity/dedup path, fewer/larger writer batches and log lines than
+    // one row at a time); only the batch boundaries move, not the per-row
+    // order within/across batches.
+    const merged = await readSessionRowsInTimeOrder(dir, sessionKey);
+    let mergedIndex = 0;
+    while (mergedIndex < merged.length) {
+      const endpoint = merged[mergedIndex]!.endpoint;
+      const rows: RawRecord[] = [];
+      while (mergedIndex < merged.length && merged[mergedIndex]!.endpoint === endpoint) {
+        rows.push(merged[mergedIndex]!.payload);
+        mergedIndex += 1;
+      }
+      const result = emitRows(normalizer, queue, endpoint, sessionKey, rows);
+      log(`load: session=${sessionKey} endpoint=${endpoint} rows=${rows.length} new=${result.newRows}`);
+    }
+  });
 }
 
 /**
