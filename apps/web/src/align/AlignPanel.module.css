@@ -1,0 +1,85 @@
+.startButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--color-raised);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.startButton:hover {
+  border-color: var(--color-muted);
+}
+
+.panel {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  width: 20rem;
+  max-width: calc(100vw - 2rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  z-index: 20;
+  box-shadow: 0 0.25rem 1rem rgba(0, 0, 0, 0.35);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.collapseTab {
+  background: none;
+  border: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0.1rem 0.3rem;
+}
+
+.status {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+.preview {
+  width: 100%;
+  border-radius: 0.35rem;
+  border: 1px solid var(--color-border);
+  background: #000;
+  touch-action: none;
+}
+
+.stopButton {
+  align-self: flex-start;
+  background: var(--color-raised);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.stopButton:hover {
+  border-color: var(--color-accent);
+}
