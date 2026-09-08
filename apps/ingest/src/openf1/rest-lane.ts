@@ -165,9 +165,15 @@ export class RestLane {
     if (!Array.isArray(sessions)) return { sessionCount: 0, live: this.sessionKey !== null };
     const rows = sessions as RawRecord[];
 
+    // Tracks which rows' onSession (the sessions upsert) succeeded THIS
+    // tick, so ensureLiveSession() never selects a session whose row failed
+    // to write — selecting it anyway would mean every later event insert
+    // fails its FK against a `sessions` row that was never created.
+    const upserted = new Set<RawRecord>();
     for (const row of rows) {
       try {
         await this.onSession?.(row, nowMs);
+        upserted.add(row);
       } catch (error) {
         // One malformed row (bad session_key, bad date) must not throw out
         // of this loop and starve ensureLiveSession()/the Friday entry-list
@@ -181,7 +187,7 @@ export class RestLane {
     // a newly-selected session, and it does its own "at discovery" drivers
     // fetch. Running the Friday entry-list check after means a meeting whose
     // first session IS the one just selected doesn't double-fetch drivers.
-    await this.ensureLiveSession(rows, nowMs);
+    await this.ensureLiveSession(rows, nowMs, upserted);
     await this.fetchFridayEntryLists(rows, nowMs);
 
     return { sessionCount: rows.length, live: this.sessionKey !== null };
@@ -215,9 +221,21 @@ export class RestLane {
     }
   }
 
-  private async ensureLiveSession(sessions: RawRecord[], nowMs: number): Promise<void> {
+  private async ensureLiveSession(
+    sessions: RawRecord[],
+    nowMs: number,
+    upserted: Set<RawRecord>,
+  ): Promise<void> {
     const live = pickLiveSession(sessions, nowMs);
     if (!live) return;
+    if (!upserted.has(live)) {
+      // Its sessions upsert failed this tick (thrown, caught, and logged
+      // above) — selecting it anyway would mean every later event insert
+      // fails its FK forever against a `sessions` row that doesn't exist.
+      // Leave sessionKey null; the next discoverOnce() retries the upsert.
+      this.log("rest: session not selected: upsert failed");
+      return;
+    }
     const key = Number(live["session_key"]);
     if (!Number.isFinite(key)) return;
     if (this.sessionKey !== key) {

@@ -157,6 +157,25 @@ describe("RestLane discovery", () => {
     expect(lane.status()).toEqual({ active: true, sessionKey: 11361 });
   });
 
+  test("a session whose sessions upsert fails is not selected; it retries and is selected once the upsert succeeds", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [SESSION], drivers: [] });
+    let shouldFail = true;
+    const onSession = vi.fn(async () => {
+      if (shouldFail) throw new Error("db down");
+    });
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START, onSession, onLog: () => {} });
+
+    const first = await lane.discoverOnce();
+    expect(first.live).toBe(false);
+    expect(lane.status()).toEqual({ active: false, sessionKey: null });
+
+    shouldFail = false;
+    const second = await lane.discoverOnce();
+    expect(second.live).toBe(true);
+    expect(lane.status()).toEqual({ active: true, sessionKey: 11361 });
+  });
+
   test("selects the live session and fetches drivers once at discovery", async () => {
     const { fetcher, calls } = fakeFetcher({
       sessions: [SESSION],

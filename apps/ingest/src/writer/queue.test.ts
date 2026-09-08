@@ -65,3 +65,51 @@ describe("EventQueue", () => {
     expect(queue.drain(10)).toEqual([3, 4, 5]);
   });
 });
+
+describe("EventQueue cap (maxQueued)", () => {
+  test("push beyond the cap drops the newest row and holds the length at the cap", () => {
+    const queue = new EventQueue<number>({ maxQueued: 3 });
+    queue.push(1);
+    queue.push(2);
+    queue.push(3);
+    queue.push(4); // dropped: at cap
+    queue.push(5); // dropped: at cap
+
+    expect(queue.size).toBe(3);
+    expect(queue.drain(10)).toEqual([1, 2, 3]); // the newest rows (4, 5) never landed
+  });
+
+  test("pushAll respects the same cap, dropping whichever items land beyond it", () => {
+    const queue = new EventQueue<number>({ maxQueued: 2 });
+    queue.pushAll([1, 2, 3, 4]);
+
+    expect(queue.size).toBe(2);
+    expect(queue.drain(10)).toEqual([1, 2]);
+  });
+
+  test("takeDropped() counts drops and resets to 0 after being read", () => {
+    const queue = new EventQueue<number>({ maxQueued: 1 });
+    queue.push(1);
+    queue.push(2); // dropped
+    queue.push(3); // dropped
+
+    expect(queue.takeDropped()).toBe(2);
+    expect(queue.takeDropped()).toBe(0); // reset — nothing new dropped since
+
+    queue.push(4); // still dropped: queue is full
+    expect(queue.takeDropped()).toBe(1);
+  });
+
+  test("requeueFront bypasses the cap: rows already admitted are not re-dropped on a retry", () => {
+    const queue = new EventQueue<number>({ maxQueued: 2 });
+    queue.pushAll([1, 2]); // at cap
+    const batch = queue.drain(2); // [1, 2] — as if a write failed
+    queue.pushAll([3, 4]); // fills back up to the cap while the batch is "in flight"
+
+    queue.requeueFront(batch); // the retry puts the failed batch back at the front
+
+    expect(queue.size).toBe(4); // over the nominal cap, but nothing was lost
+    expect(queue.takeDropped()).toBe(0);
+    expect(queue.drain(10)).toEqual([1, 2, 3, 4]);
+  });
+});

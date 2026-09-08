@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { QueueItem } from "../openf1/types.js";
 import { EventQueue } from "./queue.js";
 import type { EventWriterDb } from "./writer.js";
-import { EventWriter } from "./writer.js";
+import { EventWriter, backoffDelayMs } from "./writer.js";
 
 // In-memory fake standing in for the real Prisma client: mirrors
 // `event.createMany({ data, skipDuplicates: true })` against a Set keyed by
@@ -220,6 +220,57 @@ describe("EventWriter retry on a failed write", () => {
     expect(totals).toEqual({ inserted: 0, skipped: 0 });
     expect(calls).toBe(3); // 3 consecutive failures of the same requeued batch, then give up
     expect(queue.size).toBe(2); // the batch is still there — dropped, not discarded
+  });
+});
+
+describe("backoffDelayMs", () => {
+  test("no failures yet -> the base delay, unchanged", () => {
+    expect(backoffDelayMs(250, 0, 30_000)).toBe(250);
+  });
+
+  test("doubles with each consecutive failure", () => {
+    expect(backoffDelayMs(250, 1, 30_000)).toBe(500);
+    expect(backoffDelayMs(250, 2, 30_000)).toBe(1_000);
+    expect(backoffDelayMs(250, 3, 30_000)).toBe(2_000);
+    expect(backoffDelayMs(250, 6, 30_000)).toBe(16_000);
+  });
+
+  test("caps at maxMs", () => {
+    expect(backoffDelayMs(250, 7, 30_000)).toBe(30_000); // 250*2^7 = 32,000 -> capped
+    expect(backoffDelayMs(250, 20, 30_000)).toBe(30_000);
+  });
+});
+
+describe("EventWriter.run() backs off on consecutive failures and resets on success", () => {
+  test("a failure schedules the next tick at the 250ms-doubled backoff, not the steady interval; a success reverts to the steady interval", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    let shouldFail = true;
+    const db: EventWriterDb = {
+      event: {
+        async createMany() {
+          if (shouldFail) throw new Error("db down");
+          return { count: 1 };
+        },
+      },
+    };
+    const queue = new EventQueue<QueueItem>();
+    queue.push(item("a"));
+    const writer = new EventWriter(db, queue);
+
+    writer.run(50); // a fast steady-state interval, distinct from any backoff value
+
+    // tick 1 fails -> the NEXT tick is scheduled at the backoff for 1
+    // consecutive failure (250ms base, doubled once) = 500ms, not 50ms.
+    await waitUntil(() => setTimeoutSpy.mock.calls.some((c) => c[1] === 500), 2000);
+
+    shouldFail = false;
+    // that backoff tick succeeds -> the tick after THAT reverts to the
+    // steady 50ms interval (the first 50ms call is run()'s initial
+    // schedule, so two total means one more happened after the success).
+    await waitUntil(() => setTimeoutSpy.mock.calls.filter((c) => c[1] === 50).length >= 2, 2000);
+
+    await writer.stop();
+    setTimeoutSpy.mockRestore();
   });
 });
 

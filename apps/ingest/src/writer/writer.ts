@@ -33,6 +33,16 @@ export interface DrainResult {
 
 const DEFAULT_BATCH_SIZE = 100;
 
+/**
+ * `run()`'s retry delay after `consecutiveFailures` consecutive failures:
+ * `baseMs` doubling each time, capped at `maxMs`. `consecutiveFailures <= 0`
+ * (the healthy path) returns `baseMs` itself unchanged.
+ */
+export function backoffDelayMs(baseMs: number, consecutiveFailures: number, maxMs: number): number {
+  if (consecutiveFailures <= 0) return baseMs;
+  return Math.min(baseMs * 2 ** consecutiveFailures, maxMs);
+}
+
 export class EventWriter {
   private readonly batchSize: number;
   private stopped = false;
@@ -61,6 +71,13 @@ export class EventWriter {
    * a rejection never silently loses rows.
    */
   public async drainOnce(): Promise<DrainResult | null> {
+    // The queue's hard cap (round 4, owner review): if it's been dropping
+    // the newest rows because a stuck writer let it grow unbounded, log
+    // that once per batch rather than losing rows silently.
+    const dropped = this.queue.takeDropped();
+    if (dropped > 0) {
+      console.error(`writer: queue at capacity, dropped ${dropped} rows since the last batch`);
+    }
     const batch = this.queue.drain(this.batchSize);
     if (batch.length === 0) return null;
     const data = batch.map((item) => ({
@@ -124,13 +141,21 @@ export class EventWriter {
     return { inserted, skipped };
   }
 
-  /** Production loop: polls the queue every `intervalMs` until `stop()`. */
+  // The retry backoff after consecutive run() failures: 250ms doubling to a
+  // 30s cap (round 4, owner review) — a dead database must not be hammered
+  // at the steady polling cadence forever.
+  private static readonly BACKOFF_BASE_MS = 250;
+  private static readonly BACKOFF_MAX_MS = 30_000;
+  private consecutiveRunFailures = 0;
+
+  /** Production loop: polls the queue every `intervalMs` until `stop()`, backing off on failures. */
   public run(intervalMs = 250): void {
     this.stopped = false;
     const tick = (): void => {
       if (this.stopped) return;
       const drainPromise = this.drainOnce()
         .then((result) => {
+          this.consecutiveRunFailures = 0;
           if (result && (result.inserted > 0 || result.skipped > 0)) {
             console.log(`writer: batch inserted=${result.inserted} skipped=${result.skipped}`);
           }
@@ -138,12 +163,26 @@ export class EventWriter {
         })
         .catch(() => {
           // drainOnce() already logged the failure (with the batch size)
-          // and requeued the batch at the front; the next tick retries it.
+          // and requeued the batch at the front; the next tick retries it,
+          // after backing off, at a delay based on the count below.
+          this.consecutiveRunFailures += 1;
+          console.error(
+            `writer: ${this.consecutiveRunFailures} consecutive failures, queue depth=${this.queue.size}`,
+          );
           return null;
         })
         .finally(() => {
           this.currentDrain = null;
-          if (!this.stopped) this.timer = setTimeout(tick, intervalMs);
+          if (!this.stopped) {
+            // The steady `intervalMs` cadence while healthy; once failing,
+            // the fixed 250ms-doubling-to-30s backoff takes over regardless
+            // of what `intervalMs` was configured to.
+            const delay =
+              this.consecutiveRunFailures > 0
+                ? backoffDelayMs(EventWriter.BACKOFF_BASE_MS, this.consecutiveRunFailures, EventWriter.BACKOFF_MAX_MS)
+                : intervalMs;
+            this.timer = setTimeout(tick, delay);
+          }
         });
       this.currentDrain = drainPromise;
     };
