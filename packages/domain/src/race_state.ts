@@ -183,6 +183,13 @@ export class RaceStateReducer {
       case "weather":
         this.applyWeather(event);
         break;
+      // Drivers are events. Ingest fetches the entry list (`drivers?meeting_key=` from
+      // Friday practice, re-fetched at race discovery) and writes each row through the
+      // same writer with endpoint `drivers`. The fold carries them; a swap arrives as a
+      // new row; Driver stays a field inside RaceState, not a table. (HLD §7)
+      case "drivers":
+        this.applyDriver(event);
+        break;
       default:
         this.state.anomalies.unsupported_events += 1;
     }
@@ -364,6 +371,29 @@ export class RaceStateReducer {
       return;
     }
     this.state.weather = event.payload;
+  }
+
+  private applyDriver(event: RaceEvent): void {
+    const driverNumber = numberValue(event.payload, "driver_number");
+    if (driverNumber === null) {
+      this.state.anomalies.missing_driver += 1;
+      return;
+    }
+
+    const key = String(driverNumber);
+    const existing = this.state.drivers[key];
+    if (existing === undefined) {
+      this.state.drivers[key] = newDriver(driverNumber, event.payload);
+      return;
+    }
+
+    // Overwrite only the identity fields newDriver() copies from the payload;
+    // timing state (position, interval, tyre, pit history, ...) is untouched.
+    const refreshed = newDriver(driverNumber, event.payload);
+    existing.full_name = refreshed.full_name;
+    existing.name_acronym = refreshed.name_acronym;
+    existing.team_name = refreshed.team_name;
+    existing.team_colour = refreshed.team_colour;
   }
 
   private updateDriverOrder(): void {
