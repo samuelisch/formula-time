@@ -7,12 +7,13 @@ import { Link } from "react-router";
 
 import { Card } from "../components/Card.tsx";
 import { date, stringField, text } from "../lib/format.ts";
-import { useDisplayed } from "../live/selectors.ts";
+import { useDisplayed, useSessionStatus } from "../live/selectors.ts";
 import { fetchRaceIndex } from "../races/api.ts";
 import styles from "./RacesPage.module.css";
 
 export function RacesPage() {
   const displayed = useDisplayed();
+  const status = useSessionStatus();
   const liveSession = displayed?.state.session ?? null;
   const liveTotalLaps = displayed?.total_laps ?? null;
 
@@ -24,9 +25,7 @@ export function RacesPage() {
   return (
     <div className={styles.races}>
       <Card>
-        {liveSession === null ? (
-          <p className={styles.quiet}>No live session right now</p>
-        ) : (
+        {status === "live" && liveSession !== null ? (
           <Link to="/live" className={styles.liveCard}>
             <span className={styles.liveBadge}>Live now</span>
             <span className={styles.liveDetails}>
@@ -34,6 +33,13 @@ export function RacesPage() {
               {date(stringField(liveSession, "date_start"))} · {text(liveTotalLaps)} laps
             </span>
           </Link>
+        ) : status === "upcoming" && liveSession !== null ? (
+          <Link to="/live" className={styles.nextCard}>
+            Next race · {stringField(liveSession, "country") ?? "—"} · {stringField(liveSession, "name") ?? "—"} ·{" "}
+            {date(stringField(liveSession, "date_start"))}
+          </Link>
+        ) : (
+          <p className={styles.quiet}>No live session right now</p>
         )}
       </Card>
 
