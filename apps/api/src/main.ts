@@ -2,9 +2,13 @@
 // serialize-once SSE fan-out, route handler, exporter — one process (ADR-0001 §1).
 import Fastify from "fastify";
 import { DOMAIN_PACKAGE } from "@formula-time/domain";
+import { parseAllowedOrigins, registerCors, replyHeaders } from "./cors.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const app = Fastify({ logger: true });
+
+// The web bundle is hosted on its own origin (ADR-0007); allow it here.
+await registerCors(app, parseAllowedOrigins(process.env.CORS_ORIGIN));
 
 app.get("/health", async () => ({ ok: true, domain: DOMAIN_PACKAGE }));
 
@@ -19,6 +23,8 @@ app.get("/live/events", (request, reply) => {
     "cache-control": "no-cache, no-transform",
     connection: "keep-alive",
     "x-accel-buffering": "no",
+    // Hijacked: Fastify sends nothing, so the cors headers ride along here.
+    ...replyHeaders(reply),
   });
   const send = () => res.write(`event: heartbeat\ndata: {"t":${Date.now()}}\n\n`);
   send();
