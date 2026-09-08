@@ -99,6 +99,13 @@ export class Fanout {
   private prevSeq: string | null = null;
   private deltaPushCount = 0;
 
+  // Maintained incrementally in join()/remove() rather than scanned from
+  // `this.sockets` on every push (review round 1, PR #109): a per-tick scan
+  // over every socket just to answer "is any delta socket attached" would
+  // scale with viewer count, contrary to invariant 1 ("never per-viewer
+  // server work") -- the whole point of keeping this a plain counter.
+  private deltaSocketCount = 0;
+
   private pushing = false;
   private pendingPayload: object | null = null;
   private hasPending = false;
@@ -154,6 +161,9 @@ export class Fanout {
     }
 
     this.sockets.add({ res, encoding, format });
+    if (format === "delta") {
+      this.deltaSocketCount += 1;
+    }
   }
 
   /** `GET /api/live/snapshot`: the newest `state` push's JSON, verbatim --
@@ -167,6 +177,9 @@ export class Fanout {
     for (const socket of this.sockets) {
       if (socket.res === res) {
         this.sockets.delete(socket);
+        if (socket.format === "delta") {
+          this.deltaSocketCount -= 1;
+        }
         return;
       }
     }
@@ -229,7 +242,7 @@ export class Fanout {
    * delta socket attached, no previous state to diff against yet, or (the
    * failure path) diffState threw for this tick, logged once here. */
   private async buildDeltaFrame(payload: object): Promise<Frame | null> {
-    if (!this.hasFormat("delta")) {
+    if (this.deltaSocketCount === 0) {
       return null;
     }
 
@@ -261,15 +274,6 @@ export class Fanout {
     }
   }
 
-  private hasFormat(format: Format): boolean {
-    for (const socket of this.sockets) {
-      if (socket.format === format) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   /** The heartbeat: format-agnostic, the same bytes to every socket. */
   private writeFixed(plain: Buffer, gz: Buffer): void {
     this.write((socket) => (socket.encoding === "gzip" ? gz : plain));
@@ -292,6 +296,9 @@ export class Fanout {
       if (socket.res.writableLength > MAX_WRITABLE_LENGTH) {
         socket.res.destroy();
         this.sockets.delete(socket);
+        if (socket.format === "delta") {
+          this.deltaSocketCount -= 1;
+        }
         dropped += 1;
       }
     }

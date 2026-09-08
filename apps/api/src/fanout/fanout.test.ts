@@ -257,4 +257,33 @@ describe("Fanout delta pushes (issue #89)", () => {
 
     expect(fanout.snapshotJson()).toBe(JSON.stringify(payload));
   });
+
+  test("removing the only delta socket stops delta-frame work; a legacy socket keeps getting state frames throughout", async () => {
+    // Review round 1 (PR #109): the delta-socket count is now maintained
+    // incrementally in join()/remove(), not scanned from `sockets` on every
+    // push. This exercises both the join increment and the remove
+    // decrement, plus the case where the only delta socket disconnects
+    // mid-stream.
+    const legacy = new FakeRes();
+    const delta = new FakeRes();
+    const fanout = new Fanout();
+    await fanout.push(statePush(1, raceState({ sequence: 1 })));
+    await fanout.join(asRes(legacy), "plain", "state");
+    await fanout.join(asRes(delta), "plain", "delta");
+
+    await fanout.push(statePush(2, raceState({ sequence: 2 })));
+    expect(frames(delta).map((f) => f.event)).toContain("delta");
+
+    fanout.remove(asRes(delta));
+    await fanout.push(statePush(3, raceState({ sequence: 3 })));
+    await fanout.push(statePush(4, raceState({ sequence: 4 })));
+
+    // The disconnected delta socket receives nothing more; the legacy
+    // socket is unaffected and only ever sees state frames.
+    const deltaFrameCountAfterRemoval = frames(delta).length;
+    await fanout.push(statePush(5, raceState({ sequence: 5 })));
+    expect(frames(delta).length).toBe(deltaFrameCountAfterRemoval);
+    expect(frames(legacy).every((f) => f.event === "state")).toBe(true);
+    expect(frames(legacy).length).toBeGreaterThan(0);
+  });
 });
