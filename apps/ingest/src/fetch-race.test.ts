@@ -270,6 +270,24 @@ function fakeLoaderDb(): LoaderDb & {
   };
 }
 
+interface FakeRecorderCalls {
+  writeSessionCalls: number;
+  appendRowsCalls: Array<{ sessionKey: number; endpoint: string; rowCount: number }>;
+}
+
+function fakeRecorder(): { recorder: RaceRecorder; calls: FakeRecorderCalls } {
+  const calls: FakeRecorderCalls = { writeSessionCalls: 0, appendRowsCalls: [] };
+  const recorder: RaceRecorder = {
+    async writeSession() {
+      calls.writeSessionCalls += 1;
+    },
+    async appendRows(sessionKey, endpoint, rows) {
+      calls.appendRowsCalls.push({ sessionKey, endpoint, rowCount: rows.length });
+    },
+  };
+  return { recorder, calls };
+}
+
 function endpointResponses(byEndpoint: Record<string, RawRecord[]>): Fetcher {
   return async (url: string): Promise<unknown> => {
     const parsed = new URL(url);
@@ -396,3 +414,38 @@ describe("fetchRaces: round 1 fix — a laps row's stored source_time matches it
   });
 });
 
+// Round 1 review fix: `writeSessionThroughLoader` hands `emitAll` a brand
+// new `LiveNormalizer` per call, so every fetched row looks "new" to it
+// again on a rerun — without a guard, the jsonl recording (unlike the
+// idempotent DB write) would duplicate its content on every rerun.
+describe("fetchRaces: round 1 fix — the jsonl recording is not duplicated on a rerun", () => {
+  test("writeSession/appendRows are called on the first run only, not on a rerun of the same (already-finished) session", async () => {
+    const fetcher = endpointResponses({
+      sessions: [
+        {
+          session_key: 8002,
+          session_name: "Race",
+          country_name: "Italy",
+          circuit_key: 39,
+          date_start: "2026-01-01T13:00:00+00:00",
+          date_end: "2026-01-01T15:00:00+00:00",
+        },
+      ],
+      drivers: [{ session_key: 8002, driver_number: 1, full_name: "Test Driver" }],
+      position: [{ session_key: 8002, driver_number: 1, date: "2026-01-01T13:00:01Z", x: 1, y: 1 }],
+    });
+
+    const db = fakeLoaderDb();
+    const { recorder, calls } = fakeRecorder();
+    const now = () => Date.parse("2026-06-01T00:00:00Z");
+
+    await fetchRaces([8002], db, fetcher, { now, onLog: () => {}, recorder });
+    expect(calls.writeSessionCalls).toBe(1);
+    expect(calls.appendRowsCalls.map((call) => call.endpoint)).toEqual(["drivers", "position"]);
+
+    await fetchRaces([8002], db, fetcher, { now, onLog: () => {}, recorder });
+    // Unchanged by the second (idempotent, already-finished) run.
+    expect(calls.writeSessionCalls).toBe(1);
+    expect(calls.appendRowsCalls).toHaveLength(2);
+  });
+});

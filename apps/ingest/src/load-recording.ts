@@ -177,7 +177,7 @@ export async function writeSessionThroughLoader(
   queue: EventQueue<QueueItem>,
   nowMs: number,
   log: (line: string) => void,
-  emitAll: (normalizer: LiveNormalizer, sessionKey: number) => Promise<void>,
+  emitAll: (normalizer: LiveNormalizer, sessionKey: number, alreadyFinished: boolean) => Promise<void>,
 ): Promise<WriteSessionThroughLoaderResult> {
   const noEvents: DrainResult = { inserted: 0, skipped: 0 };
   const sessionKey = Number(session["session_key"]);
@@ -230,7 +230,14 @@ export async function writeSessionThroughLoader(
   }
 
   const normalizer = new LiveNormalizer();
-  await emitAll(normalizer, sessionKey);
+  // `alreadyFinished` is handed to `emitAll` too (issue #88 round 1 fix):
+  // this write path always re-fetches/re-normalizes on a rerun (DB-level
+  // idempotency comes from `event.createMany({ skipDuplicates: true })`
+  // downstream, not from skipping the work here) — but a caller with its
+  // own side effect keyed off "is this actually new" (fetch-race.ts's jsonl
+  // recording) needs to know a rerun when it sees one, since a fresh
+  // `LiveNormalizer` per call means every row looks "new" to it again.
+  await emitAll(normalizer, sessionKey, alreadyFinished);
 
   // Issue #71: wait for every queued event to actually commit before
   // flipping the row to `finished` — the whole point of the reordering

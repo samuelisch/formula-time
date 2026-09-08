@@ -295,8 +295,16 @@ async function fetchOneSession(
     queue,
     nowMs,
     log,
-    async (normalizer: LiveNormalizer, sessionKeyNum: number) => {
-      await recorder.writeSession(session, sessionKeyNum);
+    async (normalizer: LiveNormalizer, sessionKeyNum: number, alreadyFinished: boolean) => {
+      // Round 1 review fix: fetching and normalizing always happens on a
+      // rerun (DB-level idempotency comes from `event.createMany({
+      // skipDuplicates: true })` downstream), but a fresh `LiveNormalizer`
+      // per call means every row looks "new" to it again — recording those
+      // "new" rows to the jsonl file on every rerun would duplicate its
+      // content unboundedly, unlike the DB write. Only record when this run
+      // is doing real (first) work for the session.
+      const shouldRecord = !alreadyFinished;
+      if (shouldRecord) await recorder.writeSession(session, sessionKeyNum);
 
       const byEndpoint = new Map<string, NormalizedRow[]>();
       for (const endpoint of RECORDING_ENDPOINT_ORDER) {
@@ -305,7 +313,7 @@ async function fetchOneSession(
         const { rows: normalized } = normalizer.normalize(endpoint, rows);
         byEndpoint.set(endpoint, normalized);
         log(`fetch-race: session=${sessionKeyNum} endpoint=${endpoint} rows=${rows.length} new=${normalized.length}`);
-        if (normalized.length > 0) {
+        if (shouldRecord && normalized.length > 0) {
           await recorder.appendRows(sessionKeyNum, endpoint, normalized.map((row) => row.payload));
         }
       }
