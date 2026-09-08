@@ -24,7 +24,7 @@ import { LiveNormalizer } from "./openf1/normalize.js";
 import { OPENF1_BASE, buildPollUrl, emitRows } from "./openf1/rest-lane.js";
 import type { Fetcher, QueueItem, RawRecord } from "./openf1/types.js";
 import { EventQueue } from "./writer/queue.js";
-import type { EventWriterDb } from "./writer/writer.js";
+import type { DrainResult, EventWriterDb } from "./writer/writer.js";
 import { EventWriter } from "./writer/writer.js";
 import type { SessionsDb } from "./writer/sessions.js";
 import { upsertSession } from "./writer/sessions.js";
@@ -57,6 +57,14 @@ export interface LoadRecordingsOptions {
 export interface LoadRecordingsResult {
   inserted: number;
   skipped: number;
+  /** Sessions the loader tried to load, across every `dir` (round 1 fix). */
+  sessionsAttempted: number;
+  /**
+   * Sessions not written because loading them threw (round 1 fix — caught
+   * in `loadRecordings`'s per-session loop below, e.g. a malformed
+   * `date_start`/`date_end`).
+   */
+  sessionsSkipped: number;
 }
 
 async function loadOneSession(
@@ -128,23 +136,45 @@ export async function loadRecordings(
   const queue = new EventQueue<QueueItem>();
   const writer = new EventWriter(db, queue);
 
-  for (const dir of dirs) {
-    const fetcher = createFileFetcher(dir);
-    const raw = await fetcher(`${OPENF1_BASE}/sessions`);
-    const sessions = Array.isArray(raw) ? (raw as RawRecord[]) : [];
-    if (sessions.length === 0) {
-      log(`load: no session.json found under ${dir} (single-session or root layout)`);
-      continue;
+  let sessionsAttempted = 0;
+  let sessionsSkipped = 0;
+
+  // Round 1 fix: one session throwing (a malformed `date_start`/`date_end`,
+  // most commonly) must not lose its siblings' already-queued rows — caught
+  // per session below — and whatever DID make it onto the queue before the
+  // throw must still reach the writer, so `drainAll()` runs in `finally`
+  // regardless of how the loop above it ends.
+  let totals: DrainResult = { inserted: 0, skipped: 0 };
+  try {
+    for (const dir of dirs) {
+      const fetcher = createFileFetcher(dir);
+      const raw = await fetcher(`${OPENF1_BASE}/sessions`);
+      const sessions = Array.isArray(raw) ? (raw as RawRecord[]) : [];
+      if (sessions.length === 0) {
+        log(`load: no session.json found under ${dir} (single-session or root layout)`);
+        continue;
+      }
+      const nowMs = now();
+      for (const session of sessions) {
+        sessionsAttempted += 1;
+        try {
+          await loadOneSession(fetcher, session, db, queue, nowMs, log);
+        } catch (error) {
+          sessionsSkipped += 1;
+          log(
+            `load: session skipped ${String(session["session_key"])}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
     }
-    const nowMs = now();
-    for (const session of sessions) {
-      await loadOneSession(fetcher, session, db, queue, nowMs, log);
-    }
+  } finally {
+    totals = await writer.drainAll();
   }
 
-  const totals = await writer.drainAll();
-  log(`load: summary inserted=${totals.inserted} skipped=${totals.skipped}`);
-  return totals;
+  log(`load: summary inserted=${totals.inserted} skipped=${totals.skipped} skipped_sessions=${sessionsSkipped}`);
+  return { ...totals, sessionsAttempted, sessionsSkipped };
 }
 
 // CLI entry: `node dist/load-recording.js <recording-dir> [<recording-dir> ...]`
@@ -164,9 +194,13 @@ if (isMain) {
   }
   const db = createDb(databaseUrl, { max: 1 });
   loadRecordings(dirs, db)
-    .then(async () => {
+    .then(async (result) => {
       await db.$disconnect();
-      process.exit(0);
+      // Exit 1 only if every attempted session failed (round 1 fix) — a
+      // partial load (some sessions good, some skipped) still wrote what it
+      // could, so it exits 0.
+      const allFailed = result.sessionsAttempted > 0 && result.sessionsSkipped === result.sessionsAttempted;
+      process.exit(allFailed ? 1 : 0);
     })
     .catch(async (error: unknown) => {
       console.error(`load-recording: failed: ${error instanceof Error ? error.message : String(error)}`);

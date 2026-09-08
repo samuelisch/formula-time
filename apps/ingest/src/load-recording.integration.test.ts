@@ -69,7 +69,7 @@ afterAll(async () => {
 test("loading the same fixture twice: row count unchanged on the second run, session status finished", async () => {
   const first = await loadRecordings([dir], db, { onLog: () => {} });
   // 22 static entry-list drivers + 2 position rows.
-  expect(first).toEqual({ inserted: 24, skipped: 0 });
+  expect(first).toEqual({ inserted: 24, skipped: 0, sessionsAttempted: 1, sessionsSkipped: 0 });
 
   const countAfterFirst = await db.event.count({ where: { sessionKey: SESSION_KEY } });
   expect(countAfterFirst).toBe(24);
@@ -78,7 +78,7 @@ test("loading the same fixture twice: row count unchanged on the second run, ses
   expect(session.status).toBe("finished");
 
   const second = await loadRecordings([dir], db, { onLog: () => {} });
-  expect(second).toEqual({ inserted: 0, skipped: 24 });
+  expect(second).toEqual({ inserted: 0, skipped: 24, sessionsAttempted: 1, sessionsSkipped: 0 });
 
   const countAfterSecond = await db.event.count({ where: { sessionKey: SESSION_KEY } });
   expect(countAfterSecond).toBe(24);

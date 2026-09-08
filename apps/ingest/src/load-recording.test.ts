@@ -3,7 +3,8 @@
 // against in-memory fakes for both `SessionsDb` and `EventWriterDb` — no
 // Postgres. Pins: the fake writer receives the static-entry-list `drivers`
 // events before the raw-file rows, in file order; the session is upserted
-// `finished` regardless of its window.
+// `finished` regardless of its window; a malformed sibling session doesn't
+// lose the others' rows (round 1 fix).
 
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,10 +18,10 @@ import { loadRecordings } from "./load-recording.js";
 import type { LoaderDb } from "./load-recording.js";
 
 function fakeDb(): LoaderDb & {
-  sessions: Map<string, unknown>;
+  sessions: Map<string, { status?: string; [key: string]: unknown }>;
   insertOrder: string[];
 } {
-  const sessions = new Map<string, unknown>();
+  const sessions = new Map<string, { status?: string; [key: string]: unknown }>();
   const events = new Map<string, unknown>();
   const insertOrder: string[] = [];
   return {
@@ -49,19 +50,20 @@ function fakeDb(): LoaderDb & {
   };
 }
 
-const SESSION_JSON = {
-  session: {
-    session_key: 9999,
-    session_type: "Race",
-    session_name: "Race",
-    date_start: "2026-01-01T13:00:00+00:00",
-    date_end: "2026-01-01T15:00:00+00:00",
-    meeting_key: 1,
-    circuit_key: 39,
-    country_name: "Italy",
-  },
-  discovered_at: "2026-01-01T12:57:00.000Z",
-};
+function sessionJson(fields: { sessionKey: number; dateStart: string; dateEnd: string }): string {
+  return JSON.stringify({
+    session: {
+      session_key: fields.sessionKey,
+      session_type: "Race",
+      session_name: "Race",
+      date_start: fields.dateStart,
+      date_end: fields.dateEnd,
+      circuit_key: 39,
+      country_name: "Italy",
+    },
+    discovered_at: "2026-01-01T12:57:00.000Z",
+  });
+}
 
 function jsonlLine(payload: RawRecord): string {
   return `${JSON.stringify({ received_at: "2026-01-01T13:00:01.000Z", payload })}\n`;
@@ -73,7 +75,10 @@ describe("loadRecordings", () => {
   beforeEach(async () => {
     dir = await mkdtemp(path.join(tmpdir(), "load-recording-test-"));
     await mkdir(path.join(dir, "raw"), { recursive: true });
-    await writeFile(path.join(dir, "session.json"), JSON.stringify(SESSION_JSON));
+    await writeFile(
+      path.join(dir, "session.json"),
+      sessionJson({ sessionKey: 9999, dateStart: "2026-01-01T13:00:00+00:00", dateEnd: "2026-01-01T15:00:00+00:00" }),
+    );
     // Two endpoints, three unique rows, one duplicate (issue #63's unit test spec).
     await writeFile(
       path.join(dir, "raw", "position.jsonl"),
@@ -96,7 +101,7 @@ describe("loadRecordings", () => {
     const totals = await loadRecordings([dir], db, { now: () => Date.parse("2026-06-01T00:00:00Z"), onLog: () => {} });
 
     // 22 static entry-list drivers + 2 position rows + 1 deduped weather row.
-    expect(totals).toEqual({ inserted: 25, skipped: 0 });
+    expect(totals).toEqual({ inserted: 25, skipped: 0, sessionsAttempted: 1, sessionsSkipped: 0 });
     expect(db.insertOrder).toHaveLength(25);
     expect(db.insertOrder.slice(0, ENTRY_LIST_2026.length).every((id) => id.startsWith("drivers:"))).toBe(true);
     expect(db.insertOrder.slice(ENTRY_LIST_2026.length, ENTRY_LIST_2026.length + 2).every((id) => id.startsWith("position:"))).toBe(
@@ -112,8 +117,8 @@ describe("loadRecordings", () => {
     // to prove the override, not the window, is what wins.
     await loadRecordings([dir], db, { now: () => Date.parse("2026-01-01T14:00:00Z"), onLog: () => {} });
 
-    const row = db.sessions.get("9999") as Record<string, unknown>;
-    expect(row["status"]).toBe("finished");
+    const row = db.sessions.get("9999");
+    expect(row?.status).toBe("finished");
   });
 
   test("a second load of the same recording inserts zero new rows", async () => {
@@ -122,6 +127,60 @@ describe("loadRecordings", () => {
     expect(first.inserted).toBe(25);
 
     const second = await loadRecordings([dir], db, { onLog: () => {} });
-    expect(second).toEqual({ inserted: 0, skipped: 25 });
+    expect(second).toEqual({ inserted: 0, skipped: 25, sessionsAttempted: 1, sessionsSkipped: 0 });
+  });
+});
+
+describe("loadRecordings: a malformed sibling session doesn't lose the others' rows (round 1 fix)", () => {
+  let rootDir: string;
+
+  beforeEach(async () => {
+    rootDir = await mkdtemp(path.join(tmpdir(), "load-recording-root-test-"));
+
+    const goodDir = path.join(rootDir, "9101");
+    await mkdir(path.join(goodDir, "raw"), { recursive: true });
+    await writeFile(
+      path.join(goodDir, "session.json"),
+      sessionJson({ sessionKey: 9101, dateStart: "2026-01-01T13:00:00+00:00", dateEnd: "2026-01-01T15:00:00+00:00" }),
+    );
+    await writeFile(
+      path.join(goodDir, "raw", "position.jsonl"),
+      jsonlLine({ session_key: 9101, driver_number: 1, date: "2026-01-01T13:00:01Z", x: 1, y: 1 }),
+    );
+
+    const badDir = path.join(rootDir, "9102");
+    await mkdir(path.join(badDir, "raw"), { recursive: true });
+    await writeFile(
+      path.join(badDir, "session.json"),
+      sessionJson({ sessionKey: 9102, dateStart: "not-a-date", dateEnd: "2026-01-01T15:00:00+00:00" }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  test("the good session's rows reach the fake writer; the summary reports one skipped session; nothing throws", async () => {
+    const db = fakeDb();
+    const logs: string[] = [];
+    const totals = await loadRecordings([rootDir], db, {
+      now: () => Date.parse("2026-06-01T00:00:00Z"),
+      onLog: (line) => logs.push(line),
+    });
+
+    // 22 static entry-list drivers + 1 position row for session 9101 only —
+    // 9102's rows were never even read (it fails before that point).
+    expect(totals.inserted).toBe(23);
+    expect(totals.skipped).toBe(0);
+    expect(totals.sessionsAttempted).toBe(2);
+    expect(totals.sessionsSkipped).toBe(1);
+
+    expect(db.sessions.has("9101")).toBe(true);
+    expect(db.sessions.has("9102")).toBe(false);
+
+    expect(logs.some((line) => line === "load: summary inserted=23 skipped=0 skipped_sessions=1")).toBe(true);
+    expect(logs.some((line) => line.startsWith("load: session skipped 9102:") && line.includes("date_start"))).toBe(
+      true,
+    );
   });
 });
