@@ -221,11 +221,42 @@ export class RaceStateProjector {
       cursor: this.cursor.toString(),
     });
 
-    // Never patch in place (HLD §7 "Fold"): throw the state away and re-fold.
-    this.reducer = this.freshReducer();
-    this.cursor = 0n;
-    this.appliedIds = new Set<string>();
-    this.caughtUp = false;
-    this.foldStartedAt = Date.now();
+    // Never patch in place (HLD §7 "Fold"): re-fold into locals and swap
+    // them into `this.*` only once the rebuild is fully caught up.
+    // Resetting `this.*` up front (the old approach) meant a rejected read
+    // on the very next line left snapshot()/status() serving an empty
+    // state at cursor 0 until a later tick finished the fold -- every live
+    // join in between would get that empty state rather than the
+    // last-known-good one. Keep serving the old state until the rebuild
+    // proves it can finish; a failed rebuild just retries on the next
+    // detector pass, since `appliedIds`/`cursor` are left untouched and the
+    // same late row is found again.
+    const localReducer = this.freshReducer();
+    let localCursor = 0n;
+    const localAppliedIds = new Set<string>();
+
+    try {
+      let rows: EventRow[];
+      do {
+        rows = await this.source.readAfter(this.session.sessionKey, localCursor, this.batchLimit);
+        for (const row of rows) {
+          localReducer.apply(toRaceEvent(row));
+          localAppliedIds.add(row.eventId);
+          localCursor = row.seq;
+        }
+      } while (rows.length === this.batchLimit);
+    } catch (err) {
+      this.log("rebuild failed, keeping previous state", {
+        level: "error",
+        error: err instanceof Error ? err.message : String(err),
+        cursor: this.cursor.toString(),
+      });
+      return;
+    }
+
+    this.reducer = localReducer;
+    this.cursor = localCursor;
+    this.appliedIds = localAppliedIds;
+    this.publish();
   }
 }

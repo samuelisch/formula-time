@@ -198,6 +198,78 @@ describe("RaceStateProjector", () => {
     expect(projector.status().cursor).toBe(5n);
   });
 
+  test("runDetector: a rejected re-fold read keeps serving the previous state and retries next pass", async () => {
+    // Fake timers so each tick can be advanced one at a time -- with real
+    // timers, vi.waitFor's polling interval (50ms) lets several 10ms ticks
+    // elapse between checks, so the intermediate "rebuild failed" state
+    // (which lasts exactly one tick) can't be reliably observed.
+    vi.useFakeTimers();
+    try {
+      const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3), driverRow(4, 4), driverRow(5, 5)];
+      const initiallyVisible = rows.filter((r) => r.eventId !== "event-3").map((r) => r.eventId);
+      const source = new FakeSource(rows, initiallyVisible);
+
+      const originalReadAfter = source.readAfter.bind(source);
+      let rejectNextRead = false;
+      source.readAfter = async (sessionKey, afterSeq, limit) => {
+        if (rejectNextRead) {
+          rejectNextRead = false;
+          throw new Error("connection reset");
+        }
+        return originalReadAfter(sessionKey, afterSeq, limit);
+      };
+
+      const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+      const projector = tracked(
+        new RaceStateProjector({
+          source,
+          session: SESSION,
+          tickMs: 10,
+          detectorEveryTicks: 1,
+          log: (msg, fields) => logs.push({ msg, fields }),
+        }),
+      );
+
+      const seen: Array<{ cursor: bigint; driverCount: number }> = [];
+      projector.subscribe((state, cursor) =>
+        seen.push({ cursor, driverCount: Object.keys(state.drivers).length }),
+      );
+
+      projector.start();
+      // Tick 1 (delay 0): normal fold applies rows 1, 2, 4, 5 (3 stays hidden).
+      await vi.advanceTimersByTimeAsync(0);
+      expect(seen).toHaveLength(1);
+      const preDetectorSnapshot = projector.snapshot();
+      expect(preDetectorSnapshot.drivers["3"]).toBeUndefined();
+      expect(projector.status().cursor).toBe(5n);
+
+      rejectNextRead = true;
+      source.reveal("event-3");
+
+      // Tick 2: the detector finds event-3 unapplied and starts a rebuild;
+      // its first read rejects. The previous state must keep being served --
+      // no publish, cursor and snapshot unchanged -- and the failure is
+      // logged distinctly from a generic tick failure.
+      await vi.advanceTimersByTimeAsync(10);
+      expect(logs.some((l) => l.msg === "rebuild failed, keeping previous state")).toBe(true);
+      expect(seen).toHaveLength(1);
+      expect(projector.status().cursor).toBe(5n);
+      expect(projector.snapshot()).toEqual(preDetectorSnapshot);
+
+      // Tick 3: the next detector pass retries the rebuild (appliedIds/cursor
+      // were never touched by the failed attempt, so the same late row is
+      // found again); this time the read succeeds and the subscriber
+      // receives the fully rebuilt state.
+      await vi.advanceTimersByTimeAsync(10);
+      expect(seen).toHaveLength(2);
+      expect(seen[1]?.driverCount).toBe(5);
+      expect(projector.snapshot().drivers["3"]).toBeDefined();
+      expect(projector.status().cursor).toBe(5n);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("a rejected read is caught, logged, and retried on the next tick -- no stall, no crash", async () => {
     const rows = [driverRow(1, 1)];
     const source = new FakeSource(rows, rows.map((r) => r.eventId));
