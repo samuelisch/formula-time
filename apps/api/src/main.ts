@@ -5,6 +5,8 @@ import Fastify from "fastify";
 import { createDb } from "@formula-time/db";
 
 import { Fanout } from "./fanout/fanout.js";
+import { PollModule } from "./polls/poll-module.js";
+import { registerPolls } from "./polls/routes.js";
 import { prismaEventSource } from "./projector/event-source.js";
 import { pickSession } from "./projector/session-picker.js";
 import { liveRoutes } from "./routes/live.js";
@@ -20,9 +22,7 @@ const log = (msg: string, fields?: Record<string, unknown>): void => {
   app.log.info(fields ?? {}, msg);
 };
 
-// The poll module lands with #24; until then every push carries an empty
-// poll list through the same shape the wired-in module will produce.
-const pollSource = { publicPolls: (): unknown[] => [] };
+const pollModule = new PollModule({ db, log: { info: (msg) => app.log.info(msg) } });
 
 const fanout = new Fanout({ log });
 fanout.heartbeat();
@@ -32,7 +32,7 @@ const lifecycle = createSessionLifecycle({
   source,
   pusher: fanout,
   pickSession,
-  publicPolls: pollSource.publicPolls,
+  polls: pollModule,
   log,
 });
 
@@ -43,6 +43,7 @@ app.get("/health", async () => lifecycle.health());
 // Every client-facing route lives under /api (owner decision) -- the
 // public path is /api/live/events.
 await app.register(liveRoutes, { prefix: "/api", fanout });
+await app.register(registerPolls(pollModule), { prefix: "/api" });
 
 let sessionWatcher: ReturnType<typeof setInterval> | null = null;
 
