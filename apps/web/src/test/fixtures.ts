@@ -52,7 +52,7 @@ export function makeState(overrides: Partial<RaceState> = {}): RaceState {
     team_colour: "27F4D2",
     position: 2,
     interval: 1.234,
-    gap_to_leader: 1.234,
+    gap_to_leader: 2.567,
     current_lap: 12,
     tyre: { stint_number: 2, compound: "HARD", lap_start: 8, lap_end: null, age_at_start: 0, age: 4 },
   });
