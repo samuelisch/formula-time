@@ -49,8 +49,18 @@ function sessionKeyOf(session: RawRecord): string | number | null {
 
 const restLane = new RestLane(queue, {
   fetcher,
+  // Every session row discovery sees, every discovery tick (issue
+  // deliverable 4): upsert only. The jsonl recorder's session.json write
+  // does NOT belong here — see onSessionSelected below.
   onSession: async (session, nowMs) => {
     await upsertSession(db, session, nowMs);
+  },
+  // Once per newly-selected session, not once per discovery tick — a bug
+  // fixed in review round 3: recorder.writeSession() living in onSession
+  // re-created/truncated a directory and session.json, and re-stamped
+  // discovered_at, for every session of the year, every 60s while nothing
+  // was live.
+  onSessionSelected: async (session) => {
     const key = sessionKeyOf(session);
     if (key !== null) await recorder.writeSession(session, key);
   },

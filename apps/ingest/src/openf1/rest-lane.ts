@@ -80,6 +80,14 @@ export interface RestLaneOptions {
   driversPreRaceLeadMs?: number;
   /** Sessions upsert (issue deliverable 4) — called for every session row discovery sees. */
   onSession?: (session: RawRecord, nowMs: number) => void | Promise<void>;
+  /**
+   * Called once, when a session is newly selected as the one being followed
+   * (`this.sessionKey` changes) — NOT on every discovery tick like
+   * `onSession`. This is where a per-session, one-time side effect (writing
+   * the jsonl recorder's `session.json`) belongs, so it doesn't re-run every
+   * 60s while nothing is live.
+   */
+  onSessionSelected?: (session: RawRecord, nowMs: number) => void | Promise<void>;
   /** New (already-deduped) rows for one endpoint — feeds the jsonl recorder. */
   onNewRows?: (sessionKey: number, endpoint: string, rows: RawRecord[]) => void | Promise<void>;
   onLog?: (line: string) => void;
@@ -99,6 +107,7 @@ export class RestLane {
   private readonly discoveryIntervalMs: number;
   private readonly driversPreRaceLeadMs: number;
   private readonly onSession: RestLaneOptions["onSession"];
+  private readonly onSessionSelected: RestLaneOptions["onSessionSelected"];
   private readonly onNewRows: RestLaneOptions["onNewRows"];
   private readonly log: (line: string) => void;
 
@@ -129,6 +138,7 @@ export class RestLane {
     this.discoveryIntervalMs = opts.discoveryIntervalMs ?? 60_000;
     this.driversPreRaceLeadMs = opts.driversPreRaceLeadMs ?? 5 * 60 * 1000;
     this.onSession = opts.onSession;
+    this.onSessionSelected = opts.onSessionSelected;
     this.onNewRows = opts.onNewRows;
     this.log = opts.onLog ?? ((line) => console.log(line));
   }
@@ -220,6 +230,11 @@ export class RestLane {
       this.log(
         `rest: following session_key=${key} (${String(live["country_name"] ?? "?")})`,
       );
+      // Once per newly-selected session — NOT on every discovery tick like
+      // onSession (issue round 3: recorder.writeSession() was running from
+      // onSession, re-stamping session.json for every session of the year
+      // every 60s while nothing was live).
+      await this.onSessionSelected?.(live, nowMs);
     }
     if (!this.driversAtDiscoveryDone) {
       // Marked done only on success: a transient failure must retry on the

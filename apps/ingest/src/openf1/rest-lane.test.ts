@@ -105,6 +105,36 @@ describe("RestLane discovery", () => {
     expect(lane.status().active).toBe(false); // outside the live window still
   });
 
+  test("onSessionSelected fires once, only for the session that becomes live, not once per discovery tick", async () => {
+    const upcoming: RawRecord = {
+      session_key: 11362,
+      date_start: "2026-09-13T13:00:00Z",
+      date_end: "2026-09-13T15:00:00Z",
+    };
+    const finished: RawRecord = {
+      session_key: 11349,
+      date_start: "2026-08-30T13:00:00Z",
+      date_end: "2026-08-30T15:00:00Z",
+    };
+    const { fetcher } = fakeFetcher({ sessions: [finished, SESSION, upcoming], drivers: [{ driver_number: 1 }] });
+    const onSession = vi.fn();
+    const onSessionSelected = vi.fn();
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START, onSession, onSessionSelected, onLog: () => {} });
+
+    await lane.discoverOnce();
+
+    // onSession still sees every row...
+    expect(onSession).toHaveBeenCalledTimes(3);
+    // ...but onSessionSelected fires only for the one that became live.
+    expect(onSessionSelected).toHaveBeenCalledTimes(1);
+    expect(onSessionSelected).toHaveBeenCalledWith(SESSION, START);
+
+    await lane.discoverOnce(); // same session still selected: not called again
+
+    expect(onSessionSelected).toHaveBeenCalledTimes(1);
+  });
+
   test("one onSession row throwing (a malformed session) does not stop the rest, or starve ensureLiveSession", async () => {
     const bad: RawRecord = { session_key: "not-a-number", date_start: "nope", date_end: "nope" };
     const { fetcher } = fakeFetcher({ sessions: [bad, SESSION], drivers: [{ driver_number: 1 }] });
