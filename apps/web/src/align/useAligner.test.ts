@@ -215,4 +215,161 @@ describe("useAligner", () => {
     expect(track2.stop).not.toHaveBeenCalled(); // the live chain's stream is untouched
     expect(result.current.phase).toBe("running"); // the live chain's state survives
   });
+
+  // Round 2 finding: the first pass's stale-chain cleanup at the video.play()
+  // and createOcrWorker() checkpoints released streamRef.current/
+  // video.srcObject/workerRef.current -- the SHARED refs -- instead of the
+  // stale chain's own locally-acquired stream/worker. Once a second chain had
+  // already run to completion and taken those refs over, resolving the first
+  // chain's paused promise would stop the live chain's stream and blank its
+  // video source. These two tests pause at each of those later checkpoints
+  // (the earlier two tests above only ever pause at captureDisplayMedia, the
+  // earliest checkpoint, which is why this passed CI the first time).
+
+  it("keeps the second chain's stream and video source when Stop lands while a stale chain is paused at video.play()", async () => {
+    const { stream: stream1, track: track1 } = fakeStream();
+    const { stream: stream2, track: track2 } = fakeStream();
+    const worker2 = fakeWorker();
+
+    let captureCalls = 0;
+    const captureDisplayMedia = vi.fn(() => {
+      captureCalls += 1;
+      return Promise.resolve(captureCalls === 1 ? stream1 : stream2);
+    });
+
+    const play1 = deferred<void>();
+    let playCalls = 0;
+    vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => {
+      playCalls += 1;
+      return playCalls === 1 ? play1.promise : Promise.resolve(undefined);
+    });
+
+    // jsdom doesn't implement HTMLMediaElement.srcObject as an accessor (no
+    // prototype property to spy on), so intercept the hook's own
+    // document.createElement("video") call and define one on that specific
+    // instance -- a direct, per-write record of what the hook assigns to
+    // video.srcObject, not an inference from track/worker calls alone.
+    const srcObjectWrites: unknown[] = [];
+    const realCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tagName: string) => {
+      const element = realCreateElement(tagName);
+      if (tagName === "video") {
+        let value: unknown = null;
+        Object.defineProperty(element, "srcObject", {
+          configurable: true,
+          get: () => value,
+          set: (next: unknown) => {
+            value = next;
+            srcObjectWrites.push(next);
+          },
+        });
+      }
+      return element;
+    });
+
+    const { result } = renderHook(() =>
+      useAligner({
+        loadTesseract: () => Promise.resolve(fakeTesseract),
+        captureDisplayMedia,
+        createOcrWorker: () => Promise.resolve(worker2),
+      }),
+    );
+
+    await act(async () => {
+      result.current.start(); // first chain: gets stream1, then blocks on play1
+      await flush(3);
+    });
+    expect(result.current.phase).toBe("starting");
+    expect(track1.stop).not.toHaveBeenCalled(); // not stopped yet -- Stop hasn't run
+
+    act(() => {
+      result.current.stop(); // synchronously stops streamRef.current (stream1) via releaseResources
+    });
+    expect(track1.stop).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      result.current.start(); // second chain: stream2, play() resolves immediately, worker2
+      await flush(4);
+    });
+    expect(result.current.phase).toBe("running");
+    expect(srcObjectWrites.at(-1)).toBe(stream2); // the live chain's stream is showing
+    const writeCountOnceRunning = srcObjectWrites.length;
+
+    await act(async () => {
+      play1.resolve(undefined); // the first chain's stale play() finally settles
+      await flush(3);
+    });
+
+    // The stale chain released its OWN stream (already stopped above by
+    // Stop's releaseResources -- calling stop() again on it is a harmless
+    // no-op) and never touched the live chain's stream, worker, phase, or
+    // video source.
+    expect(track1.stop).toHaveBeenCalled();
+    expect(track2.stop).not.toHaveBeenCalled();
+    expect(worker2.terminate).not.toHaveBeenCalled();
+    expect(result.current.phase).toBe("running");
+    expect(srcObjectWrites.length).toBe(writeCountOnceRunning); // no further writes -- never nulled or reassigned
+    expect(srcObjectWrites.at(-1)).toBe(stream2); // still showing the live chain's stream
+  });
+
+  it("keeps the second chain's worker when Stop lands while a stale chain is paused creating the OCR worker", async () => {
+    const { stream: stream1, track: track1 } = fakeStream();
+    const { stream: stream2, track: track2 } = fakeStream();
+    const worker1 = fakeWorker();
+    const worker2 = fakeWorker();
+
+    let captureCalls = 0;
+    const captureDisplayMedia = vi.fn(() => {
+      captureCalls += 1;
+      return Promise.resolve(captureCalls === 1 ? stream1 : stream2);
+    });
+    vi.spyOn(window.HTMLMediaElement.prototype, "play").mockResolvedValue(undefined); // resolves immediately for every chain
+
+    const worker1Deferred = deferred<OcrWorker>();
+    let workerCalls = 0;
+    const createOcrWorker = vi.fn(() => {
+      workerCalls += 1;
+      return workerCalls === 1 ? worker1Deferred.promise : Promise.resolve(worker2);
+    });
+
+    const { result } = renderHook(() =>
+      useAligner({
+        loadTesseract: () => Promise.resolve(fakeTesseract),
+        captureDisplayMedia,
+        createOcrWorker,
+      }),
+    );
+
+    await act(async () => {
+      result.current.start(); // first chain: gets stream1, play() resolves, blocks creating worker1
+      await flush(4);
+    });
+    expect(result.current.phase).toBe("starting");
+
+    act(() => {
+      result.current.stop(); // stops stream1's track via releaseResources; workerRef.current is still null
+    });
+    expect(track1.stop).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      result.current.start(); // second chain: stream2, play(), worker2 -- all resolve immediately
+      await flush(5);
+    });
+    expect(result.current.phase).toBe("running");
+
+    await act(async () => {
+      worker1Deferred.resolve(worker1); // the first chain's stale createOcrWorker() finally settles
+      await flush(3);
+    });
+
+    // The stale chain terminates its OWN abandoned worker (worker1) and
+    // re-releases its own stream (already stopped above -- a second stop()
+    // call on the same track is a harmless no-op) -- never the live chain's
+    // worker2/stream2, and never workerRef.current/streamRef.current.
+    expect(worker1.terminate).toHaveBeenCalledTimes(1);
+    expect(worker2.terminate).not.toHaveBeenCalled();
+    expect(track1.stop).toHaveBeenCalled();
+    expect(track2.stop).not.toHaveBeenCalled();
+    expect(result.current.phase).toBe("running");
+  });
 });

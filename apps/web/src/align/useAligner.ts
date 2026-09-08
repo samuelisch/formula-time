@@ -461,19 +461,27 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
     setPhase("starting");
     setStatus("Loading OCR…");
     void (async () => {
+      // This chain's OWN acquisitions, tracked locally so a stale-chain
+      // cleanup (below, and in the catch block) releases exactly what THIS
+      // chain got -- never streamRef.current/workerRef.current/
+      // video.srcObject, which by the time a stale chain resumes may
+      // already belong to a newer chain that ran to completion in the
+      // meantime. Only a chain still holding the current generation ever
+      // assigns to those shared refs.
+      let ownStream: MediaStream | null = null;
+      let ownWorker: OcrWorker | null = null;
       try {
         const tesseract = await loadTesseractImpl();
         // Re-checked after every await below: a Stop mid-setup (stoppedRef)
         // or a Stop-then-Start that let a second chain start (gen mismatch)
         // must not let this chain go on to show "running" with capture/OCR
         // the user already asked to stop, or clobber the newer chain's
-        // stream/worker. Each branch releases only what THIS chain itself
-        // acquired by that point -- the shared refs are never touched by a
-        // chain once it no longer owns them.
+        // stream/worker.
         if (gen !== startGenRef.current || stoppedRef.current) return;
         setStatus("Pick the window playing the broadcast");
 
         const stream = await captureDisplayMediaImpl();
+        ownStream = stream;
         if (gen !== startGenRef.current || stoppedRef.current) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -484,20 +492,22 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
 
         await video.play();
         if (gen !== startGenRef.current || stoppedRef.current) {
-          streamRef.current?.getTracks().forEach((track) => track.stop());
-          streamRef.current = null;
-          video.srcObject = null;
+          // This chain's own stream -- NOT streamRef.current, which by now
+          // may already hold a newer chain's stream (and video.srcObject
+          // already shows it); never touched here.
+          stream.getTracks().forEach((track) => track.stop());
           return;
         }
 
         let worker = workerRef.current;
         if (!worker) {
           worker = await createOcrWorkerImpl(tesseract);
+          ownWorker = worker;
           if (gen !== startGenRef.current || stoppedRef.current) {
+            // Likewise: this chain's own freshly-created worker and stream,
+            // never workerRef.current/streamRef.current/video.srcObject.
             void worker.terminate().catch(() => {});
-            streamRef.current?.getTracks().forEach((track) => track.stop());
-            streamRef.current = null;
-            video.srcObject = null;
+            stream.getTracks().forEach((track) => track.stop());
             return;
           }
           workerRef.current = worker;
@@ -523,6 +533,12 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
           // panel stays visible so the failure is seen (unlike the Stop
           // button, this does not reset status to the idle message).
           setStatus(formatStartFailure(error));
+        } else {
+          // A stale chain that had already acquired its own stream/worker
+          // before throwing still must not leak them -- release only those,
+          // never the shared refs a newer chain may now own.
+          ownStream?.getTracks().forEach((track) => track.stop());
+          if (ownWorker) void ownWorker.terminate().catch(() => {});
         }
       }
     })();
