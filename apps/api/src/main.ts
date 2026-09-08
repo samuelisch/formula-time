@@ -1,5 +1,5 @@
-// App service: projector (the authority), poll module, serialize-once
-// SSE fan-out, route handler, exporter — one process (ADR-0001 §1).
+// API service — the "app service" of ADR-0001: projector (the authority), poll module,
+// serialize-once SSE fan-out, route handler, exporter — one process (ADR-0001 §1).
 import Fastify from "fastify";
 import { DOMAIN_PACKAGE } from "@formula-time/domain";
 
