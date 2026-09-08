@@ -5,11 +5,11 @@ description: Review a pull request end to end and post a verdict. Approves only 
 
 # Review a PR and give a verdict
 
-Usage: `/review-pr <pr-number>`
+Usage: `/review-pr <pr-number> [--post]`
 
 ## Overview
 
-Three reviews, one verdict. The verdict is posted as a GitHub review only when running in GitHub Actions, where the identity is `claude[bot]`. Locally the verdict is printed and nothing is posted: a local `gh` posts as the owner, and the owner's approval must be their own.
+Three reviews, one verdict. The verdict is posted as a GitHub review only when `--post` is given. The Claude Code Review workflow passes it, so the review comes from `claude[bot]`. Never pass `--post` locally: a local `gh` posts as the owner, and the owner's approval must be their own. Do not try to detect CI from the environment; the flag is the only switch.
 
 Merging is never done here. The owner merges.
 
@@ -26,13 +26,14 @@ Merging is never done here. The owner merges.
    - **Decision**: contradicts or amends an accepted ADR without a superseding ADR in the same PR; the "ADRs affected" line disagrees with the diff; touches a design-bearing track (Postgres fetcher, projector cursor, vote acknowledgement); the linked issue carries the `owner` label; changes files the issue body did not list.
 
    Style and nits go under Notes and never move the verdict.
-6. **Verdict.** Write `verdict.md` in the format below, then:
-   - all four buckets empty → `gh pr review <n> --approve --body-file verdict.md`
-   - any Security, Bug, or Must change → `gh pr review <n> --request-changes --body-file verdict.md`
-   - only Decision items → `gh pr review <n> --comment --body-file verdict.md`
-
-   If `GITHUB_ACTIONS` is not `true`, print `verdict.md` instead of running `gh pr review`, and say that nothing was posted.
-7. If `gh pr review` fails (the token cannot submit reviews), post the same body with `gh pr comment <n> --body-file verdict.md` and say in it that the verdict could not be recorded as a review.
+6. **Verdict.** Compose the body in the format below. Without `--post`, print it and stop; say that nothing was posted. With `--post`, submit it inline, one command, no temporary file:
+   - all four buckets empty → `gh pr review <n> --approve --body "$(cat <<'EOF'
+…
+EOF
+)"`
+   - any Security, Bug, or Must change → the same with `--request-changes`
+   - only Decision items → the same with `--comment`
+7. If `gh pr review` fails (the token cannot submit reviews), post the same body with `gh pr comment <n> --body "…"` and say in it that the verdict could not be recorded as a review. Never end a `--post` run without one of the two having succeeded.
 
 ## Verdict format
 
@@ -56,3 +57,4 @@ Merge is the owner's call.
 - Approving on a red or pending required check. That is a Bug until it is green.
 - Treating the PR's Verified section as proof. It is a claim. If CI runs the command, CI is the proof; if nothing runs it and the claim matters, say so under Notes.
 - Running the test suite from this skill. CI proves tests; this skill proves the review.
+- Ending a `--post` run with the verdict only in the transcript. Nobody reads the transcript; the review on the PR is the output.
