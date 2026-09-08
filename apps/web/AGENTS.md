@@ -2,9 +2,10 @@
 
 ## What this app owns
 
-- Vite + React. Built assets are static, hosted on Cloudflare Pages at
-  the apex of the custom domain; the api answers on `api.<domain>`
-  (ADR-0007). `VITE_API_URL` is the api's origin at build time; unset
+- Vite + React. Built assets are static, hosted on Netlify (interim
+  `*.netlify.app`, target the apex of a custom domain); the api answers
+  on its own origin (ADR-0007). `public/_redirects` is the SPA fallback,
+  `public/_headers` the asset cache policy. `VITE_API_URL` is the api's origin at build time; unset
   means relative URLs, which is the dev setup: the dev server
   (`vite.config.ts`) proxies `/health`, `/api`, `/live`, `/polls` to the
   api on port 3000. Every request goes through `src/api.ts`, never a

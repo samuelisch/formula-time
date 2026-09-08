@@ -1,4 +1,4 @@
-# ADR-0007 — Web bundle on a static host, api on a subdomain
+# ADR-0007 — Web bundle on a static host (Netlify), api on its own origin
 
 - **Status:** Proposed (accepted when this PR merges)
 - **Date:** 2026-09-08
@@ -18,23 +18,34 @@ cross-origin.
 
 The vote path (#36) identifies a viewer by an HttpOnly `SameSite=Lax`
 cookie. A Lax cookie travels on a cross-origin fetch only when both sides
-share one registrable domain. On two platform-issued domains it never
-travels and one-vote-per-browser silently breaks.
+share one registrable domain. On two platform-issued domains
+(`*.netlify.app`, `*.up.railway.app`, both on the Public Suffix List) it
+never travels and one-vote-per-browser silently breaks. Speed to a public
+URL matters more right now than vote identity, which the UI does not
+expose yet.
 
 ## Decision
 
-- The web bundle is built and hosted by **Cloudflare Pages** from
-  `apps/web` on push to `main`, at the apex (and `www`) of a custom domain
-  the owner registers. The api keeps its Railway service on
-  `api.<domain>`, DNS-only (no Cloudflare proxy in the SSE path).
+- The web bundle is built and hosted by **Netlify** from `apps/web` on
+  push to `main`. Interim: Netlify's own `*.netlify.app` subdomain, the
+  api on its Railway-issued domain. Target: a custom domain the owner
+  registers, bundle at the apex, api on `api.<domain>`, DNS-only (no CDN
+  proxy in the SSE path). The move is two config values and two
+  custom-domain screens; no code changes.
 - The api allows the bundle's origins through `@fastify/cors` with
   credentials, from a comma-separated `CORS_ORIGIN` variable in the
   platform secret store. Unset means no cross-origin access. The hijacked
   SSE route merges the plugin's headers into its own `writeHead`.
 - The bundle reads the api origin from `VITE_API_URL` at build time; unset
   means relative URLs, which is dev behind the Vite proxy.
-- The viewer cookie stays `SameSite=Lax`; the shared registrable domain
-  keeps it working. No `SameSite=None`.
+- The viewer cookie stays `SameSite=Lax`. On the interim subdomains it
+  does not travel, so vote identity is not stable until either the custom
+  domain exists or the cookie is switched to `SameSite=None` (one line in
+  #36; Safari still blocks it as third-party). That call is made when
+  votes reach the UI, not here.
+- `_redirects` (`/* /index.html 200`) gives the SPA its fallback;
+  `_headers` marks hashed assets immutable. Both are Netlify files that
+  Cloudflare Pages reads identically, so the host is swappable.
 
 ## Consequences
 
