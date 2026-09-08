@@ -6,6 +6,7 @@
 import type { RaceEvent, RawRecord } from "@formula-time/domain";
 
 import { apiFetch } from "../api.ts";
+import type { PollPublic } from "../live/types.ts";
 
 export interface RaceIndexEntry {
   session_key: number;
@@ -45,4 +46,17 @@ export async function fetchRaceFile(sessionKey: number): Promise<RaceFile> {
     throw new Error(`GET /api/races/${sessionKey} failed: ${response.status}`);
   }
   return (await response.json()) as RaceFile;
+}
+
+/**
+ * `GET /api/races/:session_key/polls` (issue #80/#79). `PollPublic[]`, `[]`
+ * when the race has no polls -- unlike `fetchRaceFile` this never 404s for
+ * "no polls", so a non-2xx here is a real failure.
+ */
+export async function fetchRacePolls(sessionKey: string): Promise<PollPublic[]> {
+  const response = await apiFetch(`/api/races/${sessionKey}/polls`);
+  if (!response.ok) {
+    throw new Error(`GET /api/races/${sessionKey}/polls failed: ${response.status}`);
+  }
+  return (await response.json()) as PollPublic[];
 }
