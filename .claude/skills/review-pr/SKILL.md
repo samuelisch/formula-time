@@ -28,13 +28,15 @@ Merging is never done here. The owner merges.
    - **Decision**: contradicts or amends an accepted ADR without a superseding ADR in the same PR; the "ADRs affected" line disagrees with the diff; touches a design-bearing track (Postgres fetcher, projector cursor, vote acknowledgement); the linked issue carries the `owner` label; changes files the issue body did not list.
 
    Style and nits go under Notes and never move the verdict.
-6. **Verdict.** Compose the body in the format below. Without `--post`, print it and stop; say that nothing was posted. With `--post`, submit it inline, one command, no temporary file:
-   - all four buckets empty → `gh pr review <n> --approve --body "$(cat <<'EOF'
-…
-EOF
-)"`
-   - any Security, Bug, or Must change → the same with `--request-changes`
-   - only Decision items → the same with `--comment`
+6. **Verdict.** Decide the header from the buckets, then the flag follows the header. The two must agree: a Decision-only verdict is never "changes requested", because the code may be right and the review must not block the owner's call.
+
+   | Buckets | Header | `gh pr review <n> …` |
+   |---|---|---|
+   | all four empty | `pass` | `--approve` |
+   | anything in Security, Bugs, or Must change | `changes requested` | `--request-changes` |
+   | only Decisions non-empty | `owner decision needed` | `--comment` |
+
+   Without `--post`, print the body and stop; say that nothing was posted. With `--post`, submit it inline in one command with no temporary file: `gh pr review <n> <flag> --body "$(cat <<'EOF' … EOF)"`, the body on the lines between.
 7. If `gh pr review` fails (the token cannot submit reviews), post the same body with `gh pr comment <n> --body "…"` and say in it that the verdict could not be recorded as a review. Never end a `--post` run without one of the two having succeeded.
 
 ## Verdict format
@@ -55,7 +57,7 @@ Merge is the owner's call.
 ## Common mistakes
 
 - Approving because the diff is small. Every PR gets step 2; a skipped step 3 or 4 needs its reason written down.
-- Filing a Decision as changes requested. The code may be right; the call is the owner's, and the review must not block it.
+- Filing a Decision as changes requested, or writing `owner decision needed` and then passing `--request-changes` (this happened on #32). Header and flag come from the same row of the table.
 - Approving on a red or pending required check. That is a Bug until it is green.
 - Treating the PR's Verified section as proof. It is a claim. If CI runs the command, CI is the proof; if nothing runs it and the claim matters, say so under Notes.
 - Running the test suite from this skill. CI proves tests; this skill proves the review.
