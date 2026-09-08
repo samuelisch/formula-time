@@ -1,4 +1,4 @@
-# ADR-0006 — Single-writer ingest: one queue, one connection, seq order equals commit order
+# ADR-0007 — Single-writer ingest: one queue, one connection, seq order equals commit order
 
 Status: Accepted
 Date: 2026-09-08
