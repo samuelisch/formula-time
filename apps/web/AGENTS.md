@@ -7,9 +7,9 @@
   on its own origin (ADR-0008). `public/_redirects` is the SPA fallback,
   `public/_headers` the asset cache policy. `VITE_API_URL` is the api's origin at build time; unset
   means relative URLs, which is the dev setup: the dev server
-  (`vite.config.ts`) proxies `/health`, `/api`, `/live`, `/polls` to the
-  api on port 3000. Every request goes through `src/api.ts`, never a
-  hand-built URL.
+  (`vite.config.ts`) proxies `/health` and `/api` to the api on port 3000
+  (`/live` and `/polls` are SPA routes, not proxied -- issue #72). Every
+  request goes through `src/api.ts`, never a hand-built URL.
 - Imports the RaceState type, wire schemas, and the reducer from
   `@formula-time/domain`. Never copies them. The reducer runs in the
   browser to fold finished races (target) and must stay identical to the
