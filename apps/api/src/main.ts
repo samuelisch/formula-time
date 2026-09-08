@@ -56,7 +56,7 @@ app.get("/health", async () => lifecycle.health());
 // Every client-facing route lives under /api (owner decision) -- the
 // public path is /api/live/events.
 await app.register(liveRoutes, { prefix: "/api", fanout });
-await app.register(registerPolls(pollModule), { prefix: "/api" });
+await app.register(registerPolls(pollModule, db), { prefix: "/api" });
 
 // ADR-0009 §4: the two historical-race routes, /api/races and
 // /api/races/:session_key -- "Serving reads the file, not Postgres."
