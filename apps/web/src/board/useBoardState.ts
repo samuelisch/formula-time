@@ -12,7 +12,7 @@ import type { DriverState, RaceState } from "@formula-time/domain";
 import { leaderLap } from "@formula-time/domain";
 import { createContext, createElement, useContext, useMemo, useRef, type ReactNode } from "react";
 
-import { useDisplayed } from "../live/selectors.ts";
+import { sessionStatusOf, useDisplayed, type SessionStatusValue } from "../live/selectors.ts";
 import type { LivePush } from "../live/types.ts";
 
 export interface BoardSource {
@@ -80,6 +80,12 @@ export function useBoardSessionMeta(): BoardSessionMeta {
     }),
     [push],
   );
+}
+
+/** The displayed push's session status, derived through `useBoardPush()` (not the live store directly) so this also works for a folded historical push. */
+export function useBoardSessionStatus(): SessionStatusValue | null {
+  const push = useBoardPush();
+  return sessionStatusOf(push?.state.session ?? null);
 }
 
 /** Render order for the timing table: `driver_order` (positioned, already sorted), then unpositioned drivers by number -- the POC's `renderDrivers`. */

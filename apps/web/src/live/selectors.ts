@@ -65,6 +65,19 @@ export function useLeaderLap(): number {
   return useLiveStore((state) => (state.displayed === null ? 0 : leaderLap(state.displayed.state)));
 }
 
+export type SessionStatusValue = "upcoming" | "live" | "finished";
+
+/** The session row's own `status` field (the `SessionStatus` enum), string-guarded so an unknown wire value reads as null rather than crashing a render. */
+export function sessionStatusOf(session: RawRecord | null | undefined): SessionStatusValue | null {
+  const status = session?.["status"];
+  return status === "upcoming" || status === "live" || status === "finished" ? status : null;
+}
+
+/** `"upcoming" | "live" | "finished" | null` from the displayed session's `status` field -- never "the pushed session exists" alone, which was the #72 bug (a finished or upcoming session read as live). */
+export function useSessionStatus(): SessionStatusValue | null {
+  return useLiveStore((state) => sessionStatusOf(state.displayed?.state.session));
+}
+
 /** Wall-clock time of the last received push, or null before the first one. Drives the shell's quiet-feed pill. */
 export function useLastMessageAt(): number | null {
   return useLiveStore((state) => state.lastMessageAt);

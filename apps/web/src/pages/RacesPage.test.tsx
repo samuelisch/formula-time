@@ -105,14 +105,40 @@ describe("RacesPage", () => {
     await waitFor(() => expect(screen.getByText("No past races yet")).toBeInTheDocument());
   });
 
-  it("shows a Live now card linking to /live when the live store has a session", async () => {
-    resetStore({ displayed: displayedWithSession({ country: "Italy", name: "Race", date_start: "2026-09-08T13:00:00.000Z" }) });
+  it("shows a Live now card linking to /live when the session status is live", async () => {
+    resetStore({
+      displayed: displayedWithSession({ status: "live", country: "Italy", name: "Race", date_start: "2026-09-08T13:00:00.000Z" }),
+    });
     stubFetch([]);
     renderPage();
 
     expect(screen.getByText("Live now")).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /Live now/ });
     expect(link).toHaveAttribute("href", "/live");
+  });
+
+  it("shows a neutral Next race card linking to /live when the session status is upcoming", async () => {
+    resetStore({
+      displayed: displayedWithSession({ status: "upcoming", country: "Italy", name: "Race", date_start: "2026-09-08T13:00:00.000Z" }),
+    });
+    stubFetch([]);
+    renderPage();
+
+    expect(screen.getByText("Next race · Italy · Race · 2026-09-08")).toBeInTheDocument();
+    expect(screen.queryByText("Live now")).not.toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /Next race/ });
+    expect(link).toHaveAttribute("href", "/live");
+  });
+
+  it("shows the quiet line when the session status is finished", async () => {
+    resetStore({
+      displayed: displayedWithSession({ status: "finished", country: "Italy", name: "Race", date_start: "2026-09-08T13:00:00.000Z" }),
+    });
+    stubFetch([]);
+    renderPage();
+
+    expect(screen.getByText("No live session right now")).toBeInTheDocument();
+    expect(screen.queryByText("Live now")).not.toBeInTheDocument();
   });
 
   it("renders rows from the stubbed /api/races fetch, newest first as served", async () => {

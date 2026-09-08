@@ -32,6 +32,13 @@
   font-size: 0.95rem;
 }
 
+.nextCard {
+  display: block;
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
 .heading {
   font-size: 1rem;
   margin: 0 0 0.75rem;
