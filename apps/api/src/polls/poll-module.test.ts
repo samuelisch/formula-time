@@ -364,4 +364,43 @@ describe("PollModule.onSessionFinished — void", () => {
     await module.onSessionFinished();
     expect(module.publicPolls().every((p) => p.status === "resolved")).toBe(true);
   });
+
+  it("routes through the write chain: a lock queued ahead of it lands before void runs", async () => {
+    const db = makeFakeDb();
+    const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Dutch" }); // locks_at_lap = 5
+
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, position: 1, current_lap: 1 }) },
+        driver_order: [1],
+      }),
+    );
+    await module.waitForIdle();
+    expect(module.publicPolls().every((p) => p.status === "open")).toBe(true);
+
+    db.calls.length = 0;
+
+    // Queue a lock-triggering onState without awaiting it, then immediately
+    // call onSessionFinished — the same race the bug fix closes. Because
+    // onSessionFinished now runs through the same writeChain, the queued
+    // lock is guaranteed to land (DB + memory) before void's updateMany
+    // runs, so its where-clause status matches and every poll ends up void
+    // rather than stuck "open" or "locked".
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, position: 1, current_lap: 5 }) },
+        driver_order: [1],
+      }),
+    );
+    await module.onSessionFinished();
+
+    // Every lock write (queued first) lands before any void write begins —
+    // guaranteed only because onSessionFinished runs through the same
+    // writeChain as onState, not as an unchained, racing write of its own.
+    const firstVoidIndex = db.calls.findIndex((c) => c.includes("->void"));
+    const lastLockIndex = db.calls.reduce((last, c, i) => (c.includes("open->locked") ? i : last), -1);
+    expect(firstVoidIndex).toBeGreaterThan(lastLockIndex);
+    expect(module.publicPolls().every((p) => p.status === "void")).toBe(true);
+  });
 });

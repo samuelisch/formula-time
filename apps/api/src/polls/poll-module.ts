@@ -141,7 +141,19 @@ export class PollModule {
     this.log.info(`poll write failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // Routed through the same writeChain as onState: an unchained write here
+  // could race a queued lock (or resolve) for the same poll — the void's
+  // conditional updateMany would read a stale in-memory status, miss the
+  // row a concurrent write just changed, and leave the poll stuck instead
+  // of voided. Chaining guarantees anything already queued lands first.
   public async onSessionFinished(): Promise<void> {
+    this.writeChain = this.writeChain
+      .then(() => this.voidFinishedPolls())
+      .catch((err) => this.logWriteFailure(err));
+    await this.writeChain;
+  }
+
+  private async voidFinishedPolls(): Promise<void> {
     for (const poll of this.polls.values()) {
       if (poll.status !== "open" && poll.status !== "locked") continue;
       const result = await this.db.poll.updateMany({
