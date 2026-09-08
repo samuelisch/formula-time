@@ -19,6 +19,7 @@ import type { FastifyInstance, FastifyPluginCallback } from "fastify";
 import type { PrismaClient } from "@formula-time/db";
 
 import type { Exporter } from "../export/exporter.js";
+import { prismaEventSource, toRaceEvent } from "../projector/event-source.js";
 
 export interface RacesRoutesOptions {
   db: PrismaClient;
@@ -38,6 +39,34 @@ interface RaceIndexEntry {
 }
 
 const INTEGER = /^-?\d+$/;
+const NON_NEGATIVE_INTEGER = /^\d+$/;
+
+const DEFAULT_EVENTS_LIMIT = 5000;
+const MAX_EVENTS_LIMIT = 5000;
+
+interface EventsQuery {
+  since_seq?: string;
+  limit?: string;
+}
+
+/** `since_seq` (issue #96): default `0`, must be a non-negative integer
+ * that fits in a JS number (the acceptance criterion `next_seq` also
+ * relies on). `null` means the raw value failed validation. */
+function parseSinceSeq(raw: string | undefined): number | null {
+  if (raw === undefined) return 0;
+  if (!NON_NEGATIVE_INTEGER.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+/** `limit`: default and maximum `5000`, minimum `1`. */
+function parseLimit(raw: string | undefined): number | null {
+  if (raw === undefined) return DEFAULT_EVENTS_LIMIT;
+  if (!NON_NEGATIVE_INTEGER.test(raw)) return null;
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n < 1 || n > MAX_EVENTS_LIMIT) return null;
+  return n;
+}
 
 async function fileExists(path: string): Promise<boolean> {
   try {
@@ -56,6 +85,9 @@ function filePath(dir: string, sessionKey: bigint): string {
  * so the public paths are `/api/races` and `/api/races/:session_key`. */
 export const racesRoutes: FastifyPluginCallback<RacesRoutesOptions> = (app: FastifyInstance, opts, done) => {
   const { db, exporter, dir } = opts;
+  // Same seam the projector reads through (apps/api/src/projector/event-source.ts):
+  // one `findMany` per page, `WHERE session_key = … AND seq > afterSeq ORDER BY seq ASC LIMIT limit`.
+  const eventSource = prismaEventSource(db);
 
   // One `findMany` on `export`, joined to `session` -- one query, no
   // per-row fan-out (ADR-0001 §2 invariant 2).
@@ -114,6 +146,63 @@ export const racesRoutes: FastifyPluginCallback<RacesRoutesOptions> = (app: Fast
     // the server" (ADR-0009 §4).
     return reply.send(createReadStream(path));
   });
+
+  // GET /api/races/:session_key/events (issue #96): the same RaceEvent
+  // rows for any session, live included, in bounded pages, so a browser
+  // can fold a live race from its start (HLD §7 rewind tier "minutes:
+  // keyframe + chunks folded in the browser"). Two queries per page --
+  // the session lookup (needed for `status`, and to 404 unknown sessions)
+  // and the events page -- never per tick.
+  app.get<{ Params: { session_key: string }; Querystring: EventsQuery }>(
+    "/races/:session_key/events",
+    async (request, reply) => {
+      const rawKey = request.params.session_key;
+      if (!INTEGER.test(rawKey)) {
+        reply.code(400);
+        return { error: "session_key must be an integer" };
+      }
+      const sessionKey = BigInt(rawKey);
+
+      const sinceSeq = parseSinceSeq(request.query.since_seq);
+      if (sinceSeq === null) {
+        reply.code(400);
+        return { error: "since_seq must be a non-negative integer" };
+      }
+
+      const limit = parseLimit(request.query.limit);
+      if (limit === null) {
+        reply.code(400);
+        return { error: `limit must be an integer between 1 and ${MAX_EVENTS_LIMIT}` };
+      }
+
+      const session = await db.session.findUnique({ where: { sessionKey }, select: { status: true } });
+      if (session === null) {
+        reply.code(404);
+        return { error: "not found" };
+      }
+
+      const rows = await eventSource.readAfter(sessionKey, BigInt(sinceSeq), limit);
+      const events = rows.map(toRaceEvent);
+      const lastRow = rows[rows.length - 1];
+      const nextSeq = lastRow === undefined ? null : Number(lastRow.seq);
+
+      // A full page is immutable by construction: rows below the head
+      // never change (ADR-0010 single writer per session, ADR-0007
+      // "ingest never updates an events row"). A short page is the head,
+      // still growing -- never cache it.
+      reply.header(
+        "cache-control",
+        events.length === limit ? "public, max-age=31536000, immutable" : "no-store",
+      );
+
+      return {
+        session_key: sessionKey.toString(),
+        status: session.status,
+        events,
+        next_seq: nextSeq,
+      };
+    },
+  );
 
   done();
 };
