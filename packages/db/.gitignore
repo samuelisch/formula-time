@@ -1,0 +1,2 @@
+# `prisma generate` output. Not committed (ADR-0004); the build regenerates it.
+/src/generated/

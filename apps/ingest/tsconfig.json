@@ -7,5 +7,8 @@
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"],
-  "references": [{ "path": "../../packages/domain" }]
+  "references": [
+    { "path": "../../packages/db" },
+    { "path": "../../packages/domain" }
+  ]
 }
