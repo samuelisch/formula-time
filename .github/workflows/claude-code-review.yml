@@ -1,12 +1,14 @@
 name: Claude Code Review
 
-# Runs /review-pr (.claude/skills/review-pr) on every non-draft PR as claude[bot].
-# The skill approves only a clean pass; anything else is "changes requested" or
-# "owner decision needed". Merging stays with the owner (AGENTS.md).
+# On-demand review by claude[bot]. Runs when a PR leaves draft
+# (ready_for_review) or when the `in-review` label is added. Never on a push:
+# a fix round is re-reviewed by removing and re-adding the label.
+# /review-pr (.claude/skills/review-pr) approves only a clean pass; anything
+# else is "changes requested" or "owner decision needed". The owner merges.
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [ready_for_review, labeled]
 
 concurrency:
   group: claude-review-${{ github.event.pull_request.number }}
@@ -14,7 +16,9 @@ concurrency:
 
 jobs:
   claude-review:
-    if: github.event.pull_request.draft == false
+    if: >-
+      github.event.pull_request.draft == false &&
+      (github.event.action == 'ready_for_review' || github.event.label.name == 'in-review')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -29,17 +33,37 @@ jobs:
           # Full history so the seam-reviewer can `git diff origin/main...HEAD`.
           fetch-depth: 0
 
+      - name: Point origin/HEAD at the default branch
+        # The security-review skill resolves origin/HEAD; a plain checkout leaves it unset.
+        run: git remote set-head origin -a
+
+      - name: Scope the review from the changed paths
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[].filename')
+          flags=""
+          if printf '%s\n' "$files" | grep -qE '^(apps|packages|db|docs/decisions-adr)/'; then flags="$flags --seam"; fi
+          if printf '%s\n' "$files" | grep -qE '^(apps|db|\.github)/'; then flags="$flags --security"; fi
+          echo "flags=$flags" >> "$GITHUB_OUTPUT"
+          printf 'changed files:\n%s\nflags:%s\n' "$files" "$flags"
+
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
+        env:
+          # Subagents run in the foreground: in this non-interactive run there is
+          # no later turn to collect a background agent, and a run that ended
+          # while agents were still working posted no verdict (#16, #20, #29).
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/review-pr ${{ github.event.pull_request.number }} --post'
+          prompt: '/review-pr ${{ github.event.pull_request.number }} --post${{ steps.scope.outputs.flags }}'
           # Transcript in the job log. The repo is public and the review is public; this is how a silent run gets debugged.
           show_full_output: true
           claude_args: |
+            --model sonnet
             --allowedTools "Skill,Agent,Task,Read,Glob,Grep,LS,mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh repo view:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(grep:*),Bash(rg:*),Bash(cat:*),Bash(ls:*),Bash(find:*),Bash(wc:*),Bash(head:*),Bash(tail:*),Bash(sed -n:*)"
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
