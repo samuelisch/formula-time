@@ -1,20 +1,38 @@
-import { Card } from "../components/Card.tsx";
-import { StatusLine } from "../components/StatusLine.tsx";
-import { useDelay, useLeaderLap, useSessionMeta } from "../live/selectors.ts";
+import type { ReactNode } from "react";
 
-// The timing board itself lands with the next issue. For now this proves the
-// live store end to end: the displayed lap and the delay setting.
-export function BoardPage() {
-  const leaderLap = useLeaderLap();
-  const { totalLaps } = useSessionMeta();
-  const { delayMs } = useDelay();
+import { LapCounter } from "../board/LapCounter.tsx";
+import { RaceControlCard } from "../board/RaceControlCard.tsx";
+import { TimingTable } from "../board/TimingTable.tsx";
+import { useBoardPush } from "../board/useBoardState.ts";
+import { WeatherCard } from "../board/WeatherCard.tsx";
+import { clock } from "../lib/format.ts";
+import styles from "./BoardPage.module.css";
 
-  const lapText = totalLaps === null ? "LAP —" : `LAP ${leaderLap}/${totalLaps}`;
+export interface BoardPageProps {
+  /** A caller-supplied control dropped into the toolbar row, e.g. the delay control (issue #49). */
+  toolbar?: ReactNode;
+}
+
+// The product's core screen: lap counter and source clock in a toolbar row,
+// race-control and weather cards in a grid, and the full driver table.
+// Everything here reads through board/useBoardState.ts, never the live store
+// directly, so it also renders a folded historical push (ADR-0009).
+export function BoardPage({ toolbar }: BoardPageProps = {}) {
+  const push = useBoardPush();
+  const sourceTime = push === null ? null : push.state.latest_source_time;
 
   return (
-    <Card>
-      <StatusLine label="Lap" value={lapText} />
-      <StatusLine label="Delay" value={`${Math.round(delayMs / 1000)}s`} />
-    </Card>
+    <div className={styles.board}>
+      <div className={styles.toolbar}>
+        <LapCounter />
+        <span className={styles.clock}>{clock(sourceTime)}</span>
+        {toolbar}
+      </div>
+      <div className={styles.grid}>
+        <RaceControlCard />
+        <WeatherCard />
+      </div>
+      <TimingTable />
+    </div>
   );
 }
