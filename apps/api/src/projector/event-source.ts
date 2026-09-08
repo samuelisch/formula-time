@@ -39,7 +39,7 @@ export function prismaEventSource(db: PrismaClient): EventSource {
   };
 }
 
-/** `event_id = sourceTime?.toISOString() ?? null` (brief): the fold's RaceEvent shape. */
+/** `source_time = sourceTime?.toISOString() ?? null` (brief): the fold's RaceEvent shape. */
 export function toRaceEvent(row: EventRow): RaceEvent {
   return {
     event_id: row.eventId,
