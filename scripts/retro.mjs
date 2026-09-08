@@ -5,6 +5,11 @@
 import { execFileSync } from "node:child_process";
 
 const since = process.argv[2] ?? new Date().toISOString().slice(0, 10);
+if (!/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+  console.error(`usage: retro.mjs [YYYY-MM-DD]; got ${JSON.stringify(since)}`);
+  process.exit(2);
+}
+const cell = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 const raw = execFileSync("gh", [
   "pr", "list", "--state", "merged", "--limit", "200",
   "--search", `merged:>=${since}`,
@@ -24,7 +29,7 @@ const prs = JSON.parse(raw)
 console.log(`# Retro — PRs merged since ${since}\n`);
 console.log(`| PR | Agent | Summary | Friction |\n|---|---|---|---|`);
 for (const p of prs) {
-  console.log(`| [#${p.number}](${p.url}) | ${p.agent || "?"} | ${p.summary || `(missing) ${p.title}`} | ${p.friction || "(missing)"} |`);
+  console.log(`| [#${p.number}](${p.url}) | ${cell(p.agent || "?")} | ${cell(p.summary || `(missing) ${p.title}`)} | ${cell(p.friction || "(missing)")} |`);
 }
 const missing = prs.filter((p) => !p.summary || !p.friction);
 if (missing.length) console.log(`\nMissing lines: ${missing.map((p) => `#${p.number}`).join(", ")}`);

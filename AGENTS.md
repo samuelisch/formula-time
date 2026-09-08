@@ -45,7 +45,7 @@ Read `docs/` before doing anything. What each part holds:
 - Tests (ADR-0002): vitest for unit (in-memory fakes) and integration
   (real Postgres in Docker — dedup + vote upsert); Playwright for e2e.
   `typecheck` + unit + integration must pass before a commit.
-- `docs/` other than `docs/decisions-adr/` is gitignored on purpose — do not change
+- `docs/` is gitignored on purpose (drafts), except `docs/decisions-adr/` and `docs/retros/`, which are tracked — do not change
   `.gitignore` unless asked. Consequence: `PRD.md`, `HLD.md` and the other
   drafts are invisible inside git worktrees. Task bodies must be
   self-contained (seam contracts pasted verbatim, ADR-0001 §4).

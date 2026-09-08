@@ -20,7 +20,7 @@
           {
             "type": "command",
             "if": "Bash(git commit *)",
-            "command": "pnpm typecheck && pnpm test:unit",
+            "command": "\"$CLAUDE_PROJECT_DIR/scripts/pre-commit-check.sh\"",
             "timeout": 300,
             "statusMessage": "typecheck + tests before commit"
           }
@@ -41,7 +41,7 @@
           {
             "type": "command",
             "if": "Bash(gh pr create *)",
-            "command": "c=$(jq -r .tool_input.command); case \"$c\" in *'gh pr create'*) printf '%s' \"$c\" | grep -q '^Summary: ' || echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"PR body must start with Summary:/Friction:/Agent: lines (see .github/pull_request_template.md)\"}}';; esac; exit 0"
+            "command": "\"$CLAUDE_PROJECT_DIR/scripts/check-pr-body.sh\""
           }
         ]
       }
