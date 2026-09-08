@@ -6,12 +6,16 @@
 // "SESSION STARTED" race-control events across the whole fold, mirroring
 // `live/anchors.ts`'s `deriveAnchors` but over every event rather than a
 // rolling 100-row window.
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
 import type { Anchors } from "../live/anchors.ts";
 import type { FoldedRace } from "../replay/foldRace.ts";
 import type { ReplayPlayback } from "../replay/useReplayPlayback.ts";
 import type { TimeTarget } from "./TimeTarget.ts";
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
 
 const EMPTY_ANCHORS: Anchors = { lights_out: null, laps: [], restarts: [] };
 
@@ -44,13 +48,36 @@ export function deriveReplayAnchors(folded: FoldedRace): Anchors {
 export function useReplayTimeTarget(playback: ReplayPlayback, folded: FoldedRace | null): TimeTarget {
   const anchors = useMemo<Anchors>(() => (folded === null ? EMPTY_ANCHORS : deriveReplayAnchors(folded)), [folded]);
 
+  // Un-nudged sync offset (issue #67): the net effect of every `seekTo`/
+  // `nudge` call on this fold, in ms. Ticking while playing advances the
+  // real position (`playback.sourceMs`) and an "un-nudged, played straight
+  // through" reference by the same amount every frame, so their difference
+  // never moves except at the instant of a seek, where it steps by exactly
+  // how far that seek actually moved the (clamped) position -- no separate
+  // wall-clock tracking needed, just an accumulator updated in `seekTo`/
+  // `nudge` below. Reset to 0 whenever the fold changes (a different race).
+  const offsetRef = useRef(0);
+  const foldedForOffsetRef = useRef<FoldedRace | null>(null);
+  if (foldedForOffsetRef.current !== folded) {
+    foldedForOffsetRef.current = folded;
+    offsetRef.current = 0;
+  }
+
   return useMemo<TimeTarget>(
     () => ({
       displayedAt: () => (folded === null ? null : playback.sourceMs),
 
-      seekTo: (atMs: number) => playback.seek(atMs),
+      seekTo: (atMs: number) => {
+        const clamped = clamp(atMs, playback.startSourceMs, playback.endSourceMs);
+        offsetRef.current += clamped - playback.sourceMs;
+        playback.seek(atMs);
+      },
 
-      nudge: (deltaMs: number) => playback.seek(playback.sourceMs + deltaMs),
+      nudge: (deltaMs: number) => {
+        const clamped = clamp(playback.sourceMs + deltaMs, playback.startSourceMs, playback.endSourceMs);
+        offsetRef.current += clamped - playback.sourceMs;
+        playback.seek(playback.sourceMs + deltaMs);
+      },
 
       anchors: () => anchors,
 
@@ -66,6 +93,8 @@ export function useReplayTimeTarget(playback: ReplayPlayback, folded: FoldedRace
       // `range()` is exactly what was asked for -- there is no buffered-span
       // shortfall to warn about the way live has.
       notice: () => null,
+
+      syncOffsetMs: () => (folded === null ? null : offsetRef.current),
     }),
     [folded, playback, anchors],
   );

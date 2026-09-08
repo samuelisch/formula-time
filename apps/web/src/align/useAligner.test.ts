@@ -6,15 +6,18 @@
 // `UseAlignerOptions` so the async setup chain can be paused and resumed by
 // hand.
 import { act, renderHook } from "@testing-library/react";
+import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { emptyAnchors } from "../live/anchors.ts";
+import { emptyAnchors, type Anchors } from "../live/anchors.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
+import { TimeTargetProvider, type TimeTarget } from "../transport/TimeTarget.ts";
+import { useLiveTimeTarget } from "../transport/useLiveTimeTarget.ts";
 import type { OcrWorker, TesseractModule } from "./capture.ts";
-import { useAligner } from "./useAligner.ts";
+import { applyOffsetToTarget, useAligner } from "./useAligner.ts";
 
-function resetStore(): void {
+function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>> = {}): void {
   useLiveStore.setState({
     connection: "connecting",
     catchingUp: false,
@@ -25,7 +28,19 @@ function resetStore(): void {
     displayed: null,
     bufferShort: false,
     anchors: emptyAnchors(),
+    ...overrides,
   });
+}
+
+// `useAligner` reads through `useTimeTarget()` (issue #67); every
+// `renderHook` below mounts it inside this live-backed provider, matching
+// how `BoardPage` wires it in the app -- none of these tests exercise an
+// anchored reading, so the real store (reset by `resetStore()` above) is
+// enough. `applyOffsetToTarget`'s own describe block below drives fake
+// targets directly instead, to cover the routing this issue adds.
+function LiveWrapper({ children }: { children: ReactNode }) {
+  const target = useLiveTimeTarget();
+  return createElement(TimeTargetProvider, { value: target, children });
 }
 
 function fakeTrack(): MediaStreamTrack {
@@ -88,12 +103,14 @@ describe("useAligner", () => {
   it("terminates the OCR worker once when Stop is pressed", async () => {
     const worker = fakeWorker();
     const { stream } = fakeStream();
-    const { result } = renderHook(() =>
-      useAligner({
-        loadTesseract: () => Promise.resolve(fakeTesseract),
-        captureDisplayMedia: () => Promise.resolve(stream),
-        createOcrWorker: () => Promise.resolve(worker),
-      }),
+    const { result } = renderHook(
+      () =>
+        useAligner({
+          loadTesseract: () => Promise.resolve(fakeTesseract),
+          captureDisplayMedia: () => Promise.resolve(stream),
+          createOcrWorker: () => Promise.resolve(worker),
+        }),
+      { wrapper: LiveWrapper },
     );
 
     await act(async () => {
@@ -114,12 +131,14 @@ describe("useAligner", () => {
   it("terminates the OCR worker on unmount", async () => {
     const worker = fakeWorker();
     const { stream } = fakeStream();
-    const { result, unmount } = renderHook(() =>
-      useAligner({
-        loadTesseract: () => Promise.resolve(fakeTesseract),
-        captureDisplayMedia: () => Promise.resolve(stream),
-        createOcrWorker: () => Promise.resolve(worker),
-      }),
+    const { result, unmount } = renderHook(
+      () =>
+        useAligner({
+          loadTesseract: () => Promise.resolve(fakeTesseract),
+          captureDisplayMedia: () => Promise.resolve(stream),
+          createOcrWorker: () => Promise.resolve(worker),
+        }),
+      { wrapper: LiveWrapper },
     );
 
     await act(async () => {
@@ -141,12 +160,14 @@ describe("useAligner", () => {
     const { stream, track } = fakeStream();
     const captureDisplayMedia = deferred<MediaStream>();
     const setIntervalSpy = vi.spyOn(window, "setInterval");
-    const { result } = renderHook(() =>
-      useAligner({
-        loadTesseract: () => Promise.resolve(fakeTesseract),
-        captureDisplayMedia: () => captureDisplayMedia.promise,
-        createOcrWorker: () => Promise.resolve(fakeWorker()),
-      }),
+    const { result } = renderHook(
+      () =>
+        useAligner({
+          loadTesseract: () => Promise.resolve(fakeTesseract),
+          captureDisplayMedia: () => captureDisplayMedia.promise,
+          createOcrWorker: () => Promise.resolve(fakeWorker()),
+        }),
+      { wrapper: LiveWrapper },
     );
 
     await act(async () => {
@@ -182,12 +203,14 @@ describe("useAligner", () => {
       return captureCalls === 1 ? capture1.promise : Promise.resolve(stream2);
     });
 
-    const { result } = renderHook(() =>
-      useAligner({
-        loadTesseract: () => Promise.resolve(fakeTesseract),
-        captureDisplayMedia,
-        createOcrWorker: () => Promise.resolve(worker2),
-      }),
+    const { result } = renderHook(
+      () =>
+        useAligner({
+          loadTesseract: () => Promise.resolve(fakeTesseract),
+          captureDisplayMedia,
+          createOcrWorker: () => Promise.resolve(worker2),
+        }),
+      { wrapper: LiveWrapper },
     );
 
     await act(async () => {
@@ -267,12 +290,14 @@ describe("useAligner", () => {
       return element;
     });
 
-    const { result } = renderHook(() =>
-      useAligner({
-        loadTesseract: () => Promise.resolve(fakeTesseract),
-        captureDisplayMedia,
-        createOcrWorker: () => Promise.resolve(worker2),
-      }),
+    const { result } = renderHook(
+      () =>
+        useAligner({
+          loadTesseract: () => Promise.resolve(fakeTesseract),
+          captureDisplayMedia,
+          createOcrWorker: () => Promise.resolve(worker2),
+        }),
+      { wrapper: LiveWrapper },
     );
 
     await act(async () => {
@@ -332,12 +357,14 @@ describe("useAligner", () => {
       return workerCalls === 1 ? worker1Deferred.promise : Promise.resolve(worker2);
     });
 
-    const { result } = renderHook(() =>
-      useAligner({
-        loadTesseract: () => Promise.resolve(fakeTesseract),
-        captureDisplayMedia,
-        createOcrWorker,
-      }),
+    const { result } = renderHook(
+      () =>
+        useAligner({
+          loadTesseract: () => Promise.resolve(fakeTesseract),
+          captureDisplayMedia,
+          createOcrWorker,
+        }),
+      { wrapper: LiveWrapper },
     );
 
     await act(async () => {
@@ -371,5 +398,86 @@ describe("useAligner", () => {
     expect(track1.stop).toHaveBeenCalled();
     expect(track2.stop).not.toHaveBeenCalled();
     expect(result.current.phase).toBe("running");
+  });
+});
+
+// --- Routing an anchored reading's offset through the TimeTarget seam
+// (issue #67) -----------------------------------------------------------
+//
+// `applyOffsetToTarget` is what `applyLapReading`/`handleLightsOut` pass as
+// `applyReading`'s `setDelayMs` callback -- these drive it directly with
+// hand-rolled fake targets rather than the whole OCR pipeline, exactly
+// mirroring how `TransportBar.test.tsx` fakes `TimeTarget` rather than the
+// real store/playback clock.
+
+const NO_ANCHORS: Anchors = { lights_out: null, laps: [], restarts: [] };
+
+function fakeLiveTarget(overrides: Partial<TimeTarget> = {}): TimeTarget {
+  return {
+    displayedAt: () => null,
+    seekTo: vi.fn(),
+    nudge: vi.fn(),
+    anchors: () => NO_ANCHORS,
+    range: () => ({ startMs: 0, endMs: 100_000 }),
+    playback: () => null,
+    notice: () => null,
+    ...overrides,
+  };
+}
+
+function fakeReplayTarget(overrides: Partial<TimeTarget> = {}): TimeTarget & {
+  play: ReturnType<typeof vi.fn>;
+  pause: ReturnType<typeof vi.fn>;
+} {
+  const play = vi.fn();
+  const pause = vi.fn();
+  return {
+    displayedAt: () => 0,
+    seekTo: vi.fn(),
+    nudge: vi.fn(),
+    anchors: () => NO_ANCHORS,
+    range: () => ({ startMs: 0, endMs: 90_000 }),
+    playback: () => ({ playing: false, play, pause }),
+    notice: () => null,
+    play,
+    pause,
+    ...overrides,
+  };
+}
+
+describe("applyOffsetToTarget", () => {
+  it("live: seeks to now() - ms, which a live target's own seekTo resolves back to setDelayMs(ms) -- unchanged from the pre-#67 direct call", () => {
+    const target = fakeLiveTarget({ range: () => ({ startMs: 0, endMs: 200_000 }) });
+    applyOffsetToTarget(target, "2026-09-06T13:00:00.000Z", 4_000, () => 200_000);
+    expect(target.seekTo).toHaveBeenCalledWith(196_000);
+  });
+
+  it("live: falls back to the injected now() when range() is null", () => {
+    const target = fakeLiveTarget({ range: () => null });
+    applyOffsetToTarget(target, null, 2_000, () => 50_000);
+    expect(target.seekTo).toHaveBeenCalledWith(48_000);
+  });
+
+  it("live, through the real useLiveTimeTarget: ends with delayMs exactly ms (the setDelayMs path, unchanged)", () => {
+    resetStore({ buffer: { entries: [{ at: 0, raw: "{}" }, { at: 300_000, raw: "{}" }] } });
+    const { result } = renderHook(() => useLiveTimeTarget(() => 300_000));
+
+    applyOffsetToTarget(result.current, null, 7_500, () => 300_000);
+
+    expect(useLiveStore.getState().delayMs).toBe(7_500);
+  });
+
+  it("replay: seeks to anchor + lead and keeps playing", () => {
+    const target = fakeReplayTarget();
+    applyOffsetToTarget(target, "2026-09-06T13:00:00.000Z", 1_500);
+    expect(target.seekTo).toHaveBeenCalledWith(Date.parse("2026-09-06T13:00:00.000Z") + 1_500);
+    expect(target.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("replay: a null anchor is a no-op on the seek, but playback still resumes", () => {
+    const target = fakeReplayTarget();
+    applyOffsetToTarget(target, null, 1_500);
+    expect(target.seekTo).not.toHaveBeenCalled();
+    expect(target.play).toHaveBeenCalledTimes(1);
   });
 });

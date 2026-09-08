@@ -25,10 +25,11 @@ import styles from "./BoardPage.module.css";
 // on every route) until issue #57 fix round 5 moved them into the board's
 // toolbar; issue #81 then deleted `DelayControl` and folded its behavior
 // into the shared `TransportBar`, driven by `useLiveTimeTarget()` through
-// the `TimeTarget` seam. `AlignPanel` stays live-only until alignment on a
-// replay lands (#67); it still calls `setDelayMs` on the live store
-// directly, bypassing the seam, until that issue routes it through
-// `TimeTarget` too.
+// the `TimeTarget` seam. Issue #67 routed `AlignPanel` (via `useAligner`)
+// through the same seam instead of the live store directly, so it can also
+// mount on a replay (`ReplayPage.tsx`) -- one `TimeTargetProvider` now wraps
+// the whole `Board`, not just `TransportBar`, so both slots read the same
+// target.
 export function BoardPage() {
   const polls = usePolls();
   const status = useBoardSessionStatus();
@@ -45,20 +46,18 @@ export function BoardPage() {
       {status === "upcoming" && (
         <p className={styles.banner}>Race starts {date(stringField(session ?? {}, "date_start"))}. Timing appears when the session goes live.</p>
       )}
-      <Board
-        controls={
-          <>
-            <PollsButton />
-            <AlignPanel />
-          </>
-        }
-        transport={
-          <TimeTargetProvider value={target}>
-            <TransportBar />
-          </TimeTargetProvider>
-        }
-        side={<DriverPanel />}
-      />
+      <TimeTargetProvider value={target}>
+        <Board
+          controls={
+            <>
+              <PollsButton />
+              <AlignPanel />
+            </>
+          }
+          transport={<TransportBar />}
+          side={<DriverPanel />}
+        />
+      </TimeTargetProvider>
       <PollModal polls={polls} />
     </div>
   );

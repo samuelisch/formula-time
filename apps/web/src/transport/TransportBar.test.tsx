@@ -54,6 +54,7 @@ function makeReplayFake(overrides: {
   range?: { startMs: number; endMs: number } | null;
   anchors?: Anchors;
   playing?: boolean;
+  syncOffsetMs?: number | null;
 } = {}): TimeTarget & {
   seekTo: ReturnType<typeof vi.fn<(atMs: number) => void>>;
   nudge: ReturnType<typeof vi.fn<(deltaMs: number) => void>>;
@@ -63,6 +64,7 @@ function makeReplayFake(overrides: {
   const range = overrides.range ?? { startMs: 0, endMs: 90_000 };
   const displayedAtMs = overrides.displayedAtMs ?? range.startMs;
   const playing = overrides.playing ?? false;
+  const syncOffsetMs = "syncOffsetMs" in overrides ? overrides.syncOffsetMs! : 0;
   const play = vi.fn();
   const pause = vi.fn();
   return {
@@ -73,6 +75,7 @@ function makeReplayFake(overrides: {
     range: () => range,
     playback: () => ({ playing, play, pause }),
     notice: () => null,
+    syncOffsetMs: () => syncOffsetMs,
     play,
     pause,
   };
@@ -216,7 +219,7 @@ describe("TransportBar -- replay", () => {
     expect(screen.queryByRole("button", { name: "Live" })).not.toBeInTheDocument();
   });
 
-  it("sets the slider's bounds from range() and shows the source clock", () => {
+  it("sets the slider's bounds from range()", () => {
     const target = makeReplayFake({
       range: { startMs: Date.parse("2026-09-06T13:00:00.000Z"), endMs: Date.parse("2026-09-06T13:01:30.000Z") },
       displayedAtMs: Date.parse("2026-09-06T13:00:30.000Z"),
@@ -226,6 +229,41 @@ describe("TransportBar -- replay", () => {
     const slider = screen.getByRole("slider", { name: "Playback position" }) as HTMLInputElement;
     expect(slider.min).toBe(String(Date.parse("2026-09-06T13:00:00.000Z")));
     expect(slider.max).toBe(String(Date.parse("2026-09-06T13:01:30.000Z")));
+  });
+
+  // Replay-only wording (issue #67): the readout is the sync offset in
+  // seconds relative to the un-nudged clock, not the absolute source clock
+  // -- 0 for a fold that has only ever played straight through, signed once
+  // a nudge or auto-align has moved it.
+  it("shows the sync offset in seconds relative to the un-nudged clock, signed", () => {
+    const atRest = makeReplayFake({ syncOffsetMs: 0 });
+    renderBar(atRest);
+    expect(screen.getByText("0.0s")).toBeInTheDocument();
+
+    const nudgedForward = makeReplayFake({ syncOffsetMs: 5_000 });
+    renderBar(nudgedForward);
+    expect(screen.getByText("+5.0s")).toBeInTheDocument();
+
+    const nudgedBack = makeReplayFake({ syncOffsetMs: -2_500 });
+    renderBar(nudgedBack);
+    expect(screen.getByText("-2.5s")).toBeInTheDocument();
+  });
+
+  it("falls back to the absolute source clock when the target omits the optional syncOffsetMs", () => {
+    const range = { startMs: 0, endMs: 90_000 };
+    const displayedAtMs = Date.parse("2026-09-06T13:00:30.000Z");
+    // A minimal replay-shaped target that never implements the optional
+    // `syncOffsetMs`, as the `TimeTarget` interface allows.
+    const target: TimeTarget = {
+      displayedAt: () => displayedAtMs,
+      seekTo: vi.fn(),
+      nudge: vi.fn(),
+      anchors: () => NO_ANCHORS,
+      range: () => range,
+      playback: () => ({ playing: false, play: vi.fn(), pause: vi.fn() }),
+      notice: () => null,
+    };
+    renderBar(target);
     expect(screen.getByText("13:00:30 UTC")).toBeInTheDocument();
   });
 

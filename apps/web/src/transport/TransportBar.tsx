@@ -94,12 +94,20 @@ export function TransportBar() {
     seekAndMaybePause(Date.parse(found.source_time));
   }
 
+  // Replay-only wording (issue #67): once a sync offset is available
+  // (`useReplayTimeTarget` always provides one once folded), show it in
+  // seconds relative to the un-nudged clock -- the replay analogue of
+  // live's "seconds behind now" delay reading -- instead of the absolute
+  // source clock.
+  const syncOffsetMs = playback === null ? null : (target.syncOffsetMs?.() ?? null);
   const positionLabel =
     playback === null
       ? range === null || displayedAtMs === null
         ? "—"
         : `${formatSeconds(range.endMs - displayedAtMs)}s`
-      : clock(displayedAtMs === null ? null : new Date(displayedAtMs).toISOString());
+      : syncOffsetMs === null
+        ? clock(displayedAtMs === null ? null : new Date(displayedAtMs).toISOString())
+        : `${syncOffsetMs > 0 ? "+" : ""}${formatSeconds(syncOffsetMs)}s`;
 
   return (
     <div className={styles.transport} title="[ and ] nudge 1s, , and . nudge 5s">
