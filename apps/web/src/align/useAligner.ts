@@ -349,6 +349,16 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   // watch needs no box (at race start there IS no lap counter on screen
   // yet). The crop only gates the lap-OCR branch below.
   const sample = useCallback(() => {
+    // Counted and checked every tick, independent of whether a crop box
+    // exists yet -- a missing/misplaced box is exactly the case this nudge
+    // is for (POC: incremented in the outer setInterval, not gated on the
+    // OCR branch below).
+    sampleCountRef.current += 1;
+    if (shouldNudgeNoRead(sampleCountRef.current, everReadRef.current, noReadNudgeShownRef.current)) {
+      noReadNudgeShownRef.current = true;
+      setStatus("No lap counter read yet — check the box covers LAP N/M");
+    }
+
     if (!video.videoWidth) return;
 
     // Pushed every sample tick, independent of the OCR guard below -- an
@@ -368,11 +378,6 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
 
     const box = cropRef.current;
     if (!box) return;
-    sampleCountRef.current += 1;
-    if (shouldNudgeNoRead(sampleCountRef.current, everReadRef.current, noReadNudgeShownRef.current)) {
-      noReadNudgeShownRef.current = true;
-      setStatus("No lap counter read yet — check the box covers LAP N/M");
-    }
 
     const sx = box.x * video.videoWidth;
     const sy = box.y * video.videoHeight;
