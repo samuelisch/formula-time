@@ -22,7 +22,8 @@ Read `docs/` before doing anything. What each part holds:
   decisions, open product questions. Mirrors the owner's Notion.
 - `docs/decisions-adr/` — binding decisions, numbered and dated. ADR-0001: shape,
   the five invariants, managed-first stance, build order, seam contracts.
-  ADR-0002: repo layout and toolchain.
+  ADR-0002: repo layout and toolchain. ADR-0003: package names
+  (`packages/domain`, `apps/api` = the app service of ADR-0001).
 - `docs/HLD.md` — requirements with numbers, entities, the stored data
   model, the HLD diagrams, and §7: the mechanics and vocabulary every
   agent must use rather than reinvent.

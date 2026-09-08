@@ -21,26 +21,26 @@ importers:
         specifier: ^5.0.0
         version: 5.0.0(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.13))
 
-  apps/app:
+  apps/api:
     dependencies:
-      '@formula-time/shared':
+      '@formula-time/domain':
         specifier: workspace:*
-        version: link:../../packages/shared
+        version: link:../../packages/domain
       fastify:
         specifier: ^5.12.3
         version: 5.12.3
 
   apps/ingest:
     dependencies:
-      '@formula-time/shared':
+      '@formula-time/domain':
         specifier: workspace:*
-        version: link:../../packages/shared
+        version: link:../../packages/domain
 
   apps/web:
     dependencies:
-      '@formula-time/shared':
+      '@formula-time/domain':
         specifier: workspace:*
-        version: link:../../packages/shared
+        version: link:../../packages/domain
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -67,7 +67,7 @@ importers:
         specifier: ^8.2.2
         version: 8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.13)
 
-  packages/shared: {}
+  packages/domain: {}
 
 packages:
 

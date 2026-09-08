@@ -13,7 +13,7 @@
   "dependencies": {
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "@formula-time/shared": "workspace:*"
+    "@formula-time/domain": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
