@@ -11,7 +11,9 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded PR runs only. On main every push is a distinct commit
+  # that deserves its own recorded result; cancelling one leaves it unverified.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -74,4 +76,9 @@ jobs:
         run: pnpm build
 
       - name: Accepted ADRs unchanged
+        # On a PR the base is origin/main (the script's default). On a push
+        # to main the checkout already is main, so the base must be the
+        # tip before the push or the diff is empty by construction.
+        env:
+          ADR_CHECK_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: scripts/check-adr-immutable.sh
