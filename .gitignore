@@ -11,6 +11,10 @@ dist/
 .env.*
 coverage/
 
+# ingest's jsonl recording (LIVE_LOG_DIR default ./live-logs) — the
+# irreplaceable artefact, but not repo content (issue #22 deliverable 3/5).
+/live-logs/
+
 # agent worktrees and SDD scratch
 /.claude/worktrees/
 /.superpowers/
