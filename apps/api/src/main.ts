@@ -6,6 +6,8 @@ import { createDb } from "@formula-time/db";
 
 import { parseAllowedOrigins, registerCors } from "./cors.js";
 import { Fanout } from "./fanout/fanout.js";
+import { PollModule } from "./polls/poll-module.js";
+import { registerPolls } from "./polls/routes.js";
 import { prismaEventSource } from "./projector/event-source.js";
 import { pickSession } from "./projector/session-picker.js";
 import { liveRoutes } from "./routes/live.js";
@@ -25,9 +27,10 @@ const log = (msg: string, fields?: Record<string, unknown>): void => {
   app.log.info(fields ?? {}, msg);
 };
 
-// The poll module lands with #24; until then every push carries an empty
-// poll list through the same shape the wired-in module will produce.
-const pollSource = { publicPolls: (): unknown[] => [] };
+// PollModule is the sole writer of `polls` and `votes` (apps/api/AGENTS.md,
+// ADR-0001 §2 invariant 5); the lifecycle drives it through the PollHooks
+// seam (session-lifecycle.ts) and the routes below answer votes against it.
+const polls = new PollModule({ db, log: { info: (msg) => app.log.info(msg) } });
 
 const fanout = new Fanout({ log });
 fanout.heartbeat();
@@ -37,7 +40,8 @@ const lifecycle = createSessionLifecycle({
   source,
   pusher: fanout,
   pickSession,
-  publicPolls: pollSource.publicPolls,
+  publicPolls: () => polls.publicPolls(),
+  pollModule: polls,
   log,
 });
 
@@ -46,8 +50,9 @@ const lifecycle = createSessionLifecycle({
 app.get("/health", async () => lifecycle.health());
 
 // Every client-facing route lives under /api (owner decision) -- the
-// public path is /api/live/events.
+// public path is /api/live/events, plus /api/vote and /api/polls below.
 await app.register(liveRoutes, { prefix: "/api", fanout });
+await app.register(registerPolls(polls), { prefix: "/api" });
 
 let sessionWatcher: ReturnType<typeof setInterval> | null = null;
 
@@ -57,7 +62,12 @@ process.on("SIGTERM", () => {
   }
   lifecycle.stop();
   fanout.stopHeartbeat();
-  void db.$disconnect().then(() => process.exit(0));
+  // Drain PollModule's write chain (onState's scheduled writes, a pending
+  // onSessionFinished void) before the pool goes away underneath it.
+  void polls
+    .waitForIdle()
+    .then(() => db.$disconnect())
+    .then(() => process.exit(0));
 });
 
 // Listen first: Railway's healthcheck is /health (.railway/railway.ts), and

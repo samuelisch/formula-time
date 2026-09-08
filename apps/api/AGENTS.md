@@ -15,7 +15,10 @@ One process holding:
   restart runs the same query from cursor 0. A row below the
   already-applied cursor forces a full rebuild — never an in-place apply.
 - **The poll module** — locks and resolves polls from the fold; holds
-  tallies in memory; reloads them from `votes` on start.
+  tallies in memory; reloads them from `votes` on start. Wired into
+  `main.ts` via the `PollHooks` seam in `session-lifecycle.ts`: `start` on a
+  new session, `onState` before every push, `onSessionFinished` once on
+  chequered; `/api/vote` and `/api/polls` are registered from `polls/routes.ts`.
 - **The fan-out** — one `JSON.stringify` per push, gzip once per push,
   identical bytes to every socket. A vote never triggers a push.
 - **The SSE route handler** — live: attach the socket to the fan-out.

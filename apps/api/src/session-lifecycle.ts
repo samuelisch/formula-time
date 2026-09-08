@@ -6,6 +6,7 @@
 // `health()` are unit-testable with a fake that returns null, without a
 // real Postgres or projector.
 import type { PrismaClient, Session } from "@formula-time/db";
+import { isChequered, type RaceState } from "@formula-time/domain";
 
 import type { EventSource } from "./projector/event-source.js";
 import { RaceStateProjector, type ProjectorLog } from "./projector/projector.js";
@@ -23,12 +24,22 @@ export interface Pusher {
   size(): number;
 }
 
+// PollModule's shape as this file needs it, so the lifecycle stays testable
+// with a fake -- see poll-module.ts's doc comment for the write-ordering
+// rules onState and onSessionFinished must follow.
+export interface PollHooks {
+  start(session: { sessionKey: bigint; totalLaps: number | null; country: string }): Promise<void>;
+  onState(state: RaceState): void;
+  onSessionFinished(): Promise<void>;
+}
+
 export interface SessionLifecycleOptions {
   db: PrismaClient;
   source: EventSource;
   pusher: Pusher;
   pickSession: (db: PrismaClient) => Promise<Session | null>;
   publicPolls: () => unknown[];
+  pollModule: PollHooks;
   log: ProjectorLog;
 }
 
@@ -49,7 +60,14 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
   let warnedNoSession = false;
 
   function wireProjector(p: RaceStateProjector, forSession: Session): void {
+    // Per-session: reset with each new projector, since chequered is a
+    // property of this session's race, not of the process.
+    let wasChequered = false;
     p.subscribe((state, cursor) => {
+      // Synchronous: onState schedules its own writes and must never be
+      // awaited from the tick (poll-module.ts's doc comment), and it runs
+      // before the push so the pushed `polls` reflects this state.
+      opts.pollModule.onState(state);
       void opts.pusher.push({
         type: "state",
         seq: cursor.toString(),
@@ -59,6 +77,11 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
         state,
         polls: opts.publicPolls(),
       });
+      const chequeredNow = isChequered(state);
+      if (chequeredNow && !wasChequered) {
+        void opts.pollModule.onSessionFinished();
+      }
+      wasChequered = chequeredNow;
     });
     p.start();
   }
@@ -78,6 +101,11 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
       }
       projector?.stop();
       session = candidate;
+      await opts.pollModule.start({
+        sessionKey: candidate.sessionKey,
+        totalLaps: candidate.totalLaps,
+        country: candidate.country,
+      });
       projector = new RaceStateProjector({ source: opts.source, session: candidate, log: opts.log });
       wireProjector(projector, candidate);
     },
