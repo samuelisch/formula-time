@@ -73,6 +73,14 @@ export class RaceStateProjector {
   private foldStartedAt = 0;
   private tickChain: Promise<void> = Promise.resolve();
 
+  // Bumped on every start(): a tick mid-await when stop() runs doesn't stop
+  // being mid-await -- `stopped` alone flips back to false on a later
+  // start(), so that stale tick would resume, see itself as "running"
+  // again, and call scheduleTick(), leaving two independent timer chains
+  // ticking in parallel. Each scheduled tick captures the generation it
+  // was scheduled under and bails if it no longer matches the current one.
+  private generation = 0;
+
   public constructor(opts: ProjectorOptions) {
     this.source = opts.source;
     this.session = opts.session;
@@ -95,7 +103,8 @@ export class RaceStateProjector {
       return;
     }
     this.stopped = false;
-    this.scheduleTick(0);
+    this.generation += 1;
+    this.scheduleTick(0, this.generation);
   }
 
   public stop(): void {
@@ -119,20 +128,20 @@ export class RaceStateProjector {
     return { sessionKey: this.session.sessionKey, cursor: this.cursor, caughtUp: this.caughtUp };
   }
 
-  private scheduleTick(delayMs: number): void {
-    if (this.stopped) {
+  private scheduleTick(delayMs: number, generation: number): void {
+    if (this.stopped || generation !== this.generation) {
       return;
     }
     this.timer = setTimeout(() => {
       // Never overlapping ticks: chain onto the previous tick's promise
       // rather than firing a concurrent one if a tick somehow outran its
       // own interval.
-      this.tickChain = this.tickChain.then(() => this.tick());
+      this.tickChain = this.tickChain.then(() => this.tick(generation));
     }, delayMs);
   }
 
-  private async tick(): Promise<void> {
-    if (this.stopped) {
+  private async tick(generation: number): Promise<void> {
+    if (this.stopped || generation !== this.generation) {
       return;
     }
 
@@ -151,7 +160,7 @@ export class RaceStateProjector {
     try {
       if (this.tickCount % this.detectorEveryTicks === 0) {
         await this.runDetector();
-        if (this.stopped) {
+        if (this.stopped || generation !== this.generation) {
           return;
         }
       }
@@ -160,7 +169,7 @@ export class RaceStateProjector {
       let rows: EventRow[];
       do {
         rows = await this.source.readAfter(this.session.sessionKey, this.cursor, this.batchLimit);
-        if (this.stopped) {
+        if (this.stopped || generation !== this.generation) {
           return;
         }
         for (const row of rows) {
@@ -190,7 +199,7 @@ export class RaceStateProjector {
       });
     }
 
-    this.scheduleTick(this.tickMs);
+    this.scheduleTick(this.tickMs, generation);
   }
 
   private applyRow(row: EventRow): void {

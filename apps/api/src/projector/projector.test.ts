@@ -309,4 +309,59 @@ describe("RaceStateProjector", () => {
     expect(projector.status().cursor).toBe(1n);
     expect(projector.snapshot().drivers["1"]).toBeDefined();
   });
+
+  test("stop() while a tick's read is pending, then start(): the stale chain doesn't survive", async () => {
+    vi.useFakeTimers();
+    try {
+      // Call #1 (tick 1's read) hangs until manually resolved, simulating
+      // a read still in flight at the moment stop() runs. Every call after
+      // that returns exactly one new row, so a surviving chain publishes
+      // on every tick -- a reliable per-tick heartbeat to count.
+      let callCount = 0;
+      let staleResolve: ((rows: EventRow[]) => void) | null = null;
+      const source: EventSource = {
+        readAfter: (_sessionKey, afterSeq, _limit) => {
+          callCount += 1;
+          if (callCount === 1) {
+            return new Promise<EventRow[]>((resolve) => {
+              staleResolve = resolve;
+            });
+          }
+          const seq = afterSeq + 1n;
+          return Promise.resolve([driverRow(Number(seq), Number(seq))]);
+        },
+        readWindow: async () => [],
+      };
+
+      const publishes: number[] = [];
+      const projector = tracked(
+        new RaceStateProjector({ source, session: SESSION, tickMs: 10, log: noopLog }),
+      );
+      projector.subscribe(() => publishes.push(publishes.length));
+
+      projector.start(); // generation 1
+      await vi.advanceTimersByTimeAsync(0); // tick 1 fires and hangs on its read
+      expect(callCount).toBe(1);
+
+      projector.stop();
+      projector.start(); // generation 2 -- a fresh chain scheduled at delay 0
+
+      // The stale read finally resolves. The gen-1 tick must recognize the
+      // generation mismatch and bail without rescheduling -- otherwise it
+      // would call scheduleTick() again, leaving two independent chains.
+      staleResolve?.([]);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Advance through several tick intervals and count publishes. A
+      // surviving duplicate chain would roughly double the rate.
+      await vi.advanceTimersByTimeAsync(100); // ~10 ticks at 10ms
+      projector.stop();
+
+      expect(publishes.length).toBeGreaterThanOrEqual(6);
+      expect(publishes.length).toBeLessThanOrEqual(11);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
