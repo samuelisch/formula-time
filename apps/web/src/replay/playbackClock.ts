@@ -32,8 +32,8 @@ export interface PlaybackClock {
    */
   seek(targetSourceMs: number, nowMs?: number): void;
   /**
-   * Advances the clock by `speed * (nowWallMs - <wall time of the last
-   * play/seek/tick>)` while playing, clamped to the bounds; a no-op on the
+   * Advances the clock 1:1 by `nowWallMs - <wall time of the last
+   * play/seek/tick>` while playing, clamped to the bounds; a no-op on the
    * position while paused (but still records `nowWallMs`, harmless if ever
    * called while paused). Call only while playing -- `play`/`seek` are what
    * keep the baseline fresh across a pause, not this. Returns the (possibly

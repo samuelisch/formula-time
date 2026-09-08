@@ -1,6 +1,6 @@
 # ADR-0011 — Replay plays at 1×; seeking is the transport
 
-Status: Proposed (accepted when this PR merges)
+Status: Accepted
 Date: 2026-09-09
 Owner: Samuel Chan
 Amends: ADR-0009 §5 (only the clause "play at a chosen speed"; the rest of §5 stands)
