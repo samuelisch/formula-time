@@ -5,6 +5,7 @@
 // `event.createMany({ skipDuplicates: true })` on `event_id`, same as
 // writer.integration.test.ts), and `sessions.status = finished`.
 
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -91,8 +92,14 @@ test("loading the same fixture twice: row count unchanged on the second run, ses
 // loaded session was blocked by endpoint — the browser fold (seq order up to
 // `source_time`) read that as "no lap yet" for most of a scrubbed replay.
 // Real recording, not a fixture (`recordings/11361` — the Italian GP capture
-// that surfaced the bug, psql-confirmed in the issue).
-const RECORDING_11361_DIR = path.resolve(fileURLToPath(import.meta.url), "../../../../recordings/11361");
+// that surfaced the bug, psql-confirmed in the issue). `recordings/` is
+// gitignored on purpose ("not repo content") — same shape as
+// `replay.integration.test.ts`'s `REPLAY_RECORDING_DIR`: skipped, loudly,
+// wherever the directory isn't present (CI, a reviewer's machine), and
+// overridable by env var for a different layout.
+const RECORDING_11361_DIR =
+  process.env["RECORDING_11361_DIR"] ??
+  path.resolve(fileURLToPath(import.meta.url), "../../../../recordings/11361");
 const RECORDING_SESSION_KEY = 11361n;
 
 async function wipeRecording11361(): Promise<void> {
@@ -107,34 +114,38 @@ async function wipeRecording11361(): Promise<void> {
   await db.session.deleteMany({ where: { sessionKey: RECORDING_SESSION_KEY } });
 }
 
-test("loading recordings/11361: the first laps row's seq is below the last position row's seq; a second load inserts no new rows", async () => {
-  await wipeRecording11361();
-  try {
-    const first = await loadRecordings([RECORDING_11361_DIR], db, { onLog: () => {} });
-    expect(first.sessionsAttempted).toBe(1);
-    expect(first.sessionsSkipped).toBe(0);
-    expect(first.inserted).toBeGreaterThan(0);
-
-    const session = await db.session.findUniqueOrThrow({ where: { sessionKey: RECORDING_SESSION_KEY } });
-    expect(session.status).toBe("finished");
-
-    const firstLap = await db.event.findFirstOrThrow({
-      where: { sessionKey: RECORDING_SESSION_KEY, endpoint: "laps" },
-      orderBy: { seq: "asc" },
-    });
-    const lastPosition = await db.event.findFirstOrThrow({
-      where: { sessionKey: RECORDING_SESSION_KEY, endpoint: "position" },
-      orderBy: { seq: "desc" },
-    });
-    expect(firstLap.seq).toBeLessThan(lastPosition.seq);
-
-    // Dedup: a second load of the same recording inserts nothing new.
-    const second = await loadRecordings([RECORDING_11361_DIR], db, { onLog: () => {} });
-    expect(second.inserted).toBe(0);
-    expect(second.skipped).toBe(first.inserted);
-    const countAfterSecond = await db.event.count({ where: { sessionKey: RECORDING_SESSION_KEY } });
-    expect(countAfterSecond).toBe(first.inserted);
-  } finally {
+test.skipIf(!existsSync(RECORDING_11361_DIR))(
+  "loading recordings/11361: the first laps row's seq is below the last position row's seq; a second load inserts no new rows",
+  async () => {
     await wipeRecording11361();
-  }
-}, 120_000);
+    try {
+      const first = await loadRecordings([RECORDING_11361_DIR], db, { onLog: () => {} });
+      expect(first.sessionsAttempted).toBe(1);
+      expect(first.sessionsSkipped).toBe(0);
+      expect(first.inserted).toBeGreaterThan(0);
+
+      const session = await db.session.findUniqueOrThrow({ where: { sessionKey: RECORDING_SESSION_KEY } });
+      expect(session.status).toBe("finished");
+
+      const firstLap = await db.event.findFirstOrThrow({
+        where: { sessionKey: RECORDING_SESSION_KEY, endpoint: "laps" },
+        orderBy: { seq: "asc" },
+      });
+      const lastPosition = await db.event.findFirstOrThrow({
+        where: { sessionKey: RECORDING_SESSION_KEY, endpoint: "position" },
+        orderBy: { seq: "desc" },
+      });
+      expect(firstLap.seq).toBeLessThan(lastPosition.seq);
+
+      // Dedup: a second load of the same recording inserts nothing new.
+      const second = await loadRecordings([RECORDING_11361_DIR], db, { onLog: () => {} });
+      expect(second.inserted).toBe(0);
+      expect(second.skipped).toBe(first.inserted);
+      const countAfterSecond = await db.event.count({ where: { sessionKey: RECORDING_SESSION_KEY } });
+      expect(countAfterSecond).toBe(first.inserted);
+    } finally {
+      await wipeRecording11361();
+    }
+  },
+  120_000,
+);
