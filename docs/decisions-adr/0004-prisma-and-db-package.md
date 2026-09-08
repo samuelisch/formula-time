@@ -1,6 +1,6 @@
 # ADR-0004 — Prisma as the database client, in a Node-only `packages/db`
 
-- **Status:** Accepted
+- **Status:** Proposed (accepted when this PR merges)
 - **Date:** 2026-09-08
 - **Owner:** Samuel Chan
 - **Amends:** ADR-0002 (toolchain). Migrations stay numbered SQL files
@@ -39,13 +39,19 @@ design live in the schema either way.
   `ON CONFLICT DO NOTHING`; `upsert` on `(poll_id, viewer_id)` for votes;
   `findMany` on `seq > cursor` ordered by `seq` for the projector.
 - **Migrations**: `prisma migrate dev` in development; `prisma migrate
-  deploy` in the deploy pipeline before the services start. Migration SQL
-  is committed.
-- **Connections**: the ingest writer runs with `connection_limit=1` on its
-  `DATABASE_URL` so a single connection inserts in order (seq order equals
-  commit order; the cursor cannot skip a late commit). Behind a
-  transaction-mode pooler (managed Postgres default) the URL carries
-  `pgbouncer=true`.
+  deploy` in the deploy pipeline before the services start, over
+  `DATABASE_DIRECT_URL`. Migration SQL is committed.
+- **Connections**: two connection strings, both from the platform secret
+  store, extending the ADR-0001 §4 config-name list:
+  - `DATABASE_URL` — the pooled connection (`pgbouncer=true` behind a
+    transaction-mode pooler, the managed-Postgres default). Used by the
+    Prisma client at runtime. The ingest writer adds `connection_limit=1`
+    so a single connection inserts in order (seq order equals commit
+    order; the cursor cannot skip a late commit).
+  - `DATABASE_DIRECT_URL` — the direct, non-pooled connection, wired to
+    `datasource.directUrl`. Used only by Prisma Migrate: migrations take a
+    session-level advisory lock and run DDL, which a transaction-mode
+    pooler does not support. Never used by the services at runtime.
 - Raw SQL remains available (`$queryRaw`) if a statement ever needs it;
   none does today.
 
