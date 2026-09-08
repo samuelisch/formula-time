@@ -1,0 +1,58 @@
+---
+name: review-pr
+description: Review a pull request end to end and post a verdict. Approves only a clean pass (no security concern, no bug, no code that must change, no decision left to the owner). Use from the Claude Code Review workflow, or locally with a PR number to see the verdict without posting it.
+---
+
+# Review a PR and give a verdict
+
+Usage: `/review-pr <pr-number>`
+
+## Overview
+
+Three reviews, one verdict. The verdict is posted as a GitHub review only when running in GitHub Actions, where the identity is `claude[bot]`. Locally the verdict is printed and nothing is posted: a local `gh` posts as the owner, and the owner's approval must be their own.
+
+Merging is never done here. The owner merges.
+
+## Steps
+
+1. **Context.** `gh pr view <n> --json title,body,labels,baseRefName,headRefName,files,statusCheckRollup`. Read the body's Summary / Friction / Agent / ADRs affected lines and the linked issue (`gh issue view`). Read every changed file in full, not just hunks.
+2. **Correctness.** Invoke the `code-review:code-review` skill with args `--comment <n>`. Inline findings land on the PR.
+3. **Design.** If the diff touches `apps/`, `packages/`, `db/`, or `docs/decisions-adr/`, run the `seam-reviewer` agent (`.claude/agents/seam-reviewer.md`) on the PR. Otherwise record "seam review not applicable" and why.
+4. **Security.** If the diff touches `apps/`, `db/`, or `.github/`, invoke the `security-review` skill. Otherwise record "security review not applicable" and why.
+5. **Classify** every finding from steps 2–4 into exactly one bucket:
+   - **Security**: any finding from step 4, or secrets, injection, unauthenticated writes, credentials outside the platform secret store.
+   - **Bug**: wrong behaviour, a failing or pending required status check, an acceptance criterion from the issue that the diff does not meet.
+   - **Must change**: anything a careful reviewer would block on: an invariant or seam-contract violation, a half-finished rename, a test the issue's acceptance criteria call for that is missing, a "Verified" claim the diff contradicts.
+   - **Decision**: contradicts or amends an accepted ADR without a superseding ADR in the same PR; the "ADRs affected" line disagrees with the diff; touches a design-bearing track (Postgres fetcher, projector cursor, vote acknowledgement); the linked issue carries the `owner` label; changes files the issue body did not list.
+
+   Style and nits go under Notes and never move the verdict.
+6. **Verdict.** Write `verdict.md` in the format below, then:
+   - all four buckets empty → `gh pr review <n> --approve --body-file verdict.md`
+   - any Security, Bug, or Must change → `gh pr review <n> --request-changes --body-file verdict.md`
+   - only Decision items → `gh pr review <n> --comment --body-file verdict.md`
+
+   If `GITHUB_ACTIONS` is not `true`, print `verdict.md` instead of running `gh pr review`, and say that nothing was posted.
+7. If `gh pr review` fails (the token cannot submit reviews), post the same body with `gh pr comment <n> --body-file verdict.md` and say in it that the verdict could not be recorded as a review.
+
+## Verdict format
+
+```
+## Verdict: pass | changes requested | owner decision needed
+
+Security: none | - item, file:line
+Bugs: none | - item, file:line
+Must change: none | - item, file:line
+Decisions: none | - item and which ADR, rule, or issue line it rests on
+Notes: - non-blocking items, or none
+
+Reviewed: code-review; seam-reviewer (ran | not applicable: why); security-review (ran | not applicable: why)
+Merge is the owner's call.
+```
+
+## Common mistakes
+
+- Approving because the diff is small. Every PR gets steps 2–4; "not applicable" needs the reason written down.
+- Filing a Decision as changes requested. The code may be right; the call is the owner's, and the review must not block it.
+- Approving on a red or pending required check. That is a Bug until it is green.
+- Treating the PR's Verified section as proof. It is a claim. If CI runs the command, CI is the proof; if nothing runs it and the claim matters, say so under Notes.
+- Running the test suite from this skill. CI proves tests; this skill proves the review.

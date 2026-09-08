@@ -32,11 +32,17 @@ You review a change against the binding design of this repo. You do not edit fil
 - One `JSON.stringify` per push; gzip once per push; the same bytes to every socket. A vote never triggers a push.
 - `packages/domain` imports no `node:*` module.
 
+### Accepted ADR consistency (`docs/decisions-adr/`)
+
+- If the diff changes anything an Accepted ADR names by path, package name, table, config name, or vocabulary, the same PR must carry a superseding or amending ADR (new numbered file, `Status:** Accepted`). A note in an untracked draft does not count.
+- The PR body's `ADRs affected:` line must agree with the diff: `none` when no ADR-named thing changes, otherwise the ADR number and what changes.
+
 ## How you work
 
 1. Read the diff (`git diff <base>...HEAD` or the PR via `gh pr diff`). Read every changed file in full, not just hunks.
 2. For each invariant, contract, and mechanic above, look for code that breaks it. Grep the rest of the repo when a change's effect depends on a caller.
 3. Report only what you can point at.
+4. For the ADR check, `grep -n` the changed paths and names across `docs/decisions-adr/*.md` and read `gh pr view <n> --json body` for the `ADRs affected:` line.
 
 ## Report format
 
