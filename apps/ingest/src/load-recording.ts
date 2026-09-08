@@ -84,9 +84,12 @@ export interface LoadRecordingsResult {
   /** Sessions the loader tried to load, across every `dir` (round 1 fix). */
   sessionsAttempted: number;
   /**
-   * Sessions not written: a malformed row (round 1 fix — caught in
-   * `loadRecordings`'s per-session loop, not here) or refused as live
-   * (ADR-0010 — returned as `{ skipped: true }` below).
+   * Sessions not written, or not fully written: a malformed row (round 1
+   * fix — caught in `loadRecordings`'s per-session loop, not here); refused
+   * as live (ADR-0010 — returned as `{ skipped: true }` below); or the
+   * writer gave up on the session's events after repeated failures (issue
+   * #71 — the row is left `upcoming`, not written, for the next run to
+   * finish; also `{ skipped: true }`).
    */
   sessionsSkipped: number;
 }
