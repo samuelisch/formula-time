@@ -18,10 +18,16 @@
   the heartbeat. The browser does not validate the SSE payload; it trusts
   its own server. Votes are a plain `POST`.
 - Alignment is entirely client-side: OCR of the lap counter and
-  lights-out detection produce a personal offset; today it is applied
-  through the server-side seek path inherited from the POC, the target is
-  a ring buffer of recent pushes rendered at now − offset. Manual delay
-  nudge is the primary UI; auto-align is experimental.
+  lights-out detection (`src/align/`) produce a personal offset applied
+  straight to `setDelayMs` on the live store -- no server seek, no trim
+  loop; the render is a pure function of the delay against the push ring
+  buffer (now − offset). Manual delay nudge (`DelayControl`) is the
+  primary UI; auto-align (`AlignPanel`/`useAligner`) is experimental.
+  `tesseract.js` (the OCR library) is a dependency loaded with a dynamic
+  `import()` in `src/align/capture.ts` so ordinary viewers never download
+  it; worker and core paths are left at the library's CDN defaults --
+  Netlify serves this app's bundle, but the OCR worker itself comes from
+  jsDelivr at runtime.
 - Spoiler safety: a delayed viewer never sees a tally or a result before
   their own lap reaches the lock lap.
 - Scope rule: the UI stays plain until the delivery layer is proven. No
