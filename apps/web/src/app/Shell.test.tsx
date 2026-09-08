@@ -94,7 +94,7 @@ describe("Shell", () => {
     expect(screen.getByText(/Live · last update \d+s ago/)).toBeInTheDocument();
   });
 
-  it("renders the session line from country and circuit once a session arrives", () => {
+  it("renders the session line from country_name and circuit_short_name once a session arrives", () => {
     resetStore({
       connection: "open",
       lastMessageAt: Date.now(),
@@ -102,5 +102,17 @@ describe("Shell", () => {
     });
     renderShell();
     expect(screen.getByText("Netherlands · Zandvoort")).toBeInTheDocument();
+  });
+
+  it("falls back to the projector's actual session shape (country, no circuit name)", () => {
+    // apps/api/src/projector/projector.ts sessionAsRawRecord() puts `country`
+    // on the wire, not `country_name`, and no circuit display name at all.
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ name: "Race", country: "Italy", circuit_key: 39 }),
+    });
+    renderShell();
+    expect(screen.getByText("Italy")).toBeInTheDocument();
   });
 });
