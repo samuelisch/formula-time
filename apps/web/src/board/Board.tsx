@@ -24,9 +24,11 @@ import { WeatherCard } from "./WeatherCard.tsx";
 export interface BoardProps {
   /** A caller-supplied control dropped into the toolbar row: the live route's polls/delay/align controls, or a replay's transport bar. */
   toolbar?: ReactNode;
+  /** A caller-supplied control next to the table: the driver detail panel (issue #90). A right-hand column on wide screens, a full-width card below the table under the narrow breakpoint (Board.module.css). */
+  side?: ReactNode;
 }
 
-export function Board({ toolbar }: BoardProps = {}) {
+export function Board({ toolbar, side }: BoardProps = {}) {
   const push = useBoardPush();
   const sourceTime = push === null ? null : push.state.latest_source_time;
 
@@ -41,7 +43,13 @@ export function Board({ toolbar }: BoardProps = {}) {
         <RaceControlCard />
         <WeatherCard />
       </div>
-      <TimingTable />
+      <div className={styles.tableRow}>
+        <div className={styles.tableColumn}>
+          <TimingTable />
+        </div>
+        {/* :empty in CSS collapses this when `side` renders nothing (e.g. DriverPanel with no selection). */}
+        <div className={styles.sideColumn}>{side}</div>
+      </div>
     </div>
   );
 }
