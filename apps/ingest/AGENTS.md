@@ -41,6 +41,12 @@ turns `finished` (ADR-0009 §2), so flipping it before the events land let
 the exporter export an empty race (issue #71) — and is idempotent — a
 second run inserts 0.
 
+That command only reaches a local Postgres. Railway's Postgres has no
+public TCP proxy, so loading a recording into the deployed database means
+running this same loader inside the `ingest` container instead, over
+`railway ssh` — the procedure, prerequisites, and verification curls are
+in `.claude/skills/load-race/SKILL.md`.
+
 ## OpenF1 facts that shape this code
 
 - The free tier locks out during any live session.
