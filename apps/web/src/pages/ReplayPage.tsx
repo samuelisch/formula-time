@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router";
 
 import { Board } from "../board/Board.tsx";
+import { DriverPanel } from "../board/DriverPanel.tsx";
 import { BoardSourceProvider } from "../board/useBoardState.ts";
 import { Card } from "../components/Card.tsx";
 import { fetchRaceFile } from "../races/api.ts";
@@ -60,7 +61,7 @@ export function ReplayPage() {
           in particular would always fire here -- the exporter only exports
           finished sessions -- and link the replay back to itself. */}
       <BoardSourceProvider push={playback.push}>
-        <Board toolbar={<TransportBar playback={playback} />} />
+        <Board toolbar={<TransportBar playback={playback} />} side={<DriverPanel />} />
       </BoardSourceProvider>
     </div>
   );
