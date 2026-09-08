@@ -11,11 +11,26 @@ import path from "node:path";
 
 import type { RawRecord } from "./types.js";
 
+// The caller (rest-lane.ts) validates session_key before this ever runs,
+// but the recorder builds filesystem paths from it — it must not trust that
+// unconditionally (security review, round 4 on PR #31). Only a finite
+// non-negative integer is a real OpenF1 session_key; anything else (a
+// string like "../x", a non-integer number) is rejected before any
+// mkdir/path join, not sanitized into something "safe".
+function validSessionKey(sessionKey: string | number): number {
+  const n = typeof sessionKey === "number" ? sessionKey : Number(sessionKey);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(`JsonlRecorder: invalid session_key: ${JSON.stringify(sessionKey)}`);
+  }
+  return n;
+}
+
 export class JsonlRecorder {
   public constructor(private readonly rootDir: string) {}
 
   public async writeSession(session: RawRecord, sessionKey: string | number): Promise<void> {
-    const dir = path.join(this.rootDir, String(sessionKey));
+    const key = validSessionKey(sessionKey);
+    const dir = path.join(this.rootDir, String(key));
     await mkdir(path.join(dir, "raw"), { recursive: true });
     await writeFile(
       path.join(dir, "session.json"),
@@ -26,7 +41,8 @@ export class JsonlRecorder {
   /** Appends only NEW rows (the caller already deduped via the normalizer). */
   public async appendRows(sessionKey: string | number, endpoint: string, rows: RawRecord[]): Promise<void> {
     if (rows.length === 0) return;
-    const dir = path.join(this.rootDir, String(sessionKey), "raw");
+    const key = validSessionKey(sessionKey);
+    const dir = path.join(this.rootDir, String(key), "raw");
     await mkdir(dir, { recursive: true });
     const receivedAt = new Date().toISOString();
     const lines = rows.map((payload) => JSON.stringify({ received_at: receivedAt, payload }));
