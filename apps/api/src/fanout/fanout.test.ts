@@ -2,6 +2,8 @@ import { constants as zlibConstants, inflateRawSync } from "node:zlib";
 
 import { describe, expect, test } from "vitest";
 
+import type { RaceState } from "@formula-time/domain";
+
 import { Fanout } from "./fanout.js";
 
 class FakeRes {
@@ -98,5 +100,161 @@ describe("Fanout", () => {
     // The first push (already in flight when 2 and 3 arrived) is delivered;
     // 2 is dropped in favour of 3, the newest payload queued behind it.
     expect(delivered).toEqual([{ n: 1 }, { n: 3 }]);
+  });
+});
+
+function raceState(overrides: Partial<RaceState> = {}): RaceState {
+  return {
+    sequence: 1,
+    latest_source_time: null,
+    session: null,
+    drivers: {},
+    driver_order: [],
+    race_control: {
+      session_status: null,
+      current_flag: null,
+      safety_car: null,
+      active_flags: {},
+      driver_flags: {},
+      recent_messages: [],
+    },
+    weather: null,
+    anomalies: { duplicate_events: 0, stale_updates: 0, missing_driver: 0, unsupported_events: 0 },
+    ...overrides,
+  };
+}
+
+function statePush(seq: number, state: RaceState) {
+  return {
+    type: "state",
+    seq: String(seq),
+    sent_at: 1000 + seq,
+    session_key: "42",
+    total_laps: 50,
+    state,
+    polls: [],
+  };
+}
+
+function frames(res: FakeRes): Array<{ event: string; data: unknown }> {
+  return res.chunks
+    .map((chunk) => chunk.toString("utf8"))
+    .filter((frame) => frame.startsWith("event: "))
+    .map((frame) => {
+      const [eventLine, dataLine] = frame.split("\n");
+      return {
+        event: (eventLine as string).slice("event: ".length),
+        data: JSON.parse((dataLine as string).slice("data: ".length)) as unknown,
+      };
+    });
+}
+
+describe("Fanout delta pushes (issue #89)", () => {
+  test("a delta socket joining before any push gets the catching_up frame, same as today", async () => {
+    const fanout = new Fanout();
+    const res = new FakeRes();
+    await fanout.join(asRes(res), "plain", "delta");
+
+    expect(res.chunks).toHaveLength(1);
+    expect(res.chunks[0]?.toString("utf8")).toBe('event: status\ndata: {"catching_up":true}\n\n');
+  });
+
+  test("a delta socket joining after a push gets that state push, then a delta on the next push", async () => {
+    const fanout = new Fanout();
+    await fanout.push(statePush(1, raceState({ sequence: 1, drivers: { "1": { driver_number: 1 } as never } })));
+
+    const res = new FakeRes();
+    await fanout.join(asRes(res), "plain", "delta");
+    expect(frames(res)).toEqual([{ event: "state", data: statePush(1, raceState({ sequence: 1, drivers: { "1": { driver_number: 1 } as never } })) }]);
+
+    await fanout.push(
+      statePush(2, raceState({ sequence: 2, drivers: { "1": { driver_number: 1, position: 1 } as never } })),
+    );
+
+    const delivered = frames(res);
+    expect(delivered).toHaveLength(2);
+    const deltaFrame = delivered[1] as { event: string; data: { type: string; base_seq: string; seq: string } };
+    expect(deltaFrame.event).toBe("delta");
+    expect(deltaFrame.data.type).toBe("delta");
+    expect(deltaFrame.data.base_seq).toBe("1");
+    expect(deltaFrame.data.seq).toBe("2");
+  });
+
+  test("a legacy state socket only ever gets state frames, even with a delta socket attached", async () => {
+    const fanout = new Fanout();
+    await fanout.push(statePush(1, raceState({ sequence: 1 })));
+
+    const legacy = new FakeRes();
+    const delta = new FakeRes();
+    await fanout.join(asRes(legacy), "plain", "state");
+    await fanout.join(asRes(delta), "plain", "delta");
+
+    await fanout.push(statePush(2, raceState({ sequence: 2 })));
+    await fanout.push(statePush(3, raceState({ sequence: 3 })));
+
+    const legacyEvents = frames(legacy).map((f) => f.event);
+    expect(legacyEvents.every((event) => event === "state")).toBe(true);
+    expect(legacyEvents.length).toBeGreaterThan(0);
+  });
+
+  test("two delta sockets receive byte-identical delta frames", async () => {
+    const fanout = new Fanout();
+    await fanout.push(statePush(1, raceState({ sequence: 1 })));
+
+    const a = new FakeRes();
+    const b = new FakeRes();
+    await fanout.join(asRes(a), "plain", "delta");
+    await fanout.join(asRes(b), "plain", "delta");
+
+    await fanout.push(statePush(2, raceState({ sequence: 2, latest_source_time: "2026-01-01T00:00:00Z" })));
+
+    const lastA = a.chunks[a.chunks.length - 1];
+    const lastB = b.chunks[b.chunks.length - 1];
+    expect(lastA?.toString("utf8").startsWith("event: delta")).toBe(true);
+    expect(lastA?.equals(lastB as Buffer)).toBe(true);
+  });
+
+  test("every 200th push to a delta socket is a full state push (keyframe), not a delta", async () => {
+    const fanout = new Fanout();
+    const res = new FakeRes();
+    await fanout.join(asRes(res), "plain", "delta");
+
+    for (let seq = 1; seq <= 200; seq += 1) {
+      await fanout.push(statePush(seq, raceState({ sequence: seq })));
+    }
+
+    const events = frames(res).map((f) => f.event);
+    // push #200 is the keyframe; every other push after the first (which
+    // has no baseline yet, so it's a state push too) is a delta.
+    expect(events[events.length - 1]).toBe("state");
+    expect(events.filter((event) => event === "state").length).toBe(2); // push 1 (no baseline) + push 200 (keyframe)
+  });
+
+  test("a diffState failure falls back to a state push for that tick and logs once", async () => {
+    const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+    const fanout = new Fanout({ log: (msg, fields) => logs.push({ msg, fields }) });
+    await fanout.push(statePush(1, raceState({ sequence: 1 })));
+
+    const res = new FakeRes();
+    await fanout.join(asRes(res), "plain", "delta");
+
+    // A malformed state (missing `drivers`) makes diffState throw.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const malformed = { sequence: 2 } as any;
+    await fanout.push(statePush(2, malformed));
+
+    const delivered = frames(res);
+    expect(delivered[delivered.length - 1]?.event).toBe("state");
+    expect(logs.filter((l) => l.msg.includes("delta diff failed"))).toHaveLength(1);
+  });
+
+  test("snapshotJson is null before the first push, then the newest state push's JSON", async () => {
+    const fanout = new Fanout();
+    expect(fanout.snapshotJson()).toBeNull();
+
+    const payload = statePush(1, raceState({ sequence: 1 }));
+    await fanout.push(payload);
+
+    expect(fanout.snapshotJson()).toBe(JSON.stringify(payload));
   });
 });

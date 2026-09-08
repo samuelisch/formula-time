@@ -2,15 +2,61 @@
 // one JSON.stringify per push, gzip once as an independent full-flushed
 // block, identical bytes to every socket. A vote never triggers a push --
 // this class has no idea votes exist; it only ever sends what it is told to.
+//
+// Delta pushes (ADR-<N> "Delta pushes", issue #89): sockets are tagged with
+// a `format` in addition to `encoding`. A `state`-format socket gets the
+// full push every tick, unchanged. A `delta`-format socket gets one `state`
+// push at join (ADR point 2), then a `delta` push each tick -- a
+// hand-written JSON Patch (patch.ts) from the previous pushed RaceState to
+// this one -- except every KEYFRAME_INTERVAL-th push, which is a full
+// `state` push instead (ADR point 5, recovery without a client fetch). Per
+// tick this class serialises once per format it actually has sockets for
+// (ADR point 4): the `state` frame always (joins and `GET
+// /api/live/snapshot` need it even with zero legacy sockets attached), plus
+// the `delta` frame only when a delta socket is attached and this is not a
+// keyframe tick.
 import type { ServerResponse } from "node:http";
 import { constants as zlibConstants, createDeflateRaw, type DeflateRaw } from "node:zlib";
 
+import type { RaceState } from "@formula-time/domain";
+
+import { diffState } from "./patch.js";
+
 export type Encoding = "gzip" | "plain";
+export type Format = "state" | "delta";
 export type FanoutLog = (msg: string, fields?: Record<string, unknown>) => void;
+
+/** The shape `push()` needs to build a delta -- a structural subset of the
+ * real `{ type: "state", ... }` payload session-lifecycle.ts sends. `push`
+ * itself stays typed as `object` (existing callers, and tests, push
+ * arbitrary shapes when they only exercise state-format delivery). */
+interface StateLike {
+  seq: unknown;
+  sent_at: unknown;
+  session_key: unknown;
+  state: unknown;
+  polls: unknown;
+}
+
+function isStateLike(payload: object): payload is StateLike {
+  const record = payload as Partial<StateLike>;
+  return (
+    record.seq !== undefined &&
+    record.sent_at !== undefined &&
+    record.session_key !== undefined &&
+    record.state !== undefined
+  );
+}
 
 interface Socket {
   res: ServerResponse;
   encoding: Encoding;
+  format: Format;
+}
+
+interface Frame {
+  plain: Buffer;
+  gz: Buffer;
 }
 
 // The 10-byte gzip header (brief, verbatim): magic (0x1f 0x8b), deflate
@@ -22,6 +68,10 @@ const MAX_WRITABLE_LENGTH = 1_048_576;
 const HEARTBEAT_MS = 5000;
 const HEARTBEAT_FRAME = Buffer.from(": heartbeat\n\n");
 const CATCHING_UP_FRAME = Buffer.from('event: status\ndata: {"catching_up":true}\n\n');
+// ADR point 5: every 200th push to delta sockets is a full `state` push
+// instead of a delta -- recovery within ~50s at the projector's ~4
+// pushes/s tick rate, with no client fetch.
+const KEYFRAME_INTERVAL = 200;
 
 export class Fanout {
   private readonly log: FanoutLog;
@@ -33,7 +83,22 @@ export class Fanout {
   // full-flush is ever in flight -- the deflater is one stateful stream.
   private deflateChain: Promise<unknown> = Promise.resolve();
 
-  private latest: { plain: Buffer; gz: Buffer } | null = null;
+  // `latest` per format (ADR point 5's implementation note): the state
+  // frame is always kept (joins of either format, and the snapshot route,
+  // read it); the delta frame is kept too, for symmetry, though nothing
+  // reads it back today -- joins always bootstrap from `latestState` per
+  // ADR point 2, never from `latestDelta`.
+  private latestState: Frame | null = null;
+  private latestStateJson: string | null = null;
+  private latestDelta: Frame | null = null;
+
+  // The RaceState (and its seq) actually delivered by the last push --
+  // "the previous pushed RaceState is kept for the diff" (issue #89). Never
+  // patched in place; each push diffs against exactly this.
+  private prevState: RaceState | null = null;
+  private prevSeq: string | null = null;
+  private deltaPushCount = 0;
+
   private pushing = false;
   private pendingPayload: object | null = null;
   private hasPending = false;
@@ -70,20 +135,32 @@ export class Fanout {
     }
   }
 
-  /** Write the gzip header (if gzip) then the newest existing frame, then attach. */
-  public async join(res: ServerResponse, encoding: Encoding): Promise<void> {
+  /** Write the gzip header (if gzip) then the newest existing frame, then
+   * attach. Every join -- `state` or `delta` format alike -- gets the
+   * newest `state` push, never `latestDelta` (ADR point 2: "Every live join
+   * is the same"); a delta socket's subsequent pushes are deltas. A socket
+   * joining before any push at all gets the `catching_up` status frame,
+   * regardless of format, same as today. */
+  public async join(res: ServerResponse, encoding: Encoding, format: Format = "state"): Promise<void> {
     if (encoding === "gzip") {
       res.write(GZIP_HEADER);
     }
 
-    if (this.latest !== null) {
-      res.write(encoding === "gzip" ? this.latest.gz : this.latest.plain);
+    if (this.latestState !== null) {
+      res.write(encoding === "gzip" ? this.latestState.gz : this.latestState.plain);
     } else {
       const gz = encoding === "gzip" ? await this.deflate(CATCHING_UP_FRAME) : null;
       res.write(encoding === "gzip" ? (gz as Buffer) : CATCHING_UP_FRAME);
     }
 
-    this.sockets.add({ res, encoding });
+    this.sockets.add({ res, encoding, format });
+  }
+
+  /** `GET /api/live/snapshot`: the newest `state` push's JSON, verbatim --
+   * "same bytes the fan-out holds" (issue #89). `null` before the first
+   * push (the route answers 503). */
+  public snapshotJson(): string | null {
+    return this.latestStateJson;
   }
 
   public remove(res: ServerResponse): void {
@@ -122,24 +199,96 @@ export class Fanout {
       return;
     }
     const gz = await this.deflate(HEARTBEAT_FRAME);
-    this.writeToAll(HEARTBEAT_FRAME, gz);
+    // Format-agnostic: the heartbeat is a comment frame, not a push: every
+    // socket gets the same bytes regardless of `format`.
+    this.writeFixed(HEARTBEAT_FRAME, gz);
     this.lastActivityAt = Date.now();
   }
 
   private async deliver(payload: object): Promise<void> {
     const json = JSON.stringify(payload);
-    const plain = Buffer.from(`event: state\ndata: ${json}\n\n`);
-    const gz = await this.deflate(plain);
-    this.latest = { plain, gz };
-    this.writeToAll(plain, gz);
+    const statePlain = Buffer.from(`event: state\ndata: ${json}\n\n`);
+    const stateGz = await this.deflate(statePlain);
+    const stateFrame: Frame = { plain: statePlain, gz: stateGz };
+    this.latestState = stateFrame;
+    this.latestStateJson = json;
+
+    const deltaFrame = await this.buildDeltaFrame(payload);
+    this.latestDelta = deltaFrame ?? stateFrame;
+
+    this.writePush(stateFrame, this.latestDelta);
     this.lastActivityAt = Date.now();
+
+    if (isStateLike(payload)) {
+      this.prevState = payload.state as RaceState;
+      this.prevSeq = String(payload.seq);
+    }
   }
 
-  private writeToAll(plain: Buffer, gz: Buffer): void {
+  /** `null` means "send the state frame instead" -- a keyframe tick, no
+   * delta socket attached, no previous state to diff against yet, or (the
+   * failure path) diffState threw for this tick, logged once here. */
+  private async buildDeltaFrame(payload: object): Promise<Frame | null> {
+    if (!this.hasFormat("delta")) {
+      return null;
+    }
+
+    this.deltaPushCount += 1;
+    const isKeyframe = this.deltaPushCount % KEYFRAME_INTERVAL === 0;
+    if (isKeyframe || this.prevState === null || this.prevSeq === null || !isStateLike(payload)) {
+      return null;
+    }
+
+    try {
+      const patch = diffState(this.prevState, payload.state as RaceState);
+      const deltaPayload = {
+        type: "delta",
+        seq: payload.seq,
+        base_seq: this.prevSeq,
+        sent_at: payload.sent_at,
+        session_key: payload.session_key,
+        patch,
+        polls: payload.polls,
+      };
+      const plain = Buffer.from(`event: delta\ndata: ${JSON.stringify(deltaPayload)}\n\n`);
+      const gz = await this.deflate(plain);
+      return { plain, gz };
+    } catch (err) {
+      this.log("delta diff failed, falling back to a state push for this tick", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
+  private hasFormat(format: Format): boolean {
+    for (const socket of this.sockets) {
+      if (socket.format === format) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** The heartbeat: format-agnostic, the same bytes to every socket. */
+  private writeFixed(plain: Buffer, gz: Buffer): void {
+    this.write((socket) => (socket.encoding === "gzip" ? gz : plain));
+  }
+
+  /** A push: `state`-format sockets get `stateFrame`, `delta`-format
+   * sockets get `deltaFrame` -- byte-identical within a format, per socket
+   * encoding. */
+  private writePush(stateFrame: Frame, deltaFrame: Frame): void {
+    this.write((socket) => {
+      const frame = socket.format === "delta" ? deltaFrame : stateFrame;
+      return socket.encoding === "gzip" ? frame.gz : frame.plain;
+    });
+  }
+
+  private write(pick: (socket: Socket) => Buffer): void {
     let dropped = 0;
     for (const socket of this.sockets) {
-      const buf = socket.encoding === "gzip" ? gz : plain;
-      socket.res.write(buf);
+      socket.res.write(pick(socket));
       if (socket.res.writableLength > MAX_WRITABLE_LENGTH) {
         socket.res.destroy();
         this.sockets.delete(socket);
