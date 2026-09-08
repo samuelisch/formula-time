@@ -10,7 +10,7 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "./generated/prisma/client.js";
 
-// Every generated type: the four models, both enums, and the `Prisma`
+// Every generated type: the five models, both enums, and the `Prisma`
 // namespace (input types, `Prisma.JsonValue`, error classes).
 export * from "./generated/prisma/client.js";
 

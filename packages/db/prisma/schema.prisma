@@ -1,6 +1,7 @@
-// The stored model: four tables, one writer each (ADR-0001 seam 3, HLD §4).
-// ingest writes `sessions` and `events`; api writes `polls` and `votes`.
-// This package exposes the client; it does not encode that ownership.
+// The stored model: five tables, one writer each (ADR-0001 seam 3, HLD §4).
+// ingest writes `sessions` and `events`; api writes `polls`, `votes`, and
+// (ADR-0009) `exports`. This package exposes the client; it does not
+// encode that ownership.
 
 generator client {
   provider               = "prisma-client"
