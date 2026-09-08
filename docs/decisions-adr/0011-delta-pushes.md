@@ -4,6 +4,7 @@
 - **Date:** 2026-09-09
 - **Owner:** Samuel Chan
 - **Supersedes:** nothing
+- **Amends:** ADR-0001 (§2 invariant 1 "one shared serialize-once stream per live race" is read as "serialise once per wire format in use, never per viewer"; two formats exist only while the web app migrates from full-state pushes)
 
 ## Context
 
@@ -23,6 +24,7 @@ each tick, not the compression step itself.
 3. **Gap.** A client applies a delta only if `base_seq` equals the `seq` it holds; otherwise it fetches `GET /api/live/snapshot` (the newest `state` push as JSON, same bytes the fan-out holds) and resumes. The server never replays history and keeps no per-client state (invariant 1).
 4. **Fan-out cost unchanged.** Per tick the server serialises once per format it has sockets for (`state` for legacy sockets, `delta` for delta sockets), gzips each once as a full-flushed block, same bytes to every socket of that format. No per-viewer work (invariant 1). Postgres is untouched by this (invariant 2).
 5. **Keyframes.** Every 200th push to delta sockets is a full `state` push instead of a delta, so a client that missed a delta recovers without a fetch within ~50 s at 4 pushes/s.
+6. The legacy full-state format is retired when the web migration (issue #108) lands; from then on there is again exactly one stream per live race. Until then the two formats share one fold, one tick, and one gzip block each.
 
 ## Consequences
 
@@ -30,6 +32,8 @@ The web app's ring buffer must hold folded states, not pushes; that
 migration is the follow-up issue for the web track (issue reference in the
 PR that introduced this ADR). Legacy full-state sockets remain until it
 lands.
+
+- A third wire format is not allowed; a new format replaces one of the two.
 
 Implementation notes (this PR's judgment calls, not part of the decision
 above): the server always keeps and gzips the `state` frame every push,
