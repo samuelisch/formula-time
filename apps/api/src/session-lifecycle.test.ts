@@ -16,7 +16,7 @@ function fakePollHooks(calls: string[] = []): PollHooks & { calls: string[] } {
     start: vi.fn(async () => {
       calls.push("start");
     }),
-    onState: vi.fn(() => {
+    onState: vi.fn(async () => {
       calls.push("onState");
     }),
     onSessionFinished: vi.fn(async () => {
@@ -236,6 +236,44 @@ describe("createSessionLifecycle", () => {
       for (const payload of pushed) {
         expect((payload as { polls: unknown }).polls).toEqual(polls.publicPolls());
       }
+    });
+
+    test("the push waits for onState()'s fold and carries the post-fold polls", async () => {
+      vi.useFakeTimers();
+      const polls = fakePollHooks();
+      let folded = false;
+      polls.onState = vi.fn(async () => {
+        // A fold that lands later, as PollModule's write chain does.
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        folded = true;
+      });
+      polls.publicPolls = vi.fn(() => (folded ? [{ poll_id: "after" }] : [{ poll_id: "before" }]));
+      const pushed: unknown[] = [];
+      const pusher: Pusher = {
+        push: vi.fn(async (payload: object) => {
+          pushed.push(payload);
+        }),
+        size: () => 0,
+      };
+
+      const lifecycle = createSessionLifecycle({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        db: {} as any,
+        source: new FakeSource([driverRow(1, 1)]),
+        pusher,
+        pickSession: vi.fn(async () => session()),
+        polls,
+        log: noopLog,
+      });
+      projectors.push({ stop: () => lifecycle.stop() });
+
+      await lifecycle.check();
+      await vi.advanceTimersByTimeAsync(0); // first tick: fold scheduled, push must wait
+      expect(pushed).toHaveLength(0);
+
+      await vi.advanceTimersByTimeAsync(10); // fold lands
+      expect(pushed).toHaveLength(1);
+      expect((pushed[0] as { polls: unknown }).polls).toEqual([{ poll_id: "after" }]);
     });
 
     test("a status flip to finished calls onSessionFinished exactly once", async () => {

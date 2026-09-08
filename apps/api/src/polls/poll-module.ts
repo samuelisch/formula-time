@@ -133,9 +133,13 @@ export class PollModule {
     }
   }
 
-  /** Called from the projector's single authority subscription. Must not await: schedules its own writes. */
-  public onState(state: RaceState): void {
+  /** Called from the projector's single authority subscription. Schedules
+   * its own writes; the returned promise resolves once this state's fold
+   * (and everything queued before it) has landed, so a caller that publishes
+   * poll state can wait for it. Never rejects: failures are logged. */
+  public onState(state: RaceState): Promise<void> {
     this.writeChain = this.writeChain.then(() => this.applyState(state)).catch((err) => this.logWriteFailure(err));
+    return this.writeChain;
   }
 
   /** Test-only: resolves once every write scheduled by onState() so far has landed. */

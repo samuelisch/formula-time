@@ -30,7 +30,8 @@ export interface Pusher {
 // projector here rather than left for PollModule to discover on its own.
 export interface PollHooks {
   start(session: { sessionKey: bigint; totalLaps: number | null; country: string }): Promise<void>;
-  onState(state: RaceState): void;
+  /** Resolves once this state's fold has landed; the push waits for it. */
+  onState(state: RaceState): Promise<void>;
   onSessionFinished(): Promise<void>;
   publicPolls(): unknown[];
 }
@@ -70,18 +71,22 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
 
   function wireProjector(p: RaceStateProjector, forSession: Session): void {
     p.subscribe((state, cursor) => {
-      // The poll module folds from the same authority state before the
-      // one serialize: a push must never carry a stale lock.
-      opts.polls.onState(state);
-      void opts.pusher.push({
-        type: "state",
-        seq: cursor.toString(),
-        sent_at: Date.now(),
-        session_key: forSession.sessionKey.toString(),
-        total_laps: forSession.totalLaps,
-        state,
-        polls: opts.polls.publicPolls(),
-      });
+      // The poll module folds from the same authority state before the one
+      // serialize: a push must never carry a stale lock. onState() only
+      // schedules the fold, so the push waits for it. Folds are a FIFO
+      // chain and this continuation is registered before the next tick can
+      // queue its own, so push N always sees exactly fold N.
+      void opts.polls.onState(state).then(() =>
+        opts.pusher.push({
+          type: "state",
+          seq: cursor.toString(),
+          sent_at: Date.now(),
+          session_key: forSession.sessionKey.toString(),
+          total_laps: forSession.totalLaps,
+          state,
+          polls: opts.polls.publicPolls(),
+        }),
+      );
     });
     p.start();
   }
