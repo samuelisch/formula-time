@@ -5,6 +5,8 @@
 // order equals commit order (HLD §7 single writer). Never patch, never
 // update an event row — apps/ingest/AGENTS.md.
 
+import type { Prisma } from "@formula-time/db";
+
 import type { QueueItem } from "../openf1/types.js";
 import type { EventQueue } from "./queue.js";
 
@@ -17,7 +19,7 @@ export interface EventWriterDb {
         sessionKey: bigint;
         endpoint: string;
         sourceTime: Date | null;
-        payload: unknown;
+        payload: Prisma.InputJsonValue;
       }>;
       skipDuplicates: true;
     }): Promise<{ count: number }>;
@@ -53,7 +55,10 @@ export class EventWriter {
       sessionKey: item.sessionKey,
       endpoint: item.endpoint,
       sourceTime: item.sourceTime,
-      payload: item.payload,
+      // RawRecord is JSON.parse'd from the OpenF1 response or a recorded
+      // capture, so it is structurally a Prisma.InputJsonValue even though
+      // `Record<string, unknown>` doesn't say so to the type checker.
+      payload: item.payload as Prisma.InputJsonValue,
     }));
     const result = await this.db.event.createMany({ data, skipDuplicates: true });
     return { inserted: result.count, skipped: batch.length - result.count };
