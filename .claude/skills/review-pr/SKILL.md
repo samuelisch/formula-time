@@ -57,6 +57,7 @@ Merge is the owner's call.
 ## Common mistakes
 
 - Stopping after a pass. Steps 2–4 produce inputs; the run is not finished until step 6 has submitted the review. Whatever a skill or agent returns, the next action is the next step.
+- Asking for approval. In the workflow there is nobody to answer: a denied command (run 34215499248 stopped at turn 10 asking for `gh issue list`) means use an allowed way, or note the gap under Notes, and continue. Never end the run on a question.
 
 - Approving because the diff is small. Every PR gets step 2; a skipped step 3 or 4 needs its reason written down.
 - Filing a Decision as changes requested, or writing `owner decision needed` and then passing `--request-changes` (this happened on #32). Header and flag come from the same row of the table.
