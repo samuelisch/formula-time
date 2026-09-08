@@ -6,6 +6,9 @@ import { TimingTable } from "../board/TimingTable.tsx";
 import { useBoardPush } from "../board/useBoardState.ts";
 import { WeatherCard } from "../board/WeatherCard.tsx";
 import { clock } from "../lib/format.ts";
+import { PollModal } from "../polls/PollModal.tsx";
+import { PollsButton } from "../polls/PollsButton.tsx";
+import { usePolls } from "../polls/usePolls.ts";
 import styles from "./BoardPage.module.css";
 
 export interface BoardPageProps {
@@ -20,12 +23,14 @@ export interface BoardPageProps {
 export function BoardPage({ toolbar }: BoardPageProps = {}) {
   const push = useBoardPush();
   const sourceTime = push === null ? null : push.state.latest_source_time;
+  const polls = usePolls();
 
   return (
     <div className={styles.board}>
       <div className={styles.toolbar}>
         <LapCounter />
         <span className={styles.clock}>{clock(sourceTime)}</span>
+        <PollsButton />
         {toolbar}
       </div>
       <div className={styles.grid}>
@@ -33,6 +38,7 @@ export function BoardPage({ toolbar }: BoardPageProps = {}) {
         <WeatherCard />
       </div>
       <TimingTable />
+      <PollModal polls={polls} />
     </div>
   );
 }
