@@ -9,6 +9,6 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "@formula-time/shared": "workspace:*"
+    "@formula-time/domain": "workspace:*"
   }
 }

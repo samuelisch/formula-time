@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { SHARED_PACKAGE } from "./index.js";
+import { DOMAIN_PACKAGE } from "./index.js";
 
 describe("shared package", () => {
   it("exports its name", () => {
-    expect(SHARED_PACKAGE).toBe("@formula-time/shared");
+    expect(DOMAIN_PACKAGE).toBe("@formula-time/domain");
   });
 });

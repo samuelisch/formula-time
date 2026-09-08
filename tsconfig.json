@@ -1,8 +1,8 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/shared" },
+    { "path": "packages/domain" },
     { "path": "apps/ingest" },
-    { "path": "apps/app" }
+    { "path": "apps/api" }
   ]
 }

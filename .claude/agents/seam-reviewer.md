@@ -30,7 +30,7 @@ You review a change against the binding design of this repo. You do not edit fil
 - Ingest writes through one queue and one connection so `seq` order equals commit order.
 - The projector's cursor is `WHERE seq > $cursor ORDER BY seq`; a late row below the cursor triggers a rebuild, never an in-place apply.
 - One `JSON.stringify` per push; gzip once per push; the same bytes to every socket. A vote never triggers a push.
-- `packages/shared` imports no `node:*` module.
+- `packages/domain` imports no `node:*` module.
 
 ## How you work
 
