@@ -38,6 +38,18 @@
   font-weight: 700;
 }
 
+/* Position-change cue (issue #91): green for a gain, red for a loss, via the
+   existing palette variables (--color-accent is the site's F1 red). */
+.cueGain {
+  color: var(--color-green);
+  font-weight: 700;
+}
+
+.cueLoss {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
 .row {
   cursor: pointer;
 }

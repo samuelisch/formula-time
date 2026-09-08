@@ -10,8 +10,17 @@ function tyreText(tyre: DriverState["tyre"]): string {
   return tyre.compound === null ? "—" : `${tyre.compound} · age ${text(tyre.age)}`;
 }
 
+// ▲2 (green, a gain) or ▼1 (red, a loss); empty for 0 or unknown (issue #91).
+function cueText(delta: number): string {
+  if (delta > 0) return `▲ ${delta}`;
+  if (delta < 0) return `▼ ${Math.abs(delta)}`;
+  return "";
+}
+
 export interface DriverRowProps {
   number: number;
+  /** Places gained (positive) or lost (negative) since the previous push, from useBoardPositionDeltas(); 0 or absent renders no cue (issue #91). */
+  delta?: number;
   /** Whether this driver is the one selected for the detail panel (issue #90). */
   selected: boolean;
   /** Toggles this driver's selection; called with `number`. Passed down from a single `useDriverSelection()` call in `TimingTable` -- see the memoisation note below. */
@@ -28,10 +37,14 @@ export interface DriverRowProps {
 // just the row whose own `selected` value changed), defeating the point of
 // this memoisation for that case. With `selected` as a plain boolean prop,
 // only the previously-selected and newly-selected rows actually change props
-// and re-render (issue #90 fix round 1).
-export const DriverRow = memo(function DriverRow({ number: driverNumber, selected, onSelect }: DriverRowProps) {
+// and re-render (issue #90 fix round 1). `delta` is likewise a plain number
+// prop (not read from a hook here), so the same shallow comparison also
+// skips a row whose cue did not change (issue #91).
+export const DriverRow = memo(function DriverRow({ number: driverNumber, delta = 0, selected, onSelect }: DriverRowProps) {
   const driver = useBoardDriver(driverNumber);
   if (driver === null) return null;
+
+  const cueClass = delta > 0 ? styles.cueGain : delta < 0 ? styles.cueLoss : undefined;
 
   return (
     <tr
@@ -40,6 +53,7 @@ export const DriverRow = memo(function DriverRow({ number: driverNumber, selecte
       aria-selected={selected}
     >
       <td className={styles.position}>{driver.position === null ? "—" : driver.position}</td>
+      <td className={cueClass}>{cueText(delta)}</td>
       <td>
         <strong>{text(driver.name_acronym)}</strong>
         <br />
