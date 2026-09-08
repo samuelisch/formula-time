@@ -54,3 +54,12 @@ curl -N https://<api-domain>/live/events
 ```
 
 A `heartbeat` event should print every 5 seconds, unbuffered.
+
+### Live (Railway project `soothing-compassion`)
+
+- Services: `api`, `ingest`, `Postgres` — names are the IaC adoption key; do not rename in the dashboard without changing `.railway/railway.ts`.
+- `api` domain: https://api-production-8fbf2.up.railway.app — `GET /health`, `GET /live/events` (SSE; verified unbuffered through Railway's proxy: heartbeats 5.00 s apart).
+- Railway's Postgres has no transaction pooler, so `DATABASE_URL` and `DATABASE_DIRECT_URL` are the same string today; the split (ADR-0005) stays for a future pooler.
+- `ingest` has the database variables; add `OPENF1_LOGIN` / `OPENF1_PASSWORD` to it before the first live session.
+- `RAILWAY_TOKEN` is a GitHub Actions secret; `.railway/**` changes are planned on PRs and applied on merge.
+- Local development uses the compose Postgres on host port 5433 (a locally installed Postgres 18 owns 5432).
