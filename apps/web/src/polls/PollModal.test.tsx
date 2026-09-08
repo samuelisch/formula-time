@@ -17,7 +17,7 @@ function renderModal(polls: PollModalProps["polls"]) {
 
 describe("PollModal", () => {
   beforeEach(() => {
-    usePollModalUiStore.setState({ isOpen: false });
+    usePollModalUiStore.setState({ isOpen: false, lastSignature: "", lastSessionKey: null });
   });
 
   it("stays closed when there is no open poll", () => {
@@ -73,6 +73,39 @@ describe("PollModal", () => {
     );
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("stays closed across an unmount/remount for an unchanged set (fix round 1: BoardPage/PollsPage are sibling routes)", () => {
+    const polls = [makePoll({ poll_id: "poll-1", status: "open" })];
+    const { unmount } = renderModal(polls);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    act(() => {
+      usePollModalUiStore.getState().close();
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    // Simulate navigating away (/polls) and back (/): PollModal unmounts and
+    // remounts as a fresh component instance, but the poll set is unchanged.
+    unmount();
+    renderModal([makePoll({ poll_id: "poll-1", status: "open" })]);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("pops on remount when a newly resolved poll arrived while unmounted", () => {
+    const { unmount } = renderModal([makePoll({ poll_id: "poll-1", status: "open" })]);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    act(() => {
+      usePollModalUiStore.getState().close();
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    unmount();
+    renderModal([makePoll({ poll_id: "poll-1", status: "resolved", winning_option_ids: ["opt-a"] })]);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("closes on backdrop click and stays closed until the next transition", () => {
