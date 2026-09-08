@@ -73,11 +73,11 @@ test.skipIf(!existsSync(POC_DIR))(
   async () => {
     const first = await runOneReplayPass();
     console.log(`replay smoke: first pass inserted=${first.inserted} skipped=${first.skipped}`);
-    // The recording (poc/live-logs/11361/raw/*.jsonl) holds ~28.4k already-
-    // deduped rows (drivers + position + intervals + laps + pit +
-    // race_control + stints + weather); 25,000 leaves margin without
-    // pinning an exact count to a file this repo doesn't own.
-    expect(first.inserted).toBeGreaterThan(25_000);
+    // Issue #22's body was corrected to match the recording: "the writer
+    // inserts >28,000 events" (the recording holds 28,422 already-deduped
+    // rows across drivers + position + intervals + laps + pit +
+    // race_control + stints + weather — poc/live-logs/11361/raw/*.jsonl).
+    expect(first.inserted).toBeGreaterThan(28_000);
     expect(first.skipped).toBe(0);
 
     const countAfterFirst = await db.event.count({ where: { sessionKey: SESSION_KEY } });
