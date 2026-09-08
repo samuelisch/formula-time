@@ -96,23 +96,41 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   const liveRef = useRef({ anchors, leaderLap, sessionStatus, setDelayMs });
   liveRef.current = { anchors, leaderLap, sessionStatus, setDelayMs };
 
-  const [video] = useState(() => {
-    const element = document.createElement("video");
-    element.muted = true;
-    return element;
-  });
-  const [cropCanvas] = useState(() => document.createElement("canvas"));
-  const [pendingCanvas] = useState(() => document.createElement("canvas"));
-  const [recognizeCanvas] = useState(() => document.createElement("canvas"));
-  const [detectCanvas] = useState(() => document.createElement("canvas"));
-  const [frameCanvas] = useState(() => {
-    // 480x270 with a 48x27 grid: a real gantry light (~2% of frame width)
-    // fills most of a 10x10 tile.
-    const element = document.createElement("canvas");
-    element.width = 480;
-    element.height = 270;
-    return element;
-  });
+  // Offscreen DOM handles this hook owns imperatively (drawn into and
+  // resized from timer/OCR callbacks, not from render) -- lazily created
+  // refs, never React state: mutating them must never schedule a re-render.
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
+  if (videoElRef.current === null) {
+    videoElRef.current = document.createElement("video");
+    videoElRef.current.muted = true;
+  }
+  const video = videoElRef.current;
+
+  const cropCanvasElRef = useRef<HTMLCanvasElement | null>(null);
+  cropCanvasElRef.current ??= document.createElement("canvas");
+  const cropCanvas = cropCanvasElRef.current;
+
+  const pendingCanvasElRef = useRef<HTMLCanvasElement | null>(null);
+  pendingCanvasElRef.current ??= document.createElement("canvas");
+  const pendingCanvas = pendingCanvasElRef.current;
+
+  const recognizeCanvasElRef = useRef<HTMLCanvasElement | null>(null);
+  recognizeCanvasElRef.current ??= document.createElement("canvas");
+  const recognizeCanvas = recognizeCanvasElRef.current;
+
+  const detectCanvasElRef = useRef<HTMLCanvasElement | null>(null);
+  detectCanvasElRef.current ??= document.createElement("canvas");
+  const detectCanvas = detectCanvasElRef.current;
+
+  // 480x270 with a 48x27 grid: a real gantry light (~2% of frame width)
+  // fills most of a 10x10 tile.
+  const frameCanvasElRef = useRef<HTMLCanvasElement | null>(null);
+  if (frameCanvasElRef.current === null) {
+    frameCanvasElRef.current = document.createElement("canvas");
+    frameCanvasElRef.current.width = 480;
+    frameCanvasElRef.current.height = 270;
+  }
+  const frameCanvas = frameCanvasElRef.current;
 
   const previewCanvasElRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
