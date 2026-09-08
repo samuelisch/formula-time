@@ -26,7 +26,7 @@ The target home for those files is object storage, which we do not have yet. The
 3. **Disk is a cache, the database is the record.** Railway's disk is ephemeral. If a request finds an `exports` row but the file missing, the api regenerates the file once (same code path, same embedded `exported_at`, logged) and serves it. That is one read per session per process lifetime, not per viewer.
 4. **Serving.** Two routes under the client prefix:
    - `GET /api/races` → the sessions that have an `exports` row, joined to `sessions`: `[{ session_key, name, country, date_start, date_end, total_laps, exported_at }]`, sorted by `date_start` descending.
-   - `GET /api/races/:session_key` → the file as `application/json` with `content-encoding: gzip` (pre-compressed bytes, never re-encoded), `cache-control: public, max-age=31536000, immutable`, `etag: "<session_key>-<exported_at epoch ms>"` from the `exports` row; 404 when there is no `exports` row.
+   - `GET /api/races/:session_key` → the file as `application/json` with `content-encoding: gzip` (pre-compressed bytes, never re-encoded), `cache-control: public, max-age=31536000, immutable`, `vary: accept-encoding`, `etag: "<session_key>-<exported_at epoch ms>"` from the `exports` row; 404 when there is no `exports` row.
    Serving reads the file, not Postgres.
 5. **Consumer.** The browser fetches the file, folds it with the shared reducer from `packages/domain`, and owns playback: scrub, play at a chosen speed, and broadcast alignment on top. No server-side replay session exists in the app (the POC's per-tab replay stays in the POC).
 
