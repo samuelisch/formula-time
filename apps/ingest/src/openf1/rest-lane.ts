@@ -7,6 +7,7 @@
 // API rejects every date filter; apps/ingest/AGENTS.md). Does NOT lift
 // `LiveRace` / `state_authority` / `session_registry`: ingest never folds.
 
+import { ENTRY_LIST_2026 } from "./entry-list.js";
 import { LiveNormalizer, endpointConfigs } from "./normalize.js";
 import type { Fetcher, QueueItem, RawRecord } from "./types.js";
 import type { EventQueue } from "../writer/queue.js";
@@ -211,6 +212,22 @@ export class RestLane {
       // onSession, re-stamping session.json for every session of the year
       // every 60s while nothing was live).
       await this.onSessionSelected?.(live, nowMs);
+
+      // Owner decision (round 4): the entry list is hardcoded for now, not
+      // fetched. One `drivers` event per driver, through the normal
+      // emitRows() path — the payload's `session_key` (which makes the
+      // event id unique per session) means a restart re-emits harmlessly:
+      // the same payload hashes to the same id, and event.createMany's
+      // skipDuplicates drops it.
+      const driverRows: RawRecord[] = ENTRY_LIST_2026.map((driver) => ({
+        session_key: key,
+        driver_number: driver.driver_number,
+        full_name: driver.full_name,
+        name_acronym: driver.name_acronym,
+        team_name: driver.team_name,
+        team_colour: driver.team_colour,
+      }));
+      await this.emitRows("drivers", key, driverRows);
     }
   }
 

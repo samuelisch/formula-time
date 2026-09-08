@@ -187,6 +187,45 @@ describe("RestLane discovery", () => {
   });
 });
 
+describe("RestLane: static entry list emitted on session selection", () => {
+  test("selecting a session enqueues 22 `drivers` records tagged with that session", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [SESSION] });
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START, onLog: () => {} });
+
+    await lane.discoverOnce();
+
+    const items = queue.drain(1000);
+    expect(items).toHaveLength(22);
+    expect(items.every((i) => i.endpoint === "drivers" && i.sessionKey === 11361n)).toBe(true);
+  });
+
+  test("re-selecting the same session (simulating a restart) enqueues identical ids — the writer's dedup makes the re-emission harmless", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [SESSION] });
+
+    const firstQueue = new EventQueue<QueueItem>();
+    const firstLane = new RestLane(firstQueue, { fetcher, now: () => START, onLog: () => {} });
+    await firstLane.discoverOnce();
+    const firstIds = firstQueue
+      .drain(1000)
+      .map((i) => i.eventId)
+      .sort();
+
+    // A fresh RestLane (and queue) simulates a process restart: nothing
+    // carries over except what the fetcher itself returns.
+    const secondQueue = new EventQueue<QueueItem>();
+    const secondLane = new RestLane(secondQueue, { fetcher, now: () => START, onLog: () => {} });
+    await secondLane.discoverOnce();
+    const secondIds = secondQueue
+      .drain(1000)
+      .map((i) => i.eventId)
+      .sort();
+
+    expect(firstIds).toHaveLength(22);
+    expect(secondIds).toEqual(firstIds);
+  });
+});
+
 describe("RestLane.pollOnce", () => {
   test("no active session -> null, no fetch", async () => {
     const { fetcher, calls } = fakeFetcher({});
@@ -203,6 +242,7 @@ describe("RestLane.pollOnce", () => {
     const queue = new EventQueue<QueueItem>();
     const lane = new RestLane(queue, { fetcher, now: () => START, onLog: () => {} });
     await lane.discoverOnce(); // selects the session
+    queue.drain(1000); // clear the static entry-list rows emitted on selection
 
     const result = await lane.pollOnce();
 
@@ -276,6 +316,7 @@ describe("RestLane.stop() and an in-flight tick (SIGTERM race)", () => {
     // Discovery (immediate) selects the session; the next tick (~5ms later)
     // starts the rotation poll and blocks on the pending "position" fetch.
     await waitUntil(() => resolvePosition !== null);
+    queue.drain(1000); // clear the static entry-list rows emitted on selection
 
     let stopped = false;
     const stopPromise = lane.stop().then(() => {
