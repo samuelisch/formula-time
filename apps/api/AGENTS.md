@@ -29,6 +29,10 @@ to the browser only after the `votes` insert commits. Dedup is the primary
 key `(poll_id, viewer_id)`; a re-vote before lock is an upsert, not a new
 row.
 
+ADR-0009: `exports` is a fifth table, written only by the api (the
+exporter). It does not write `sessions` — `sessions.exported_at` was
+dropped in the same migration that added `exports`.
+
 Fastify handles routing, cookies, static files, and validation. The SSE
 route is hand-written on the raw response — compression middleware would
 gzip per viewer, which the fan-out design forbids.
@@ -56,4 +60,4 @@ gzip per viewer, which the fan-out design forbids.
   live there; identity hashing does not.
 - Config is read from the platform secret store, never from files in the
   image: `DATABASE_URL`, `OPENF1_LOGIN`, `OPENF1_PASSWORD`, `PORT`,
-  `LIVE_SOURCE`.
+  `LIVE_SOURCE`, `EXPORT_DIR` (default `./exports`, ADR-0009 §2).

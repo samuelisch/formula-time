@@ -37,9 +37,9 @@ model Session {
   dateEnd     DateTime      @map("date_end")
   totalLaps   Int?          @map("total_laps")
   status      SessionStatus
-  exportedAt  DateTime?     @map("exported_at")
   events      Event[]
   polls       Poll[]
+  export      Export?
   @@map("sessions")
 }
 
@@ -78,4 +78,18 @@ model Vote {
   poll      Poll     @relation(fields: [pollId], references: [pollId])
   @@id([pollId, viewerId])
   @@map("votes")
+}
+
+// ADR-0009 §2: "the export record lives in a fifth table, `exports`
+// (session_key bigint primary key references sessions, exported_at
+// timestamptz not null, path text not null), written only by the api. The
+// `sessions.exported_at` column from HLD §4 is dropped in the same
+// migration; two writers on one row (ingest's upsert and the exporter) was
+// the footgun this avoids."
+model Export {
+  sessionKey BigInt   @id @map("session_key")
+  exportedAt DateTime @map("exported_at")
+  path       String
+  session    Session  @relation(fields: [sessionKey], references: [sessionKey])
+  @@map("exports")
 }
