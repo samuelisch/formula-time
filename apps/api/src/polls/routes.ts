@@ -20,7 +20,10 @@
 import cookie from "@fastify/cookie";
 import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 
+import type { PrismaClient } from "@formula-time/db";
+
 import type { PollModule } from "./poll-module.js";
+import { pollsBySession } from "./poll-read.js";
 import { resolveViewerId } from "./viewer-identity.js";
 
 interface VoteBody {
@@ -37,7 +40,9 @@ const voteBodySchema = {
   },
 } as const;
 
-export function registerPolls(module: PollModule): FastifyPluginAsync {
+const INTEGER = /^-?\d+$/;
+
+export function registerPolls(module: PollModule, db: PrismaClient): FastifyPluginAsync {
   return async function pollsPlugin(fastify: FastifyInstance): Promise<void> {
     fastify.register(cookie);
 
@@ -68,5 +73,23 @@ export function registerPolls(module: PollModule): FastifyPluginAsync {
     });
 
     fastify.get("/polls", async () => module.publicPolls());
+
+    // GET /api/races/:session_key/polls (issue #79) -- polls for a race,
+    // read straight from Postgres rather than the poll module's in-memory
+    // (current-session-only) state. Two queries per request, never per
+    // viewer per tick (ADR-0001 §2 invariant 2); the vote path above is
+    // untouched.
+    fastify.get<{ Params: { session_key: string } }>("/races/:session_key/polls", async (request, reply) => {
+      const raw = request.params.session_key;
+      if (!INTEGER.test(raw)) {
+        reply.code(400);
+        return { error: "session_key must be an integer" };
+      }
+      const sessionKey = BigInt(raw);
+
+      const { polls, cacheable } = await pollsBySession(db, sessionKey);
+      reply.header("cache-control", cacheable ? "public, max-age=300" : "no-store");
+      return polls;
+    });
   };
 }

@@ -14,27 +14,11 @@ import { isChequered, leaderLap } from "@formula-time/domain";
 import type { RaceState } from "@formula-time/domain";
 import { locksAtLap } from "@formula-time/domain";
 
+import { kindFromPollId, toPublic as buildPublic } from "./poll-read.js";
+import type { PollLifecycleStatus, PollOptionPublic, PollPublic, PollTemplateKind } from "./poll-read.js";
 import { upsertVote } from "./vote-path.js";
 
-export type PollTemplateKind = "winner" | "podium";
-export type PollLifecycleStatus = "open" | "locked" | "resolved" | "void";
-
-export interface PollOptionPublic {
-  id: string;
-  label: string;
-}
-
-export interface PollPublic {
-  poll_id: string;
-  kind: PollTemplateKind;
-  question: string;
-  options: PollOptionPublic[];
-  locks_at_lap: number;
-  status: PollLifecycleStatus;
-  tally: Record<string, number>;
-  total_votes: number;
-  winning_option_ids: string[] | null;
-}
+export type { PollLifecycleStatus, PollOptionPublic, PollPublic, PollTemplateKind } from "./poll-read.js";
 
 export type VoteResult =
   | { ok: true; poll: PollPublic; option_id: string }
@@ -61,26 +45,12 @@ interface ActiveSession {
   country: string;
 }
 
-function kindFromPollId(pollId: string): PollTemplateKind {
-  return pollId.endsWith(":podium") ? "podium" : "winner";
-}
-
 function toPublic(poll: InternalPoll): PollPublic {
   const tally: Record<string, number> = {};
   for (const optionId of poll.votes.values()) {
     tally[optionId] = (tally[optionId] ?? 0) + 1;
   }
-  return {
-    poll_id: poll.pollId,
-    kind: poll.kind,
-    question: poll.question,
-    options: poll.options,
-    locks_at_lap: poll.locksAtLap,
-    status: poll.status,
-    tally,
-    total_votes: poll.votes.size,
-    winning_option_ids: poll.winningOptionIds,
-  };
+  return buildPublic(poll, tally);
 }
 
 export class PollModule {

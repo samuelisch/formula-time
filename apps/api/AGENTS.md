@@ -16,6 +16,10 @@ One process holding:
   already-applied cursor forces a full rebuild — never an in-place apply.
 - **The poll module** — locks and resolves polls from the fold; holds
   tallies in memory; reloads them from `votes` on start.
+- **The polls-by-race read route** — `GET /api/races/:session_key/polls`
+  (`polls/poll-read.ts`) reads `polls`/`votes` straight from Postgres for
+  any race, live or historical; it never touches the poll module's
+  in-memory state.
 - **The fan-out** — one `JSON.stringify` per push, gzip once per push,
   identical bytes to every socket. A vote never triggers a push.
 - **The SSE route handler** — live: attach the socket to the fan-out.
