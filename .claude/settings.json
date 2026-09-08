@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=$(jq -r .tool_input.file_path); case \"$f\" in */decisions-adr/*) grep -q 'Status:\\*\\* Accepted' \"$f\" 2>/dev/null && { echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Accepted ADR; write a superseding one\"}}'; };; esac; exit 0"
+            "command": "f=$(jq -r .tool_input.file_path); case \"$f\" in */docs/decisions-adr/*) grep -q 'Status:\\*\\* Accepted' \"$f\" 2>/dev/null && { echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Accepted ADR; write a superseding one\"}}'; };; esac; exit 0"
           }
         ]
       },

@@ -13,7 +13,7 @@ Every PR carries three lines: Summary, Friction, Agent. A retro is a read of tho
 
 1. Run `node scripts/retro.mjs <YYYY-MM-DD>` (the period start; default today). It prints one row per merged PR.
 2. If it reports missing lines, note the PR numbers under "went wrong": the template was not followed.
-3. Write `retros/<YYYY-MM-DD>.md` with exactly these sections, each a short bulleted list citing PR numbers:
+3. Write `docs/retros/<YYYY-MM-DD>.md` with exactly these sections, each a short bulleted list citing PR numbers:
    - **Went well** — from Summary lines that landed without Friction.
    - **Went wrong** — every non-"none" Friction line, grouped by cause when two PRs share one.
    - **Try next time** — one concrete change per cause above: a rule for AGENTS.md, a fix to a skill or hook, an issue-body improvement. Name the file that changes.

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Collect Summary / Friction / Agent lines from PRs merged since a date.
 // Usage: node scripts/retro.mjs [YYYY-MM-DD]   (default: today, UTC)
-// Output: markdown to stdout; the /retro skill turns it into retros/<date>.md
+// Output: markdown to stdout; the /retro skill turns it into docs/retros/<date>.md
 import { execFileSync } from "node:child_process";
 
 const since = process.argv[2] ?? new Date().toISOString().slice(0, 10);
