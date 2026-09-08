@@ -4,7 +4,7 @@
 //
 // The vote-burst harness required before votes are public: thousands of
 // POSTs in a few seconds, checked for exactness. 1,000 distinct viewers
-// each fire two concurrent POST /vote requests (2,000 requests fired
+// each fire two concurrent POST /api/vote requests (2,000 requests fired
 // together, so every viewer races itself for the row that survives). Every
 // request goes through the real HTTP path (Fastify's `app.inject`) and the
 // real conditional upsert (vote-path.ts) — nothing here is faked.
@@ -101,7 +101,7 @@ beforeAll(async () => {
   await module.waitForIdle();
 
   app = Fastify();
-  registerPolls(app, module);
+  await app.register(registerPolls(module), { prefix: "/api" });
   await app.ready();
 });
 
@@ -126,7 +126,7 @@ describe("vote burst", () => {
           requests.push(
             app.inject({
               method: "POST",
-              url: "/vote",
+              url: "/api/vote",
               headers: { cookie: `viewer_id=${viewerId}` },
               payload: { poll_id: POLL_ID, option_id: optionId },
             }),
