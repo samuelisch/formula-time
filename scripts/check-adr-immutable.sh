@@ -19,7 +19,8 @@ while IFS=$'\t' read -r kind old new; do
     R*) old_path="$old"; new_path="$new" ;;
     *) continue ;;
   esac
-  if git show "$base:$old_path" 2>/dev/null | grep -q 'Status:\*\* Accepted'; then
+  # On main, "Proposed (accepted when this PR merges)" has merged: it is Accepted.
+  if git show "$base:$old_path" 2>/dev/null | grep -qE 'Status:\*\* (Accepted|Proposed \(accepted when this PR merges\))'; then
     if ! git show "$base:$old_path" | cmp -s - "$new_path"; then
       echo "check-adr-immutable: $new_path is Accepted on main and its content changed; supersede it instead" >&2
       status=1
