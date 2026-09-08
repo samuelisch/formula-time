@@ -1,0 +1,62 @@
+// `/races/:session_key` (ADR-0009 §5, issue #57): fetches the export file,
+// folds it in the browser with the shared reducer, and plays it back on the
+// same timing board through `BoardSourceProvider`. No server-side replay
+// session -- the browser owns playback entirely.
+import { useQuery } from "@tanstack/react-query";
+import { useParams } from "react-router";
+
+import { BoardSourceProvider } from "../board/useBoardState.ts";
+import { Card } from "../components/Card.tsx";
+import { fetchRaceFile } from "../races/api.ts";
+import { foldRace } from "../replay/foldRace.ts";
+import { TransportBar } from "../replay/TransportBar.tsx";
+import { useReplayPlayback } from "../replay/useReplayPlayback.ts";
+import { BoardPage } from "./BoardPage.tsx";
+import styles from "./ReplayPage.module.css";
+
+export function ReplayPage() {
+  const params = useParams<{ session_key: string }>();
+  const sessionKey = params.session_key === undefined ? NaN : Number(params.session_key);
+  const validKey = Number.isFinite(sessionKey);
+
+  const fileQuery = useQuery({
+    queryKey: ["race-file", sessionKey],
+    // `staleTime: Infinity`: the file is immutable (etag'd, `cache-control: immutable`).
+    staleTime: Infinity,
+    enabled: validKey,
+    queryFn: () => fetchRaceFile(sessionKey),
+  });
+
+  const foldQuery = useQuery({
+    queryKey: ["race-fold", sessionKey, fileQuery.data?.exported_at],
+    staleTime: Infinity,
+    enabled: fileQuery.data !== undefined,
+    queryFn: () => foldRace(fileQuery.data!.events, fileQuery.data!.session),
+  });
+
+  const playback = useReplayPlayback(foldQuery.data ?? null);
+
+  if (!validKey) {
+    return <Card>Not a valid race.</Card>;
+  }
+
+  if (fileQuery.isError) {
+    return <Card>Could not load this race.</Card>;
+  }
+
+  if (foldQuery.isError) {
+    return <Card>Could not fold this race.</Card>;
+  }
+
+  if (foldQuery.data === undefined) {
+    return <Card>Loading race…</Card>;
+  }
+
+  return (
+    <div className={styles.replay}>
+      <BoardSourceProvider push={playback.push}>
+        <BoardPage toolbar={<TransportBar playback={playback} />} />
+      </BoardSourceProvider>
+    </div>
+  );
+}

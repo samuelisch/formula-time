@@ -1,0 +1,27 @@
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.speeds {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.speedActive {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+.slider {
+  flex: 1;
+  min-width: 10rem;
+}
+
+.clock {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
