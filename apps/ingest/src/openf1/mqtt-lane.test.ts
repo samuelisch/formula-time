@@ -391,6 +391,100 @@ describe("MqttLane: reconnect", () => {
   });
 });
 
+describe("MqttLane: reconnect races (review round 1)", () => {
+  test("a proactive refresh reconnect while a broker-unreachable reconnect is still armed does not leak a second live client", async () => {
+    const { connectImpl, clients } = fakeConnect();
+    const auth = fakeAuth(["token-1", "token-2", "token-3"]);
+    const queue = new EventQueue<QueueItem>();
+    const lane = new MqttLane(queue, {
+      connectImpl,
+      auth,
+      username: "u",
+      getNormalizer: () => new LiveNormalizer(),
+      getSessionKey: () => null,
+      onLog: () => {},
+      baseBackoffMs: 10, // the stale broker-unreachable reconnect would fire ~20ms later
+      maxBackoffMs: 100,
+      refreshIntervalMs: 1_000_000, // never fires on its own in this test window
+      statsIntervalMs: 1_000_000,
+    });
+
+    lane.start();
+    await waitUntil(() => clients.length > 0);
+    const clientA = clients[0]!;
+
+    // Broker-unreachable: arms a reconnect timer (~20ms out).
+    clientA.emit("connect", { sessionPresent: false });
+    clientA.emit("close");
+
+    // Simulate the 50-min proactive refresh firing right now, while that
+    // timer is still armed — calling the SAME private method the real
+    // refreshTimer invokes (`void this.reconnectNow()`), just without
+    // waiting the real 50 minutes for it to fire on its own.
+    await (lane as unknown as { reconnectNow(): Promise<void> }).reconnectNow();
+
+    await waitUntil(() => clients.length > 1);
+    expect(clients).toHaveLength(2);
+    const clientB = clients[1]!;
+    expect(clientB.endCalls).toBe(0); // clientB is the live one now
+
+    // Wait past where the STALE broker-unreachable timer would have fired.
+    // With the fix it was cancelled by reconnectNow() and never fires; a
+    // leaked third client never appears, and clientB (the one actually in
+    // use) is never silently orphaned.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(clients).toHaveLength(2);
+    expect(clientB.endCalls).toBe(0);
+
+    await lane.stop();
+  });
+
+  test("a token-fetch failure during connect/reconnect is caught, logged, and retried with backoff — never an unhandled rejection", async () => {
+    const { connectImpl, clients, calls } = fakeConnect();
+    let attempt = 0;
+    const auth: MqttLaneAuth = {
+      invalidate: () => {},
+      getToken: async () => {
+        attempt += 1;
+        if (attempt === 1) throw new Error("token endpoint 500");
+        return "token-2";
+      },
+    };
+    const queue = new EventQueue<QueueItem>();
+    const logs: string[] = [];
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+    try {
+      const lane = new MqttLane(queue, {
+        connectImpl,
+        auth,
+        username: "u",
+        getNormalizer: () => new LiveNormalizer(),
+        getSessionKey: () => null,
+        onLog: (line) => logs.push(line),
+        baseBackoffMs: 1,
+        maxBackoffMs: 5,
+      });
+      lane.start();
+
+      await waitUntil(() => clients.length > 0, 1000);
+      await new Promise((resolve) => setTimeout(resolve, 20)); // let any stray unhandledRejection surface
+
+      expect(unhandled).toEqual([]);
+      expect(clients).toHaveLength(1);
+      expect(calls[0]?.opts["password"]).toBe("token-2");
+      expect(logs.some((line) => line.includes("token fetch failed"))).toBe(true);
+
+      await lane.stop();
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
+  });
+});
+
 describe("MqttLane.stop()", () => {
   test("awaits the client's end() before resolving (SIGTERM order: client ended before the writer drains)", async () => {
     const { connectImpl, clients } = fakeConnect();

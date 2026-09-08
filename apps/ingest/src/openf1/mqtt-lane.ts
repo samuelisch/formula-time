@@ -251,8 +251,7 @@ export class MqttLane {
   /** SIGTERM path: stop scheduling reconnects/timers and await the client's `end()` before returning. */
   public async stop(): Promise<void> {
     this.stopped = true;
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = null;
+    this.cancelScheduledReconnect();
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     this.refreshTimer = null;
     if (this.statsTimer) clearInterval(this.statsTimer);
@@ -267,7 +266,31 @@ export class MqttLane {
     return new Promise((resolve) => client.end(true, () => resolve()));
   }
 
+  /**
+   * Cancels any reconnect already armed by a `close` handler or a failed
+   * `connectNow()` (review round 1: without this, a broker-unreachable
+   * `close` could arm a backoff timer, then a `reconnectNow()` from the
+   * 50-min proactive refresh would open a fresh client while that stale
+   * timer was still pending — and when it later fired, its own
+   * `connectNow()` would silently overwrite `this.client` with a THIRD
+   * client, orphaning the fresh one: still connected to the broker, but
+   * unreferenced and never `end()`'d — a leaked socket).
+   */
+  private cancelScheduledReconnect(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
+  private scheduleReconnect(delayMs: number): void {
+    this.cancelScheduledReconnect();
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.connectNow(true);
+    }, delayMs);
+  }
+
   private async reconnectNow(): Promise<void> {
+    this.cancelScheduledReconnect();
     this.generation += 1; // orphan the outgoing client before touching it
     const old = this.client;
     this.client = null;
@@ -281,21 +304,46 @@ export class MqttLane {
    * REST lane already); every reconnect (broker-unreachable, auth-rejected,
    * or the 50-min timer) forces a fresh one first (issue #25: "refresh ...
    * before every reconnect by reconnecting with a fresh token").
+   *
+   * The attempt claims its generation number BEFORE awaiting anything
+   * (review round 1): if a second, independent `connectNow()`/`reconnectNow()`
+   * runs while this one is still awaiting the token, IT claims a higher
+   * generation, so this attempt notices it's been superseded (the
+   * post-await check below) and bails out instead of racing it to set
+   * `this.client` — the loser would otherwise open a live client that
+   * silently orphans, or clobbers a client someone else just opened.
+   *
+   * A rejected `auth.getToken()` (the token endpoint down) is caught here,
+   * not left to reject an unawaited promise: `start()`, `reconnectNow()`,
+   * and the `close`/timer paths all call this via `void`, so an uncaught
+   * rejection here would surface as an unhandled promise rejection —
+   * capable of crashing the process under Node's default behavior — which
+   * would violate "never throws out of an event handler" (issue #25).
+   * Treated the same as a broker-unreachable close: logged, retried with
+   * backoff.
    */
   private async connectNow(forceFreshToken: boolean): Promise<void> {
     if (this.stopped) return;
-    if (forceFreshToken) this.auth.invalidate();
-    const token = await this.auth.getToken();
-    if (this.stopped) return; // stop() may have run while the token was in flight
-    const generation = ++this.generation;
-    const client = this.connectImpl(this.brokerUrl, {
-      username: this.username,
-      password: token ?? "",
-      reconnectPeriod: 0, // this lane manages its own backoff (see the `close` handler)
-      connectTimeout: this.connectTimeoutMs,
-    });
-    this.client = client;
-    this.wireClient(client, generation);
+    const attemptGeneration = ++this.generation;
+    try {
+      if (forceFreshToken) this.auth.invalidate();
+      const token = await this.auth.getToken();
+      if (this.stopped || attemptGeneration !== this.generation) return;
+      const client = this.connectImpl(this.brokerUrl, {
+        username: this.username,
+        password: token ?? "",
+        reconnectPeriod: 0, // this lane manages its own backoff (see the `close` handler)
+        connectTimeout: this.connectTimeoutMs,
+      });
+      this.client = client;
+      this.wireClient(client, attemptGeneration);
+    } catch (error) {
+      if (this.stopped || attemptGeneration !== this.generation) return;
+      this.log(
+        `mqtt: token fetch failed, will retry: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      this.scheduleReconnect(mqttBackoffDelayMs(this.baseBackoffMs, ++this.backoffAttempt, this.maxBackoffMs));
+    }
   }
 
   private wireClient(client: MqttClientLike, generation: number): void {
@@ -341,10 +389,7 @@ export class MqttLane {
       const delay = authRetry
         ? this.authRetryDelayMs
         : mqttBackoffDelayMs(this.baseBackoffMs, ++this.backoffAttempt, this.maxBackoffMs);
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null;
-        void this.connectNow(true);
-      }, delay);
+      this.scheduleReconnect(delay);
     });
   }
 
