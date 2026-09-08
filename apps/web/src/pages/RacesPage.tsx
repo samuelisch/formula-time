@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 
 import { Card } from "../components/Card.tsx";
+import { QueryState } from "../components/QueryState.tsx";
 import { date, stringField, text } from "../lib/format.ts";
 import { useDisplayed, useSessionStatus } from "../live/selectors.ts";
 import { fetchRaceIndex } from "../races/api.ts";
@@ -17,10 +18,11 @@ export function RacesPage() {
   const liveSession = displayed?.state.session ?? null;
   const liveTotalLaps = displayed?.total_laps ?? null;
 
-  const { data, isLoading, isError } = useQuery({
+  const racesQuery = useQuery({
     queryKey: ["races"],
     queryFn: fetchRaceIndex,
   });
+  const data = racesQuery.data;
 
   return (
     <div className={styles.races}>
@@ -45,25 +47,32 @@ export function RacesPage() {
 
       <section>
         <h2 className={styles.heading}>Past races</h2>
-        {isLoading && <p className={styles.quiet}>Loading races…</p>}
-        {isError && <p className={styles.quiet}>Could not load races</p>}
-        {data !== undefined && data.length === 0 && <p className={styles.quiet}>No past races yet</p>}
-        {data !== undefined && data.length > 0 && (
-          <ul className={styles.list}>
-            {data.map((race) => (
-              <li key={race.session_key}>
-                <Link to={`/races/${race.session_key}`} className={styles.raceRow}>
-                  <span>
-                    {race.country} · {race.name}
-                  </span>
-                  <span className={styles.raceMeta}>
-                    {date(race.date_start)} · {text(race.total_laps)} laps
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+        <QueryState
+          status={racesQuery.status}
+          error={racesQuery.error}
+          onRetry={() => void racesQuery.refetch()}
+          loadingText="Loading races…"
+          errorText="Could not load past races"
+        >
+          {data !== undefined && data.length === 0 ? (
+            <p className={styles.quiet}>No past races yet</p>
+          ) : (
+            <ul className={styles.list}>
+              {(data ?? []).map((race) => (
+                <li key={race.session_key}>
+                  <Link to={`/races/${race.session_key}`} className={styles.raceRow}>
+                    <span>
+                      {race.country} · {race.name}
+                    </span>
+                    <span className={styles.raceMeta}>
+                      {date(race.date_start)} · {text(race.total_laps)} laps
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </QueryState>
       </section>
     </div>
   );
