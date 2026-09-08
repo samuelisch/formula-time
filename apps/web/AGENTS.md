@@ -49,3 +49,27 @@
   / *authority* (the role, exactly one), *push* (one serialized RaceState
   + tallies sent to every socket), *lock* (poll state before resolve; not
   "close"). This app folds on the client but is never the authority.
+- Live state lives in the zustand store (`src/live/store.ts`), not in
+  TanStack Query -- a push stream updating several times a second is not
+  request/response data. TanStack Query is only for `/api/polls` and the
+  vote mutation. Components read the store through the narrow selector
+  hooks in `src/live/selectors.ts` (`useConnection`, `useDisplayed`,
+  `useDelay`, ...), never the whole store, so a render depends only on the
+  slice it uses.
+- The delay axis is `Date.parse(state.latest_source_time)`, falling back
+  to `sent_at` when null (`axisOf` in `src/live/types.ts`) -- the POC's
+  alignment anchor, so an offset measured against the broadcast applies
+  directly. The push ring buffer (`src/live/buffer.ts`) caps at 600
+  entries or 180 000ms of span, whichever hits first, oldest evicted;
+  deltas are a post-deploy item, so this cap is the memory bound until
+  then. `delayMs === 0` renders the live edge with zero buffer work.
+- `src/live/useLiveStream.ts` is the only place in the app that
+  constructs an `EventSource`; it is mounted once in `Shell`. No other
+  component or hook opens its own connection.
+- Styling is CSS Modules (`*.module.css` next to the component); the dark
+  palette lives as CSS variables in `src/index.css`.
+- Unit tests are `*.test.ts(x)` next to the source. The root
+  `vitest.config.ts` runs this app's tests as the `web` project (jsdom +
+  React Testing Library, `src/test/setup.ts`); everything else runs as
+  the `node` project. `src/test/fakeEventSource.ts` is the EventSource
+  test double -- inject it via `useLiveStream({ EventSourceImpl })`.
