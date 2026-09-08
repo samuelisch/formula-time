@@ -5,11 +5,12 @@
 // The package exposes the client and nothing else. Table ownership
 // (ADR-0001 seam 3 — ingest writes `sessions` and `events`, api writes `polls`
 // and `votes`) is a convention the services keep; it is not encoded here.
+// ADR-0009 amends this: `exports` is a fifth table, written only by the api.
 
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "./generated/prisma/client.js";
 
-// Every generated type: the four models, both enums, and the `Prisma`
+// Every generated type: the five models, both enums, and the `Prisma`
 // namespace (input types, `Prisma.JsonValue`, error classes).
 export * from "./generated/prisma/client.js";
 
