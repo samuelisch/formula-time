@@ -20,7 +20,7 @@ Merging is never done here. The owner merges.
 1. **Context.** `gh pr view <n> --json title,body,labels,baseRefName,headRefName,files,statusCheckRollup`. Read the body's Summary / Friction / Agent / ADRs affected lines and the linked issue (`gh issue view`). Read every changed file in full, not just hunks.
 2. **Correctness.** One agent, one pass. Invoke the Agent tool once, `model: sonnet`, with this brief filled in (PR number, base branch, the issue's acceptance criteria pasted verbatim): "Read `gh pr diff <n>` and every changed file in full. Report only (a) bugs: wrong behaviour, an acceptance criterion the diff does not meet, unhandled input, a wrong error path; (b) code that must change: a rule in AGENTS.md broken, a half-finished change, a test the criteria call for that is missing. One line per finding with file:line. No style, no refactors, no running tests. If nothing, one line saying so." With `--post`, put each finding on the PR as an inline comment (`mcp__github_inline_comment__create_inline_comment`).
 3. **Design.** With `--seam`, run the `seam-reviewer` agent (`.claude/agents/seam-reviewer.md`) on the PR. Without it, record "seam review not requested: no apps/, packages/, db/, or ADR files changed".
-4. **Security.** With `--security`, invoke the `security-review` skill. Without it, record "security review not requested: no apps/, db/, or .github/ files changed".
+4. **Security.** With `--security`, dispatch one Agent (`model: sonnet`) whose whole brief is: "Invoke the `security-review` skill on PR <n>'s diff (`gh pr diff <n>`) and return its findings verbatim, most severe first, or one line saying none." Run it as a subagent, never in this context: a skill's report in this context reads like a final answer, and on #42 the run stopped there without a verdict. Without `--security`, record "security review not requested: no apps/, db/, or .github/ files changed".
 5. **Classify** every finding from steps 2–4 into exactly one bucket:
    - **Security**: any finding from step 4, or secrets, injection, unauthenticated writes, credentials outside the platform secret store.
    - **Bug**: wrong behaviour, a failing or pending required status check, an acceptance criterion from the issue that the diff does not meet.
@@ -55,6 +55,9 @@ Merge is the owner's call.
 ```
 
 ## Common mistakes
+
+- Stopping after a pass. Steps 2–4 produce inputs; the run is not finished until step 6 has submitted the review. Whatever a skill or agent returns, the next action is the next step.
+- Asking for approval. In the workflow there is nobody to answer: a denied command (run 34215499248 stopped at turn 10 asking for `gh issue list`) means use an allowed way, or note the gap under Notes, and continue. Never end the run on a question.
 
 - Approving because the diff is small. Every PR gets step 2; a skipped step 3 or 4 needs its reason written down.
 - Filing a Decision as changes requested, or writing `owner decision needed` and then passing `--request-changes` (this happened on #32). Header and flag come from the same row of the table.

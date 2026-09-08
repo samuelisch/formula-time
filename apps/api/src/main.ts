@@ -5,7 +5,10 @@ import Fastify from "fastify";
 import { createDb } from "@formula-time/db";
 
 import { parseAllowedOrigins, registerCors } from "./cors.js";
+import { createExporter } from "./export/exporter.js";
 import { Fanout } from "./fanout/fanout.js";
+import { PollModule } from "./polls/poll-module.js";
+import { registerPolls } from "./polls/routes.js";
 import { prismaEventSource } from "./projector/event-source.js";
 import { pickSession } from "./projector/session-picker.js";
 import { liveRoutes } from "./routes/live.js";
@@ -25,19 +28,22 @@ const log = (msg: string, fields?: Record<string, unknown>): void => {
   app.log.info(fields ?? {}, msg);
 };
 
-// The poll module lands with #24; until then every push carries an empty
-// poll list through the same shape the wired-in module will produce.
-const pollSource = { publicPolls: (): unknown[] => [] };
+const pollModule = new PollModule({ db, log: { info: (msg) => app.log.info(msg) } });
 
 const fanout = new Fanout({ log });
 fanout.heartbeat();
+
+// ADR-0009 §2: "EXPORT_DIR joins the seam-4 config names," default
+// `./exports`. Own 5s tick (started after listen, below); independent of
+// the session lifecycle.
+const exporter = createExporter({ db, dir: process.env.EXPORT_DIR ?? "./exports", log });
 
 const lifecycle = createSessionLifecycle({
   db,
   source,
   pusher: fanout,
   pickSession,
-  publicPolls: pollSource.publicPolls,
+  polls: pollModule,
   log,
 });
 
@@ -48,6 +54,7 @@ app.get("/health", async () => lifecycle.health());
 // Every client-facing route lives under /api (owner decision) -- the
 // public path is /api/live/events.
 await app.register(liveRoutes, { prefix: "/api", fanout });
+await app.register(registerPolls(pollModule), { prefix: "/api" });
 
 let sessionWatcher: ReturnType<typeof setInterval> | null = null;
 
@@ -57,6 +64,7 @@ process.on("SIGTERM", () => {
   }
   lifecycle.stop();
   fanout.stopHeartbeat();
+  exporter.stop();
   void db.$disconnect().then(() => process.exit(0));
 });
 
@@ -66,6 +74,10 @@ process.on("SIGTERM", () => {
 // session yet -- the fan-out has no `latest`, so the socket gets the
 // `catching_up` status frame the brief already specifies.
 await app.listen({ port, host: "0.0.0.0" });
+
+// The exporter owns its own 5s tick (issue #44) -- it does not touch
+// session-lifecycle.ts, which two other PRs are editing.
+exporter.start();
 
 // Run pickSession now and every 5s after; a changed key (first discovery,
 // a new race gone live, or the next race appearing) stops the old

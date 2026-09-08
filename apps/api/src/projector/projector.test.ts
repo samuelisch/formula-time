@@ -14,7 +14,6 @@ const SESSION: Session = {
   dateEnd: new Date("2026-09-06T15:00:00.000Z"),
   totalLaps: 50,
   status: "live",
-  exportedAt: null,
 };
 
 function driverRow(seq: number, driverNumber: number): EventRow {

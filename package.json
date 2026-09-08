@@ -17,6 +17,7 @@
     "dev:ingest": "pnpm --filter @formula-time/ingest dev",
     "ingest:load": "pnpm --filter @formula-time/ingest load --",
     "dev:web": "pnpm --filter @formula-time/web dev",
+    "sim": "pnpm --filter @formula-time/ingest sim --",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:generate": "pnpm --filter @formula-time/db db:generate",
