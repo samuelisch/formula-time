@@ -1,8 +1,10 @@
 // Replay smoke (issue Tests: "Replay smoke"). Needs the real Postgres from
 // `docker-compose.yml` AND the POC's Italian GP recording, which lives
-// outside this repo at the absolute path below (a worktree's `../` does not
-// reach `../f1-live-events-poc`) — skipped, loudly, when that path isn't
-// present (e.g. a reviewer's machine or CI without the POC checked out).
+// outside this repo (a worktree's `../` does not reach `../f1-live-events-poc`)
+// — skipped, loudly, when that path isn't present (e.g. a reviewer's machine
+// or CI without the POC checked out). The path is `REPLAY_RECORDING_DIR`,
+// defaulting to the absolute path this was developed against, so a different
+// machine can point it elsewhere without editing this file.
 //
 // Drives the REST lane's file fetcher (LIVE_SOURCE=<directory>) through the
 // same normalizer, queue and writer production code uses, then asserts the
@@ -23,7 +25,8 @@ import { EventQueue } from "./writer/queue.js";
 import { upsertSession } from "./writer/sessions.js";
 import { EventWriter } from "./writer/writer.js";
 
-const POC_DIR = "/Users/samuelchan/code/f1-live-events-poc/poc/live-logs/11361";
+const POC_DIR =
+  process.env["REPLAY_RECORDING_DIR"] ?? "/Users/samuelchan/code/f1-live-events-poc/poc/live-logs/11361";
 const SESSION_KEY = 11361n;
 // Mid-race: session.json date_start=2026-09-06T13:00:00+00:00,
 // date_end=2026-09-06T15:00:00+00:00. Pinning `now` here (rather than the
