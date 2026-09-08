@@ -1,15 +1,21 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router";
 
 import { makeDriver, makePush } from "../test/fixtures.ts";
 import { TimingTable } from "./TimingTable.tsx";
 import { BoardSourceProvider } from "./useBoardState.ts";
 
+// Wrapped in a MemoryRouter: DriverRow reads/writes the driver selection
+// through useDriverSelection() (useSearchParams), which needs a Router
+// context even when a row's click is never simulated (issue #90).
 function renderWith(push: ReturnType<typeof makePush> | null): void {
   render(
-    <BoardSourceProvider push={push}>
-      <TimingTable />
-    </BoardSourceProvider>,
+    <MemoryRouter>
+      <BoardSourceProvider push={push}>
+        <TimingTable />
+      </BoardSourceProvider>
+    </MemoryRouter>,
   );
 }
 

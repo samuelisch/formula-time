@@ -4,20 +4,26 @@
 // now cover only what the live route adds on top.
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router";
 
 import { makePush } from "../test/fixtures.ts";
 import { Board } from "./Board.tsx";
 import { BoardSourceProvider } from "./useBoardState.ts";
 
+// Wrapped in a MemoryRouter: TimingTable's rows read/write the driver
+// selection via useSearchParams() (issue #90), which needs a Router context.
 function renderWith(
   push: ReturnType<typeof makePush> | null,
   controls?: React.ReactNode,
   transport?: React.ReactNode,
+  side?: React.ReactNode,
 ): void {
   render(
-    <BoardSourceProvider push={push}>
-      <Board controls={controls} transport={transport} />
-    </BoardSourceProvider>,
+    <MemoryRouter>
+      <BoardSourceProvider push={push}>
+        <Board controls={controls} transport={transport} side={side} />
+      </BoardSourceProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -37,6 +43,11 @@ describe("Board", () => {
     renderWith(makePush(), <button type="button">Align</button>, <button type="button">Bar</button>);
     expect(screen.getByRole("button", { name: "Align" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Bar" })).toBeInTheDocument();
+  });
+
+  it("renders a side slot next to the table for a caller's control", () => {
+    renderWith(makePush(), undefined, undefined, <span>Driver detail</span>);
+    expect(screen.getByText("Driver detail")).toBeInTheDocument();
   });
 
   it("renders the empty state before any push arrives", () => {

@@ -32,9 +32,11 @@ export interface BoardProps {
   controls?: ReactNode;
   /** Row 2, full width: the shared `TransportBar` (live delay or replay playback). */
   transport?: ReactNode;
+  /** A caller-supplied control next to the table: the driver detail panel (issue #90). A right-hand column on wide screens, a full-width card below the table under the narrow breakpoint (Board.module.css). */
+  side?: ReactNode;
 }
 
-export function Board({ controls, transport }: BoardProps = {}) {
+export function Board({ controls, transport, side }: BoardProps = {}) {
   const push = useBoardPush();
   const sourceTime = push === null ? null : push.state.latest_source_time;
 
@@ -53,7 +55,13 @@ export function Board({ controls, transport }: BoardProps = {}) {
         <RaceControlCard />
         <WeatherCard />
       </div>
-      <TimingTable />
+      <div className={styles.tableRow}>
+        <div className={styles.tableColumn}>
+          <TimingTable />
+        </div>
+        {/* :empty in CSS collapses this when `side` renders nothing (e.g. DriverPanel with no selection). */}
+        <div className={styles.sideColumn}>{side}</div>
+      </div>
     </div>
   );
 }

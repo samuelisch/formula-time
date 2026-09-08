@@ -38,6 +38,18 @@
   font-weight: 700;
 }
 
+.row {
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--color-raised);
+}
+
+.selected {
+  background: var(--color-raised);
+}
+
 .muted {
   color: var(--color-muted);
 }
