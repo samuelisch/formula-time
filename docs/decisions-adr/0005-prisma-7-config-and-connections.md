@@ -11,7 +11,7 @@ ADR-0004 said `DATABASE_DIRECT_URL` is "wired to `datasource.directUrl`" and tha
 
 ## Decision
 
-- `packages/db/prisma.config.ts` reads `DATABASE_DIRECT_URL` and nothing else; it is required, and Migrate is its only consumer. A missing value fails at load, never falls back to the pooled URL.
+- `packages/db/prisma.config.ts` reads `DATABASE_DIRECT_URL` and nothing else; it is required, and Migrate is its only consumer. The value is read lazily, so `prisma generate` needs no database; when a Migrate command reads it and it is unset, the config throws a named error and never falls back to the pooled URL.
 - `createDb(url?, pool?)` builds the runtime client on `@prisma/adapter-pg` from `DATABASE_URL` (pooled). Pool size is a `pool.max` option, not a URL parameter.
 - The ingest writer's single connection (seq order equals commit order) is `createDb(url, { max: 1 })`. `connection_limit=1` in a URL does nothing and must not be relied on.
 - `pgbouncer=true` is not needed under the `pg` driver (unnamed prepared statements are pooler-safe) and is not set.
