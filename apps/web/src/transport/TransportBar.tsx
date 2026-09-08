@@ -90,7 +90,15 @@ export function TransportBar() {
           <button
             type="button"
             className={styles.live}
-            onClick={() => range !== null && seekAndMaybePause(range.endMs)}
+            onClick={() => {
+              // Fresh at click time, not the `range` captured at the last
+              // render: `range().endMs` is `now()` when live, and time keeps
+              // passing between a render and a click, so the render-scoped
+              // `range` is stale by however long the viewer took to click --
+              // using it here would set a nonzero delay instead of exactly 0.
+              const freshRange = target.range();
+              if (freshRange !== null) seekAndMaybePause(freshRange.endMs);
+            }}
           >
             Live
           </button>

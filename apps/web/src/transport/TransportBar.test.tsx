@@ -6,12 +6,17 @@
 // this file only pins `TransportBar`'s own behavior against the seam.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Anchors } from "../live/anchors.ts";
+import { emptyAnchors } from "../live/anchors.ts";
+import { emptyBuffer } from "../live/buffer.ts";
+import { useLiveStore } from "../live/store.ts";
+import { makePush } from "../test/fixtures.ts";
 import { TimeTargetProvider } from "./TimeTarget.ts";
 import type { TimeTarget } from "./TimeTarget.ts";
 import { TransportBar } from "./TransportBar.tsx";
+import { useLiveTimeTarget } from "./useLiveTimeTarget.ts";
 
 const NO_ANCHORS: Anchors = { lights_out: null, laps: [], restarts: [] };
 const ANCHORS_WITH_LAP_5: Anchors = {
@@ -241,5 +246,74 @@ describe("TransportBar -- replay", () => {
 
     expect(target.seekTo).toHaveBeenCalledWith(Date.parse("2026-09-06T13:04:00.000Z"));
     expect(target.pause).toHaveBeenCalled();
+  });
+});
+
+// Regression (fix round 1 on PR #87): the Live button and the position
+// readout must read `target.range()`/`target.displayedAt()` fresh at click
+// time, not the value `TransportBar` captured in its own render scope --
+// that closure goes stale the instant real time keeps passing without a
+// re-render, which nothing forces here between mount and the click. Uses
+// the real `useLiveTimeTarget` (not a fake) precisely because the bug lived
+// in the integration between the hook's always-fresh `range()`/`seekTo()`
+// and TransportBar's own closures, not in the hook alone.
+function LiveTransportBar({ now }: { now: () => number }) {
+  const target = useLiveTimeTarget(now);
+  return (
+    <TimeTargetProvider value={target}>
+      <TransportBar />
+    </TimeTargetProvider>
+  );
+}
+
+function resetLiveStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>> = {}): void {
+  useLiveStore.setState({
+    connection: "connecting",
+    catchingUp: false,
+    lastMessageAt: null,
+    live: null,
+    buffer: emptyBuffer(),
+    delayMs: 0,
+    displayed: null,
+    bufferShort: false,
+    anchors: emptyAnchors(),
+    ...overrides,
+  });
+}
+
+describe("TransportBar -- live, real useLiveTimeTarget (regression: stale range() at click time)", () => {
+  beforeEach(() => resetLiveStore());
+
+  it("Live sets the delay to exactly 0 even when clicked well after the last render, and the readout reflects it", async () => {
+    const user = userEvent.setup();
+
+    // Real (parseable) pushes, not placeholder JSON -- a nonzero delay makes
+    // the store actually parse a buffered entry into `displayed`
+    // (`reselect` in `live/store.ts`), and this test's whole point is to
+    // exercise that path under a stale delay reading.
+    function bufferedPush(atMs: number) {
+      return JSON.stringify(makePush({ sent_at: atMs }, { latest_source_time: null }));
+    }
+    const bufferedSpan = { entries: [{ at: 0, raw: bufferedPush(0) }, { at: 1_000_000, raw: bufferedPush(1_000_000) }] };
+    let nowMs = 1_000_000;
+    const now = () => nowMs;
+
+    // A live push at exactly the wall time the click will land on, so a
+    // correct delay of 0 renders as "0.0s" rather than some huge number --
+    // `axisOf` falls back to `sent_at` when `latest_source_time` is null.
+    const liveEdgePush = makePush({ sent_at: 1_030_000 }, { latest_source_time: null });
+    resetLiveStore({ buffer: bufferedSpan, delayMs: 90_000, live: liveEdgePush });
+
+    render(<LiveTransportBar now={now} />);
+
+    // Time passes with nothing that would trigger a re-render (`now` isn't
+    // React state): the render-scoped `range` TransportBar captured at
+    // mount (endMs = 1_000_000) is now 30s stale.
+    nowMs += 30_000;
+
+    await user.click(screen.getByRole("button", { name: "Live" }));
+
+    expect(useLiveStore.getState().delayMs).toBe(0); // not 30_000, the buggy reading of the stale `range`
+    expect(screen.getByText("0.0s")).toBeInTheDocument();
   });
 });
