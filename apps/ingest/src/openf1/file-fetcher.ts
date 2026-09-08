@@ -13,24 +13,38 @@ import path from "node:path";
 
 import type { Fetcher, RawRecord } from "./types.js";
 
-async function readJsonl(filePath: string): Promise<RawRecord[]> {
+interface JsonlRow {
+  receivedAt: string | null;
+  payload: RawRecord;
+}
+
+async function readJsonlRows(filePath: string): Promise<JsonlRow[]> {
   let contents: string;
   try {
     contents = await readFile(filePath, "utf8");
   } catch {
     return []; // recorder hasn't written this endpoint yet
   }
-  const rows: RawRecord[] = [];
+  const rows: JsonlRow[] = [];
   for (const line of contents.split("\n")) {
     if (!line.trim()) continue;
     try {
-      const parsed = JSON.parse(line) as { payload?: RawRecord };
-      if (parsed.payload) rows.push(parsed.payload);
+      const parsed = JSON.parse(line) as { received_at?: unknown; payload?: RawRecord };
+      if (parsed.payload) {
+        rows.push({
+          receivedAt: typeof parsed.received_at === "string" ? parsed.received_at : null,
+          payload: parsed.payload,
+        });
+      }
     } catch {
       // ignore a partially-written trailing line; it will be complete next poll
     }
   }
   return rows;
+}
+
+async function readJsonl(filePath: string): Promise<RawRecord[]> {
+  return (await readJsonlRows(filePath)).map((row) => row.payload);
 }
 
 async function readSessionJson(filePath: string): Promise<RawRecord | null> {
@@ -74,4 +88,37 @@ export function createFileFetcher(dir: string): Fetcher {
     }
     return [];
   };
+}
+
+/** One recorded row, with the `received_at` the `Fetcher` seam above drops. */
+export interface RecordedRow {
+  receivedAt: string | null;
+  endpoint: string;
+  payload: RawRecord;
+}
+
+/**
+ * Issue #77: the loader needs `received_at` (dropped by `readJsonl` above,
+ * kept out of the `Fetcher` contract on purpose — ADR-0001 §4's fetcher
+ * seam answers the same virtual URLs the network fetcher does, payloads
+ * only) to sort a whole recording into time order before emitting. Sibling
+ * reader, not a change to `createFileFetcher`'s behaviour: same
+ * root-vs-single-session candidate-path resolution, one endpoint at a time.
+ */
+export async function readRecordingEndpoint(
+  dir: string,
+  sessionKey: number | null,
+  endpoint: string,
+): Promise<RecordedRow[]> {
+  const candidates = [
+    ...(sessionKey !== null ? [path.join(dir, String(sessionKey), "raw", `${endpoint}.jsonl`)] : []),
+    path.join(dir, "raw", `${endpoint}.jsonl`),
+  ];
+  for (const candidate of candidates) {
+    const rows = await readJsonlRows(candidate);
+    if (rows.length > 0) {
+      return rows.map((row) => ({ receivedAt: row.receivedAt, endpoint, payload: row.payload }));
+    }
+  }
+  return [];
 }

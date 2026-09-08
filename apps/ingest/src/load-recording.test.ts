@@ -96,6 +96,10 @@ function jsonlLine(payload: RawRecord): string {
   return `${JSON.stringify({ received_at: "2026-01-01T13:00:01.000Z", payload })}\n`;
 }
 
+function jsonlLineAt(receivedAt: string, payload: RawRecord): string {
+  return `${JSON.stringify({ received_at: receivedAt, payload })}\n`;
+}
+
 const FAR_PAST_NOW = Date.parse("2025-01-01T00:00:00Z"); // before any fixture session's window
 const FAR_FUTURE_NOW = Date.parse("2026-06-01T00:00:00Z"); // after any fixture session's window
 
@@ -397,5 +401,79 @@ describe("loadRecordings: round 1 fix — a stuck session's queue doesn't poison
 
     expect(logs.some((line) => line.includes("9701") && line.toLowerCase().includes("writer failed"))).toBe(true);
     expect(logs.some((line) => line.startsWith("load: dropped") && line.includes("9701"))).toBe(true);
+  });
+});
+
+// Issue #77: a bulk read of a complete recording used to emit one endpoint's
+// rows fully before the next — `position` (read second, per
+// `RECORDING_ENDPOINT_ORDER`) landed after every `laps` row (read fourth)
+// only because of file-read order, not because that's when the rows
+// actually arrived. Fixed by sorting the whole session's rows by
+// `received_at` before emitting. This fixture's two endpoints interleave in
+// time (position, laps, position, laps): with the fix, the emitted order —
+// same as `db.insertOrder`, since the fake writer records rows in the order
+// `event.createMany` receives them — must follow `received_at` across
+// endpoints, not group by endpoint.
+describe("loadRecordings: issue #77 — emits interleaved-endpoint rows in received_at order", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "load-recording-time-order-test-"));
+    await mkdir(path.join(dir, "raw"), { recursive: true });
+    await writeFile(
+      path.join(dir, "session.json"),
+      sessionJson({ sessionKey: 9501, dateStart: "2026-01-01T13:00:00+00:00", dateEnd: "2026-01-01T15:00:00+00:00" }),
+    );
+    // Read order (RECORDING_ENDPOINT_ORDER) would put both position rows
+    // before both laps rows; received_at order interleaves them instead.
+    await writeFile(
+      path.join(dir, "raw", "position.jsonl"),
+      jsonlLineAt("2026-01-01T13:00:01.000Z", {
+        session_key: 9501,
+        driver_number: 1,
+        date: "2026-01-01T13:00:01Z",
+        x: 1,
+        y: 1,
+      }) +
+        jsonlLineAt("2026-01-01T13:00:03.000Z", {
+          session_key: 9501,
+          driver_number: 1,
+          date: "2026-01-01T13:00:03Z",
+          x: 3,
+          y: 3,
+        }),
+    );
+    await writeFile(
+      path.join(dir, "raw", "laps.jsonl"),
+      jsonlLineAt("2026-01-01T13:00:02.000Z", {
+        session_key: 9501,
+        driver_number: 1,
+        lap_number: 1,
+        date_start: "2026-01-01T13:00:02Z",
+      }) +
+        jsonlLineAt("2026-01-01T13:00:04.000Z", {
+          session_key: 9501,
+          driver_number: 1,
+          lap_number: 2,
+          date_start: "2026-01-01T13:00:04Z",
+        }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("position and laps rows are emitted in received_at order, not grouped by endpoint", async () => {
+    const db = fakeDb();
+    const totals = await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
+
+    // 22 static entry-list drivers + 2 position rows + 2 laps rows.
+    expect(totals).toEqual({ inserted: 26, skipped: 0, sessionsAttempted: 1, sessionsSkipped: 0 });
+
+    const afterEntryList = db.insertOrder.slice(ENTRY_LIST_2026.length);
+    expect(afterEntryList).toHaveLength(4);
+    // received_at: position(01), laps(02), position(03), laps(04).
+    expect(afterEntryList.map((id) => id.split(":")[0])).toEqual(["position", "laps", "position", "laps"]);
   });
 });
