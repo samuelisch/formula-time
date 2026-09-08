@@ -13,6 +13,7 @@ import {
   withRetry,
   withSpacing,
 } from "./fetch-race.js";
+import type { RaceRecorder } from "./fetch-race.js";
 import type { LoaderDb } from "./load-recording.js";
 
 // A shared fake clock: `sleep` advances `clock` directly instead of really
@@ -232,13 +233,15 @@ describe("orderForEmission", () => {
 function fakeLoaderDb(): LoaderDb & {
   sessions: Map<string, { status?: string }>;
   insertOrder: string[];
+  events: Map<string, { eventId: string; endpoint: string; sourceTime: Date | null }>;
 } {
   const sessions = new Map<string, { status?: string }>();
-  const events = new Map<string, unknown>();
+  const events = new Map<string, { eventId: string; endpoint: string; sourceTime: Date | null }>();
   const insertOrder: string[] = [];
   return {
     sessions,
     insertOrder,
+    events,
     session: {
       async upsert(args) {
         const key = args.where.sessionKey.toString();
@@ -257,7 +260,7 @@ function fakeLoaderDb(): LoaderDb & {
         let count = 0;
         for (const row of args.data) {
           if (events.has(row.eventId)) continue;
-          events.set(row.eventId, row);
+          events.set(row.eventId, { eventId: row.eventId, endpoint: row.endpoint, sourceTime: row.sourceTime });
           insertOrder.push(row.eventId);
           count += 1;
         }
@@ -360,3 +363,36 @@ describe("fetchRaces: happy path — fake fetcher, drivers-then-events, finished
     expect(second.skipped).toBe(2);
   });
 });
+
+// Round 1 review fix: a laps row's persisted `source_time` must be the same
+// adjusted instant (`date_start + lap_duration`) as its emission order key,
+// not the raw `date_start` — otherwise the browser fold's scrub can reveal
+// the lap's final time before the lap actually finished (see
+// `lapsEffectiveSourceTimeIso`'s comment in fetch-race.ts for the full
+// reasoning).
+describe("fetchRaces: round 1 fix — a laps row's stored source_time matches its order key", () => {
+  test("a laps row with lap_duration is stored at date_start + lap_duration, not raw date_start", async () => {
+    const dateStart = "2026-01-01T13:00:00.000Z";
+    const fetcher = endpointResponses({
+      sessions: [
+        {
+          session_key: 8001,
+          session_name: "Race",
+          country_name: "Italy",
+          circuit_key: 39,
+          date_start: "2026-01-01T13:00:00+00:00",
+          date_end: "2026-01-01T15:00:00+00:00",
+        },
+      ],
+      laps: [{ session_key: 8001, driver_number: 1, lap_number: 1, date_start: dateStart, lap_duration: 90 }],
+    });
+
+    const db = fakeLoaderDb();
+    const now = () => Date.parse("2026-06-01T00:00:00Z");
+    await fetchRaces([8001], db, fetcher, { now, onLog: () => {} });
+
+    const lapEvent = [...db.events.values()].find((event) => event.endpoint === "laps");
+    expect(lapEvent?.sourceTime?.toISOString()).toBe("2026-01-01T13:01:30.000Z"); // dateStart + 90s
+  });
+});
+

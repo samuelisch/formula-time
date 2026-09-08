@@ -133,37 +133,52 @@ export function withRetry(fetcher: Fetcher, opts: RetryOptions = {}): Fetcher {
 }
 
 /**
- * The order-key rule quoted in the issue body:
+ * The lap rule quoted in the issue body: "Historical laps arrive complete;
+ * applied at `date_start` they would reveal a lap's final time at the start
+ * of the lap. Apply a lap at `date_start + lap_duration` (seconds) when
+ * `lap_duration` is present, else at `date_start`."
  *
- * "Historical laps arrive complete; applied at `date_start` they would
- * reveal a lap's final time at the start of the lap. Apply a lap at
- * `date_start + lap_duration` (seconds) when `lap_duration` is present,
- * else at `date_start`."
- *
- * "`stints` rows have no timestamp: place each at the `date_start` of its
- * `lap_start` lap (join on `driver_number` + lap number), else at session
- * start."
+ * Round 1 review fix: this adjusted time is used for BOTH the emission
+ * order key (`orderKeyMs` below) AND the row's persisted `source_time` —
+ * not only the order key, as the first version of this file had it. A live
+ * capture emits a laps row more than once as it fills in over the lap (the
+ * normalizer's unadjusted `date_start` reflects that: the row a viewer sees
+ * mid-lap really does only have partial data). A historical fetch gets
+ * exactly one, already-complete row per lap. Storing that one row's
+ * `source_time` as the unadjusted `date_start` would let the browser fold's
+ * scrub (`foldAt`/`truncationBoundary` in apps/web, which walks `seq` order
+ * and stops at the first event whose OWN `source_time` exceeds the scrub
+ * target) include the lap's final time/sectors for any scrub target between
+ * the lap's start and its true finish — exactly the spoiler this adjustment
+ * exists to prevent. So a laps row's stored `source_time` must be the same
+ * adjusted instant as its order key, not the raw `date_start` the
+ * `LiveNormalizer` computes for every other purpose.
+ */
+function lapsEffectiveSourceTimeIso(row: NormalizedRow): string | null {
+  if (row.endpoint !== "laps") return row.sourceTime;
+  const dateStart = timestampMillis(timestampValue(row.payload["date_start"]));
+  if (dateStart === null) return row.sourceTime;
+  const lapDuration = row.payload["lap_duration"];
+  const ms = typeof lapDuration === "number" ? dateStart + lapDuration * 1000 : dateStart;
+  return new Date(ms).toISOString();
+}
+
+/**
+ * The order-key rule quoted in the issue body — the lap exception is
+ * `lapsEffectiveSourceTimeIso` above (shared with the persisted
+ * `source_time`, see its comment); the stint exception is: "`stints` rows
+ * have no timestamp: place each at the `date_start` of its `lap_start` lap
+ * (join on `driver_number` + lap number), else at session start."
  *
  * Every other endpoint already carries a real timestamp field
  * (`endpointConfigs` in normalize.ts), computed into `row.sourceTime` by the
  * `LiveNormalizer` that ran over every endpoint in fetch order — including
  * `stints`, whose join (`lapStartByDriverAndLap`) is populated as a side
  * effect of normalizing `laps`, which fetch order always visits first. So
- * `row.sourceTime` already IS the stint rule's answer for `stints`; only
- * `laps` needs its own computation here, reading `lap_duration` straight off
- * the raw payload (the normalizer doesn't adjust it — the stored
- * `events.source_time` for a laps row stays `date_start`, matching what a
- * live capture would have stored for the same row; this function only
- * decides *emission* order, i.e. `seq`).
+ * `row.sourceTime` already IS the stint rule's answer for `stints`.
  */
 function orderKeyMs(row: NormalizedRow, sessionStartMs: number): number {
-  if (row.endpoint === "laps") {
-    const dateStart = timestampMillis(timestampValue(row.payload["date_start"]));
-    if (dateStart === null) return sessionStartMs;
-    const lapDuration = row.payload["lap_duration"];
-    return typeof lapDuration === "number" ? dateStart + lapDuration * 1000 : dateStart;
-  }
-  return timestampMillis(row.sourceTime) ?? sessionStartMs;
+  return timestampMillis(lapsEffectiveSourceTimeIso(row)) ?? sessionStartMs;
 }
 
 /**
@@ -194,16 +209,31 @@ export function orderForEmission(
   return [...drivers, ...rest];
 }
 
-/** Pushes already-normalized rows straight onto the queue — the second half of `emitRows` (rest-lane.ts), without its normalize call, since every row here was normalized once already, up front, in fetch order (see the module comment on `orderForEmission`). Calling `LiveNormalizer.normalize` a second time on the same rows would find them all already `seen` and drop them. */
+/**
+ * Pushes already-normalized rows straight onto the queue — the second half
+ * of `emitRows` (rest-lane.ts), without its normalize call, since every row
+ * here was normalized once already, up front, in fetch order (see the
+ * module comment on `orderForEmission`). Calling `LiveNormalizer.normalize`
+ * a second time on the same rows would find them all already `seen` and
+ * drop them.
+ *
+ * Uses `lapsEffectiveSourceTimeIso`, not `row.sourceTime` directly, so a
+ * laps row's *stored* `source_time` is the same adjusted instant as the
+ * order key that placed it — see that function's comment for why (round 1
+ * review fix).
+ */
 function pushNormalized(queue: EventQueue<QueueItem>, sessionKey: number, rows: readonly NormalizedRow[]): void {
   if (rows.length === 0) return;
-  const items: QueueItem[] = rows.map((row) => ({
-    eventId: row.eventId,
-    sessionKey: BigInt(sessionKey),
-    endpoint: row.endpoint,
-    sourceTime: row.sourceTime ? new Date(row.sourceTime) : null,
-    payload: row.payload,
-  }));
+  const items: QueueItem[] = rows.map((row) => {
+    const sourceTime = lapsEffectiveSourceTimeIso(row);
+    return {
+      eventId: row.eventId,
+      sessionKey: BigInt(sessionKey),
+      endpoint: row.endpoint,
+      sourceTime: sourceTime ? new Date(sourceTime) : null,
+      payload: row.payload,
+    };
+  });
   queue.pushAll(items);
 }
 

@@ -108,6 +108,13 @@ test(
       "position",
     ]);
 
+    // Round 1 review fix: the laps row's *stored* `source_time` must be the
+    // same adjusted instant (date_start + lap_duration) as its order key —
+    // not the raw `date_start` — or the browser fold's scrub could reveal
+    // the lap's final time before the lap actually finished.
+    const lapRow = rows.find((row) => row.endpoint === "laps");
+    expect(lapRow?.sourceTime?.toISOString()).toBe("2026-01-01T13:11:00.000Z"); // LAP_DATE_START (13:10:00) + 60s
+
     const second = await fetchRaces([SESSION_KEY_NUM], db, fetcher, { now, onLog: () => {} });
     expect(second.inserted).toBe(0);
     expect(second.skipped).toBe(6);
