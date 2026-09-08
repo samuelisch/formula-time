@@ -10,8 +10,10 @@ import { BoardSourceProvider } from "../board/useBoardState.ts";
 import { Card } from "../components/Card.tsx";
 import { fetchRaceFile } from "../races/api.ts";
 import { foldRace } from "../replay/foldRace.ts";
-import { TransportBar } from "../replay/TransportBar.tsx";
 import { useReplayPlayback } from "../replay/useReplayPlayback.ts";
+import { TimeTargetProvider } from "../transport/TimeTarget.ts";
+import { TransportBar } from "../transport/TransportBar.tsx";
+import { useReplayTimeTarget } from "../transport/useReplayTimeTarget.ts";
 import styles from "./ReplayPage.module.css";
 
 export function ReplayPage() {
@@ -35,6 +37,7 @@ export function ReplayPage() {
   });
 
   const playback = useReplayPlayback(foldQuery.data ?? null);
+  const target = useReplayTimeTarget(playback, foldQuery.data ?? null);
 
   if (!validKey) {
     return <Card>Not a valid race.</Card>;
@@ -58,9 +61,16 @@ export function ReplayPage() {
           (the finished/upcoming banner, polls, delay and align controls) all
           read the live session and must not appear on a replay. The banner
           in particular would always fire here -- the exporter only exports
-          finished sessions -- and link the replay back to itself. */}
+          finished sessions -- and link the replay back to itself. No
+          `controls`: a replay has none of the live route's row-1 buttons. */}
       <BoardSourceProvider push={playback.push}>
-        <Board toolbar={<TransportBar playback={playback} />} />
+        <Board
+          transport={
+            <TimeTargetProvider value={target}>
+              <TransportBar />
+            </TimeTargetProvider>
+          }
+        />
       </BoardSourceProvider>
     </div>
   );
