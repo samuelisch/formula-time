@@ -23,3 +23,6 @@ live-logs/
 
 # POC recordings copied for local replay (LIVE_SOURCE) and demos; not repo content
 /recordings/
+
+# api export files (EXPORT_DIR default ./exports, ADR-0009); regenerated from Postgres, not repo content
+/exports/
