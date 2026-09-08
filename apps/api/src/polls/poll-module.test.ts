@@ -12,7 +12,8 @@ function makeFakeDb() {
   const pollRows: Record<string, unknown>[] = [];
   const voteRows: Record<string, unknown>[] = [];
   let failNextUpdateManyCall = false;
-  let executeRawResult = 1;
+  let queryRawSucceeds = true;
+  const queryRawDelays: number[] = [];
 
   const db = {
     calls,
@@ -22,8 +23,13 @@ function makeFakeDb() {
     failNextUpdateMany() {
       failNextUpdateManyCall = true;
     },
-    setExecuteRawResult(n: number) {
-      executeRawResult = n;
+    /** Whether $queryRaw returns a row (poll open) or none (poll locked). Persists until changed. */
+    setQueryRawSucceeds(succeeds: boolean) {
+      queryRawSucceeds = succeeds;
+    },
+    /** Queues an artificial delay (ms) for the next $queryRaw call, FIFO; 0 if the queue is empty. */
+    queueQueryRawDelay(ms: number) {
+      queryRawDelays.push(ms);
     },
     poll: {
       findMany: vi.fn(async ({ where }: { where: { sessionKey: bigint } }) => {
@@ -66,9 +72,14 @@ function makeFakeDb() {
         return voteRows.filter((row) => where.pollId.in.includes(row["pollId"] as string));
       }),
     },
-    $executeRaw: vi.fn(async (_strings: TemplateStringsArray, ..._values: unknown[]) => {
-      calls.push("$executeRaw");
-      return executeRawResult;
+    $queryRaw: vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      const [pollId, viewerId, optionId] = values as [string, string, string];
+      const delay = queryRawDelays.shift() ?? 0;
+      if (delay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+      calls.push(`$queryRaw:${pollId}:${viewerId}:${optionId}`);
+      return queryRawSucceeds ? [{ option_id: optionId }] : [];
     }),
   };
 
@@ -468,14 +479,14 @@ describe("PollModule.vote — fast rejects", () => {
     db.calls.length = 0;
     const result = await module.vote("nope", "viewer-1", "1");
     expect(result).toEqual({ ok: false, status: 404, error: "unknown poll nope" });
-    expect(db.calls).not.toContain("$executeRaw");
+    expect(db.calls.some((c) => c.startsWith("$queryRaw"))).toBe(false);
   });
 
   it("400s an unknown option without touching the fake db", async () => {
     db.calls.length = 0;
     const result = await module.vote(`${SESSION_KEY}:winner`, "viewer-1", "999");
     expect(result).toEqual({ ok: false, status: 400, error: "unknown option 999" });
-    expect(db.calls).not.toContain("$executeRaw");
+    expect(db.calls.some((c) => c.startsWith("$queryRaw"))).toBe(false);
   });
 
   it("409s when the in-memory status is not open, without touching the fake db", async () => {
@@ -491,7 +502,7 @@ describe("PollModule.vote — fast rejects", () => {
     db.calls.length = 0;
     const result = await module.vote(`${SESSION_KEY}:winner`, "viewer-1", "1");
     expect(result).toEqual({ ok: false, status: 409, error: "poll is locked" });
-    expect(db.calls).not.toContain("$executeRaw");
+    expect(db.calls.some((c) => c.startsWith("$queryRaw"))).toBe(false);
   });
 });
 
@@ -514,15 +525,15 @@ describe("PollModule.vote — the conditional upsert", () => {
     await module.waitForIdle();
   });
 
-  it("a row count of 0 returns 409 and leaves the tally unchanged", async () => {
-    db.setExecuteRawResult(0);
+  it("no returned row (poll locked) returns 409 and leaves the tally unchanged", async () => {
+    db.setQueryRawSucceeds(false);
     const result = await module.vote(`${SESSION_KEY}:winner`, "viewer-1", "1");
     expect(result).toEqual({ ok: false, status: 409, error: "poll is locked" });
     expect(module.publicPolls().find((p) => p.poll_id === `${SESSION_KEY}:winner`)?.total_votes).toBe(0);
   });
 
-  it("a row count of 1 updates the tally, and a re-vote moves the count between options", async () => {
-    db.setExecuteRawResult(1);
+  it("a returned row updates the tally using the option_id Postgres returned, and a re-vote moves the count between options", async () => {
+    db.setQueryRawSucceeds(true);
     const first = await module.vote(`${SESSION_KEY}:winner`, "viewer-1", "1");
     expect(first.ok).toBe(true);
     let winner = module.publicPolls().find((p) => p.poll_id === `${SESSION_KEY}:winner`);
@@ -534,5 +545,78 @@ describe("PollModule.vote — the conditional upsert", () => {
     winner = module.publicPolls().find((p) => p.poll_id === `${SESSION_KEY}:winner`);
     expect(winner?.tally).toEqual({ "44": 1 });
     expect(winner?.total_votes).toBe(1);
+  });
+});
+
+describe("PollModule.vote — serializes votes per viewer", () => {
+  it("memory ends with the second vote's option even if its DB write would resolve first (CI-caught tally drift)", async () => {
+    const db = makeFakeDb();
+    const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+    module.onState(
+      raceState({
+        drivers: {
+          "1": driver({ driver_number: 1, name_acronym: "VER" }),
+          "44": driver({ driver_number: 44, name_acronym: "HAM" }),
+        },
+      }),
+    );
+    await module.waitForIdle();
+
+    // The first vote's fake DB round trip is deliberately slower than the
+    // second's — if the two calls were allowed to race, the first (slower)
+    // call would resolve last and its poll.votes.set() would overwrite the
+    // second's, leaving memory with the wrong option. Per-viewer
+    // serialization means the second call cannot even start its own DB
+    // call until the first's entire turn (DB write + memory update) has
+    // finished, so the outcome is decided by call order, not by which
+    // fake DB call happens to settle first.
+    db.queueQueryRawDelay(20);
+    db.queueQueryRawDelay(0);
+
+    const first = module.vote(`${SESSION_KEY}:winner`, "viewer-1", "1");
+    const second = module.vote(`${SESSION_KEY}:winner`, "viewer-1", "44");
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult.ok).toBe(true);
+    expect(secondResult.ok).toBe(true);
+
+    const winner = module.publicPolls().find((p) => p.poll_id === `${SESSION_KEY}:winner`);
+    expect(winner?.tally).toEqual({ "44": 1 });
+    expect(winner?.total_votes).toBe(1);
+
+    // The second vote's DB call was genuinely gated behind the first's,
+    // not merely logged in program order: both are recorded, in call order.
+    const queryCalls = db.calls.filter((c) => c.startsWith("$queryRaw"));
+    expect(queryCalls).toEqual([
+      `$queryRaw:${SESSION_KEY}:winner:viewer-1:1`,
+      `$queryRaw:${SESSION_KEY}:winner:viewer-1:44`,
+    ]);
+  });
+
+  it("different viewers still run concurrently (no cross-viewer serialization)", async () => {
+    const db = makeFakeDb();
+    const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+    module.onState(
+      raceState({
+        drivers: {
+          "1": driver({ driver_number: 1, name_acronym: "VER" }),
+          "44": driver({ driver_number: 44, name_acronym: "HAM" }),
+        },
+      }),
+    );
+    await module.waitForIdle();
+
+    const [a, b] = await Promise.all([
+      module.vote(`${SESSION_KEY}:winner`, "viewer-a", "1"),
+      module.vote(`${SESSION_KEY}:winner`, "viewer-b", "44"),
+    ]);
+    expect(a.ok).toBe(true);
+    expect(b.ok).toBe(true);
+
+    const winner = module.publicPolls().find((p) => p.poll_id === `${SESSION_KEY}:winner`);
+    expect(winner?.tally).toEqual({ "1": 1, "44": 1 });
+    expect(winner?.total_votes).toBe(2);
   });
 });

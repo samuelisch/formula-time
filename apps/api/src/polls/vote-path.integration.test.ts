@@ -3,8 +3,8 @@
 // `pnpm test:integration`.
 //
 // Pins vote-path.ts's conditional upsert against a real database: the
-// dedup on (poll_id, viewer_id), and the row count of 0 a locked poll
-// produces — both facts only Postgres can enforce.
+// dedup on (poll_id, viewer_id), and the null a locked poll produces (no
+// row, so no RETURNING value) — both facts only Postgres can enforce.
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 import { createDb } from "@formula-time/db";
@@ -61,9 +61,9 @@ describe("upsertVote against real Postgres", () => {
     });
 
     const first = await upsertVote(db, POLL_ID, VIEWER_ID, "1");
-    expect(first).toBe(1);
+    expect(first).toBe("1");
     const second = await upsertVote(db, POLL_ID, VIEWER_ID, "2");
-    expect(second).toBe(1);
+    expect(second).toBe("2");
 
     const rows = await db.vote.findMany({ where: { pollId: POLL_ID } });
     expect(rows).toHaveLength(1);
@@ -71,7 +71,7 @@ describe("upsertVote against real Postgres", () => {
     expect(rows[0]?.optionId).toBe("2");
   });
 
-  test("voting on a locked poll returns row count 0 and inserts nothing", async () => {
+  test("voting on a locked poll returns null (no row) and inserts nothing", async () => {
     await db.poll.create({
       data: {
         pollId: POLL_ID,
@@ -83,8 +83,8 @@ describe("upsertVote against real Postgres", () => {
       },
     });
 
-    const rowCount = await upsertVote(db, POLL_ID, VIEWER_ID, "1");
-    expect(rowCount).toBe(0);
+    const storedOptionId = await upsertVote(db, POLL_ID, VIEWER_ID, "1");
+    expect(storedOptionId).toBeNull();
 
     const rows = await db.vote.findMany({ where: { pollId: POLL_ID } });
     expect(rows).toHaveLength(0);
