@@ -63,3 +63,8 @@ export function useSessionMeta(): SessionMeta {
 export function useLeaderLap(): number {
   return useLiveStore((state) => (state.displayed === null ? 0 : leaderLap(state.displayed.state)));
 }
+
+/** Wall-clock time of the last received push, or null before the first one. Drives the shell's quiet-feed pill. */
+export function useLastMessageAt(): number | null {
+  return useLiveStore((state) => state.lastMessageAt);
+}

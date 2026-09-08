@@ -1,0 +1,15 @@
+.line {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.25rem 0;
+}
+
+.label {
+  color: var(--color-muted);
+}
+
+.value {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
