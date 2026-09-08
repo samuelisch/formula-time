@@ -52,16 +52,16 @@ function pillState(
 
   if (connection === "reconnecting") return { text: `${prefix} · reconnecting…`, tone: "warn" };
 
-  if (catchingUp) return { text: `${prefix} · catching up`, tone: live ? "live" : "neutral" };
+  if (catchingUp) return { text: `${prefix} · catching up`, tone: "live" };
 
   if (lastMessageAt !== null) {
     const quietSeconds = Math.floor((now - lastMessageAt) / 1000);
     if (now - lastMessageAt >= QUIET_AFTER_MS) {
-      return { text: `${prefix} · last update ${quietSeconds}s ago`, tone: live ? "live" : "neutral" };
+      return { text: `${prefix} · last update ${quietSeconds}s ago`, tone: "live" };
     }
   }
 
-  return { text: live ? "Live · connected" : "Connected", tone: live ? "live" : "neutral" };
+  return { text: live ? "Live · connected" : "Connected", tone: "live" };
 }
 
 export function Shell() {

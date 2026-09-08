@@ -59,6 +59,15 @@ function renderShell(): void {
   render(<RouterProvider router={router} />);
 }
 
+// CSS Modules hash class names (e.g. `_live_ab12c`); match on the tone
+// fragment rather than an exact class so this survives a hash change.
+function pillToneOf(text: string | RegExp): "neutral" | "live" | "warn" {
+  const pill = screen.getByText(text);
+  if (/_live_/.test(pill.className)) return "live";
+  if (/_warn_/.test(pill.className)) return "warn";
+  return "neutral";
+}
+
 describe("Shell", () => {
   beforeEach(() => {
     resetStore();
@@ -91,6 +100,7 @@ describe("Shell", () => {
     resetStore({ connection: "reconnecting", displayed: displayedWithSession({ status: "live" }) });
     renderShell();
     expect(screen.getByText("Live · reconnecting…")).toBeInTheDocument();
+    expect(pillToneOf("Live · reconnecting…")).toBe("warn");
   });
 
   it("shows a quiet-feed pill once a live feed has been silent for 5s or more", () => {
@@ -103,13 +113,14 @@ describe("Shell", () => {
     expect(screen.getByText(/Live · last update \d+s ago/)).toBeInTheDocument();
   });
 
-  it('drops the "Live" word to "Connected" once open with no live session', () => {
+  it('drops the "Live" word to "Connected" once open with no live session, keeping the live (green) tone', () => {
     resetStore({ connection: "open", lastMessageAt: Date.now() });
     renderShell();
     expect(screen.getByText("Connected")).toBeInTheDocument();
+    expect(pillToneOf("Connected")).toBe("live");
   });
 
-  it("shows Connected · catching up when the fanout replays a non-live session", () => {
+  it("shows Connected · catching up, still green, when the fanout replays a finished session", () => {
     resetStore({
       connection: "open",
       catchingUp: true,
@@ -118,15 +129,17 @@ describe("Shell", () => {
     });
     renderShell();
     expect(screen.getByText("Connected · catching up")).toBeInTheDocument();
+    expect(pillToneOf("Connected · catching up")).toBe("live");
   });
 
-  it("shows Connected · reconnecting… when the connection drops with no live session", () => {
+  it("shows Connected · reconnecting…, still amber/warn, when the connection drops with no live session", () => {
     resetStore({ connection: "reconnecting", displayed: displayedWithSession({ status: "upcoming" }) });
     renderShell();
     expect(screen.getByText("Connected · reconnecting…")).toBeInTheDocument();
+    expect(pillToneOf("Connected · reconnecting…")).toBe("warn");
   });
 
-  it("shows Connected · last update Ns ago once a non-live feed has been silent for 5s or more", () => {
+  it("shows Connected · last update Ns ago, still green, once a finished session's feed has been silent for 5s or more", () => {
     resetStore({
       connection: "open",
       lastMessageAt: Date.now() - 6_000,
@@ -134,6 +147,7 @@ describe("Shell", () => {
     });
     renderShell();
     expect(screen.getByText(/Connected · last update \d+s ago/)).toBeInTheDocument();
+    expect(pillToneOf(/Connected · last update \d+s ago/)).toBe("live");
   });
 
   it("renders the session line from the projector's real fields (country, name)", () => {
