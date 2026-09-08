@@ -172,6 +172,57 @@ describe("EventWriter.drainAll / stop", () => {
   });
 });
 
+describe("EventWriter retry on a failed write", () => {
+  test("a rejected createMany requeues the batch at the front; the retry inserts every row in original arrival order", async () => {
+    const insertOrder: string[] = [];
+    let callCount = 0;
+    const db: EventWriterDb = {
+      event: {
+        async createMany(args) {
+          callCount += 1;
+          if (callCount === 1) throw new Error("connection reset");
+          for (const row of args.data) insertOrder.push(row.eventId);
+          return { count: args.data.length };
+        },
+      },
+    };
+    const queue = new EventQueue<QueueItem>();
+    queue.push(item("a"));
+    queue.push(item("b"));
+    const writer = new EventWriter(db, queue);
+
+    await expect(writer.drainOnce()).rejects.toThrow("connection reset");
+    // Nothing lost: drainOnce() requeued the batch at the front.
+    expect(queue.size).toBe(2);
+
+    const result = await writer.drainOnce(); // retry: drains the requeued batch
+    expect(result).toEqual({ inserted: 2, skipped: 0 });
+    expect(insertOrder).toEqual(["a", "b"]);
+  });
+
+  test("drainAll gives up after 3 consecutive failures on a dead database and reports the dropped count", async () => {
+    let calls = 0;
+    const db: EventWriterDb = {
+      event: {
+        async createMany() {
+          calls += 1;
+          throw new Error("db down");
+        },
+      },
+    };
+    const queue = new EventQueue<QueueItem>();
+    queue.push(item("a"));
+    queue.push(item("b"));
+    const writer = new EventWriter(db, queue);
+
+    const totals = await writer.drainAll();
+
+    expect(totals).toEqual({ inserted: 0, skipped: 0 });
+    expect(calls).toBe(3); // 3 consecutive failures of the same requeued batch, then give up
+    expect(queue.size).toBe(2); // the batch is still there — dropped, not discarded
+  });
+});
+
 async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
   const start = Date.now();
   while (!predicate()) {

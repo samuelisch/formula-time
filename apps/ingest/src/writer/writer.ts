@@ -53,7 +53,13 @@ export class EventWriter {
     this.batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
   }
 
-  /** Drains up to one batch. Returns `null` when the queue was empty (no DB call). */
+  /**
+   * Drains up to one batch. Returns `null` when the queue was empty (no DB
+   * call). On a rejected `createMany`, the batch is put back at the front of
+   * the queue (it was the head, so this preserves arrival order) so the next
+   * drain retries it, and the error is rethrown with the batch size logged —
+   * a rejection never silently loses rows.
+   */
   public async drainOnce(): Promise<DrainResult | null> {
     const batch = this.queue.drain(this.batchSize);
     if (batch.length === 0) return null;
@@ -67,19 +73,51 @@ export class EventWriter {
       // `Record<string, unknown>` doesn't say so to the type checker.
       payload: item.payload as Prisma.InputJsonValue,
     }));
-    const result = await this.db.event.createMany({ data, skipDuplicates: true });
-    return { inserted: result.count, skipped: batch.length - result.count };
+    try {
+      const result = await this.db.event.createMany({ data, skipDuplicates: true });
+      return { inserted: result.count, skipped: batch.length - result.count };
+    } catch (error) {
+      this.queue.requeueFront(batch);
+      console.error(
+        `writer: batch of ${batch.length} failed, requeued: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw error;
+    }
   }
 
-  /** Drains batch after batch until the queue is empty. Used by `stop()` and tests. */
+  // A dead database must not hang SIGTERM forever: give up after this many
+  // consecutive failures of the same (requeued) batch.
+  private static readonly MAX_CONSECUTIVE_FAILURES = 3;
+
+  /**
+   * Drains batch after batch until the queue is empty, retrying a failed
+   * batch (it's requeued by `drainOnce()`) up to `MAX_CONSECUTIVE_FAILURES`
+   * times in a row before giving up and returning — used by `stop()` and
+   * tests.
+   */
   public async drainAll(): Promise<DrainResult> {
     let inserted = 0;
     let skipped = 0;
-    let result: DrainResult | null;
-    while ((result = await this.drainOnce()) !== null) {
+    let consecutiveFailures = 0;
+    while (!this.queue.isEmpty()) {
+      let result: DrainResult | null;
+      try {
+        result = await this.drainOnce();
+      } catch {
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= EventWriter.MAX_CONSECUTIVE_FAILURES) {
+          console.error(
+            `writer: giving up after ${consecutiveFailures} consecutive failures, dropped=${this.queue.size}`,
+          );
+          return { inserted, skipped };
+        }
+        continue;
+      }
+      consecutiveFailures = 0;
+      if (result === null) break;
       inserted += result.inserted;
       skipped += result.skipped;
-      if (typeof console !== "undefined" && result.inserted + result.skipped > 0) {
+      if (result.inserted + result.skipped > 0) {
         console.log(`writer: batch inserted=${result.inserted} skipped=${result.skipped}`);
       }
     }
@@ -98,8 +136,9 @@ export class EventWriter {
           }
           return result;
         })
-        .catch((error: unknown) => {
-          console.error(`writer: batch failed: ${error instanceof Error ? error.message : String(error)}`);
+        .catch(() => {
+          // drainOnce() already logged the failure (with the batch size)
+          // and requeued the batch at the front; the next tick retries it.
           return null;
         })
         .finally(() => {

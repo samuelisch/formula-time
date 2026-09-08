@@ -53,4 +53,15 @@ describe("EventQueue", () => {
     queue.push("rest:2");
     expect(queue.drain(10)).toEqual(["rest:1", "mqtt:1", "rest:2"]);
   });
+
+  test("requeueFront puts a failed batch back at the head, in its original order", () => {
+    const queue = new EventQueue<number>();
+    queue.pushAll([3, 4, 5]);
+    const batch = queue.drain(2); // [3, 4] — as if a write of this batch failed
+    expect(batch).toEqual([3, 4]);
+
+    queue.requeueFront(batch);
+
+    expect(queue.drain(10)).toEqual([3, 4, 5]);
+  });
 });

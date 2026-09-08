@@ -19,6 +19,15 @@ export class EventQueue<T> {
     return this.items.splice(0, max);
   }
 
+  /**
+   * Puts `items` back at the front, in their given order. For a batch that
+   * was just `drain()`ed (it was the head) and failed to write, this
+   * restores arrival order exactly — the next drain retries the same batch.
+   */
+  public requeueFront(items: readonly T[]): void {
+    this.items.unshift(...items);
+  }
+
   public get size(): number {
     return this.items.length;
   }
