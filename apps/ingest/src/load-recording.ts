@@ -20,6 +20,12 @@
 // process — this loader is a second connection writing `events`, which is
 // only safe because it refuses any session that is (or might still be)
 // live; see the guard in loadOneSession() below.
+//
+// Issue #71: `loadOneSession` upserts each session `upcoming`, writes and
+// drains every one of its events, and only then updates the row to
+// `finished` — see the comments at each step. Upserting `finished` first
+// (the original order) let the api's exporter (ADR-0009 §2) export the
+// session the moment the row flipped, before any event existed.
 
 import type { SessionStatus } from "@formula-time/db";
 import { createDb } from "@formula-time/db";
@@ -87,20 +93,24 @@ export interface LoadRecordingsResult {
 
 interface LoadOneSessionResult {
   skipped: boolean;
+  /** What this session's own drain wrote — folded into the running total by the caller. */
+  drainResult: DrainResult;
 }
 
 async function loadOneSession(
   fetcher: Fetcher,
   session: RawRecord,
   db: LoaderDb,
+  writer: EventWriter,
   queue: EventQueue<QueueItem>,
   nowMs: number,
   log: (line: string) => void,
 ): Promise<LoadOneSessionResult> {
+  const noEvents: DrainResult = { inserted: 0, skipped: 0 };
   const sessionKey = Number(session["session_key"]);
   if (!Number.isFinite(sessionKey)) {
     log(`load: session skipped, invalid session_key: ${JSON.stringify(session["session_key"])}`);
-    return { skipped: true };
+    return { skipped: true, drainResult: noEvents };
   }
 
   // ADR-0010: the single-writer guarantee (ADR-0007) is per session, not
@@ -116,18 +126,25 @@ async function loadOneSession(
   const fields = sessionFieldsFromRaw(session, nowMs);
   if (fields.status === "live") {
     log(`load: refused ${sessionKey}: session is live; the live ingest service owns it`);
-    return { skipped: true };
+    return { skipped: true, drainResult: noEvents };
   }
   const existing = await db.session.findUnique({ where: { sessionKey: BigInt(sessionKey) } });
   if (existing?.status === "live") {
     log(`load: refused ${sessionKey}: session is live; the live ingest service owns it`);
-    return { skipped: true };
+    return { skipped: true, drainResult: noEvents };
   }
 
-  // Forced `finished`, regardless of the naturally-computed status (issue
-  // #63) — a past recording is not "live" no matter what `nowMs` says, and
-  // the guard above already ruled out an actually-live session.
-  await upsertSession(db, session, nowMs, { status: "finished" });
+  // Issue #71 / ADR-0009 §2: the api's exporter runs on its own 5s tick and
+  // exports any `sessions` row with `status = 'finished'` that has no
+  // `exports` row yet (HLD §7, quoted: "**Export** = once, when `status =
+  // finished` and `exported_at IS NULL`; idempotent; retried by the same
+  // check. No separate job."). Upserting `finished` before the events exist
+  // let the exporter win the race and write an export with `"events": []`
+  // — exports are immutable, so that file had to be deleted by hand. Upsert
+  // `upcoming` first instead: it satisfies the `events` FK (the exporter's
+  // query ignores `upcoming` rows) without ever exposing a finished session
+  // with no events.
+  await upsertSession(db, session, nowMs, { status: "upcoming" });
 
   const normalizer = new LiveNormalizer();
 
@@ -155,7 +172,28 @@ async function loadOneSession(
     log(`load: session=${sessionKey} endpoint=${endpoint} rows=${rows.length} new=${result.newRows}`);
   }
 
-  return { skipped: false };
+  // Issue #71: wait for every queued event to actually commit before
+  // flipping the row to `finished` — the whole point of the reordering
+  // above. `drainAll()` retries a failing batch a few times, then gives up
+  // and returns without throwing, leaving the failed batch requeued at the
+  // front (writer.ts); `!queue.isEmpty()` is how that give-up is detected
+  // here.
+  const drainResult = await writer.drainAll();
+  if (!queue.isEmpty()) {
+    log(
+      `load: session=${sessionKey} writer failed to write all events; session left upcoming for the next run`,
+    );
+    return { skipped: true, drainResult };
+  }
+
+  // Every event for this session has committed — only now is it safe to
+  // mark the session `finished`. If the process had died anywhere above,
+  // the row stays `upcoming`, the exporter never touches it (ADR-0009 §2),
+  // and the next `pnpm ingest:load` of the same recording finishes it —
+  // idempotent, per `loadRecordings`'s own doc comment above.
+  await upsertSession(db, session, nowMs, { status: "finished" });
+
+  return { skipped: false, drainResult };
 }
 
 /**
@@ -166,10 +204,12 @@ async function loadOneSession(
  * routes every later endpoint fetch to the right subdirectory via
  * `session_key`, so this function doesn't need to know which layout it got.
  *
- * Every row for every session is pushed to one `EventQueue` in file order
- * before draining once at the end (`writer.drainAll()`), preserving arrival
- * order end to end. Idempotent: rows already in the database are skipped by
- * `event.createMany({ skipDuplicates: true })`, not re-inserted.
+ * Every row for one session is pushed to one shared `EventQueue`, then
+ * drained (`writer.drainAll()`) before that session's row is marked
+ * `finished` (issue #71) — so draining now happens per session, not once at
+ * the very end, though the queue and writer are still shared across every
+ * session and `dir`. Idempotent: rows already in the database are skipped
+ * by `event.createMany({ skipDuplicates: true })`, not re-inserted.
  */
 export async function loadRecordings(
   dirs: string[],
@@ -184,40 +224,44 @@ export async function loadRecordings(
 
   let sessionsAttempted = 0;
   let sessionsSkipped = 0;
-
-  // Round 1 fix: one session throwing (a malformed `date_start`/`date_end`,
-  // most commonly) must not lose its siblings' already-queued rows — caught
-  // per session below — and whatever DID make it onto the queue before the
-  // throw must still reach the writer, so `drainAll()` runs in `finally`
-  // regardless of how the loop above it ends.
   let totals: DrainResult = { inserted: 0, skipped: 0 };
-  try {
-    for (const dir of dirs) {
-      const fetcher = createFileFetcher(dir);
-      const raw = await fetcher(`${OPENF1_BASE}/sessions`);
-      const sessions = Array.isArray(raw) ? (raw as RawRecord[]) : [];
-      if (sessions.length === 0) {
-        log(`load: no session.json found under ${dir} (single-session or root layout)`);
-        continue;
-      }
-      const nowMs = now();
-      for (const session of sessions) {
-        sessionsAttempted += 1;
-        try {
-          const result = await loadOneSession(fetcher, session, db, queue, nowMs, log);
-          if (result.skipped) sessionsSkipped += 1;
-        } catch (error) {
-          sessionsSkipped += 1;
-          log(
-            `load: session skipped ${String(session["session_key"])}: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-        }
+
+  const fold = (result: DrainResult): void => {
+    totals = { inserted: totals.inserted + result.inserted, skipped: totals.skipped + result.skipped };
+  };
+
+  for (const dir of dirs) {
+    const fetcher = createFileFetcher(dir);
+    const raw = await fetcher(`${OPENF1_BASE}/sessions`);
+    const sessions = Array.isArray(raw) ? (raw as RawRecord[]) : [];
+    if (sessions.length === 0) {
+      log(`load: no session.json found under ${dir} (single-session or root layout)`);
+      continue;
+    }
+    const nowMs = now();
+    for (const session of sessions) {
+      sessionsAttempted += 1;
+      try {
+        const result = await loadOneSession(fetcher, session, db, writer, queue, nowMs, log);
+        fold(result.drainResult);
+        if (result.skipped) sessionsSkipped += 1;
+      } catch (error) {
+        sessionsSkipped += 1;
+        log(
+          `load: session skipped ${String(session["session_key"])}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      } finally {
+        // Round 1 fix, still needed per session now that draining happens
+        // inside `loadOneSession`: whatever made it onto the queue before a
+        // mid-session throw (e.g. a fetch failure partway through the
+        // endpoint loop) must still reach the writer. A no-op when
+        // `loadOneSession` already drained cleanly — the queue is empty by
+        // then, so `drainAll()` returns `{ inserted: 0, skipped: 0 }`.
+        fold(await writer.drainAll());
       }
     }
-  } finally {
-    totals = await writer.drainAll();
   }
 
   log(`load: summary inserted=${totals.inserted} skipped=${totals.skipped} skipped_sessions=${sessionsSkipped}`);

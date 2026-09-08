@@ -5,7 +5,9 @@
 // events before the raw-file rows, in file order; the session is upserted
 // `finished` regardless of its window; a malformed sibling session doesn't
 // lose the others' rows (round 1 fix); a live session is refused, never
-// written (ADR-0010).
+// written (ADR-0010); the session is upserted `upcoming`, then its events
+// are written, then it is updated to `finished`, in that order, and a
+// writer failure leaves it `upcoming` (issue #71).
 
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,18 +23,28 @@ import type { LoaderDb } from "./load-recording.js";
 function fakeDb(): LoaderDb & {
   sessions: Map<string, { status?: string; [key: string]: unknown }>;
   insertOrder: string[];
+  // Records every `session.upsert` (as `upsert:<status>`) and every
+  // `event.createMany` (as `events:<row count>`) call, in call order — how
+  // the issue #71 tests pin the upcoming -> events -> finished sequence.
+  callLog: string[];
+  flags: { failEvents: boolean };
 } {
   const sessions = new Map<string, { status?: string; [key: string]: unknown }>();
   const events = new Map<string, unknown>();
   const insertOrder: string[] = [];
+  const callLog: string[] = [];
+  const flags = { failEvents: false };
   return {
     sessions,
     insertOrder,
+    callLog,
+    flags,
     session: {
       async upsert(args) {
         const key = args.where.sessionKey.toString();
         const row = sessions.has(key) ? { sessionKey: args.where.sessionKey, ...args.update } : args.create;
         sessions.set(key, row);
+        callLog.push(`upsert:${String(row.status)}`);
         return row;
       },
       async findUnique(args) {
@@ -43,6 +55,10 @@ function fakeDb(): LoaderDb & {
     },
     event: {
       async createMany(args) {
+        if (flags.failEvents) {
+          throw new Error("fake writer failure");
+        }
+        callLog.push(`events:${args.data.length}`);
         let count = 0;
         for (const row of args.data) {
           if (events.has(row.eventId)) continue;
@@ -139,6 +155,62 @@ describe("loadRecordings", () => {
 
     const second = await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
     expect(second).toEqual({ inserted: 0, skipped: 25, sessionsAttempted: 1, sessionsSkipped: 0 });
+  });
+});
+
+// Issue #71: the loader upserted `finished` first (to satisfy the events FK)
+// and streamed events afterwards, so the api's exporter (ADR-0009 §2) could
+// export the session — once, immutably — before any event existed. Fix:
+// upsert `upcoming` first, write and drain every event, then update to
+// `finished`; a failure part-way leaves the row `upcoming`.
+describe("loadRecordings: issue #71 — upcoming, then events, then finished", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "load-recording-status-order-test-"));
+    await mkdir(path.join(dir, "raw"), { recursive: true });
+    await writeFile(
+      path.join(dir, "session.json"),
+      sessionJson({ sessionKey: 9401, dateStart: "2026-01-01T13:00:00+00:00", dateEnd: "2026-01-01T15:00:00+00:00" }),
+    );
+    await writeFile(
+      path.join(dir, "raw", "position.jsonl"),
+      jsonlLine({ session_key: 9401, driver_number: 1, date: "2026-01-01T13:00:01Z", x: 1, y: 1 }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("the fake db sees the upsert with upcoming, then the events, then the update to finished, in that order", async () => {
+    const db = fakeDb();
+    const totals = await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
+
+    expect(totals.sessionsSkipped).toBe(0);
+    const upsertCalls = db.callLog.filter((entry) => entry.startsWith("upsert:"));
+    expect(upsertCalls).toEqual(["upsert:upcoming", "upsert:finished"]);
+
+    const upcomingIndex = db.callLog.indexOf("upsert:upcoming");
+    const finishedIndex = db.callLog.indexOf("upsert:finished");
+    const firstEventsIndex = db.callLog.findIndex((entry) => entry.startsWith("events:"));
+    expect(upcomingIndex).toBeGreaterThanOrEqual(0);
+    expect(firstEventsIndex).toBeGreaterThan(upcomingIndex);
+    expect(finishedIndex).toBeGreaterThan(firstEventsIndex);
+
+    expect(db.sessions.get("9401")?.status).toBe("finished");
+  });
+
+  test("a writer failure leaves the row upcoming and posts no finished update", async () => {
+    const db = fakeDb();
+    db.flags.failEvents = true;
+    const logs: string[] = [];
+    const totals = await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: (line) => logs.push(line) });
+
+    expect(db.sessions.get("9401")?.status).toBe("upcoming");
+    expect(db.callLog).toEqual(["upsert:upcoming"]);
+    expect(totals.sessionsSkipped).toBe(1);
+    expect(logs.some((line) => line.includes("9401") && line.toLowerCase().includes("upcoming"))).toBe(true);
   });
 });
 
