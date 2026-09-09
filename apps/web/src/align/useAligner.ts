@@ -2,7 +2,7 @@
 // (AlignPanel.tsx) owns nothing but rendering this state. Everything
 // DOM-free lives in policy.ts; every DOM/media/OCR touch point is a function
 // from capture.ts, overridable here for tests.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 import { useBoardLeaderLap, useBoardRaceControl } from "../board/useBoardState.ts";
@@ -129,10 +129,15 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
 
   // Live values the sampling loop (a plain interval callback, outside
   // React's render cycle) needs to read without re-subscribing on every
-  // change -- kept current via a ref, synced from an effect after each
-  // render so the write never happens during render itself.
+  // change -- kept current via a ref, synced from a layout effect after
+  // each render so the write never happens during render itself. Must be
+  // `useLayoutEffect`, not `useEffect`: layout effects flush synchronously
+  // right after commit, in the same tick, before the browser can run any
+  // queued macrotask -- so `sample()`'s `setInterval` (SAMPLE_MS) can never
+  // observe a commit whose ref sync hasn't run yet. A plain `useEffect` is
+  // scheduled after paint and would open exactly that staleness window.
   const liveRef = useRef({ anchors, leaderLap, sessionStatus, target });
-  useEffect(() => {
+  useLayoutEffect(() => {
     liveRef.current = { anchors, leaderLap, sessionStatus, target };
   });
 
