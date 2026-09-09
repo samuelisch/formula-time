@@ -531,6 +531,19 @@ export class RestLane {
       const raceSession = meetingSessions.find((s) => s["session_type"] === "Race");
       if (!raceSession) continue;
 
+      // Friday's meeting-wide fetch applies only to a meeting whose race
+      // session's window has not closed: `date_end` of the meeting's race
+      // session + 30 minutes is still in the future. A meeting whose race is
+      // over is never fetched; its entry list came in with the live sessions
+      // or is already in the log. (Production, 2026-09-09: on first
+      // discovery of the full 2026 calendar this fired for every one of 15
+      // PAST meetings — "entry list: friday fetch meeting_key=1279 rows=110
+      // new=110" through 1293 — writing ~110 drivers rows into each finished
+      // meeting's sessions, which the api's exporter then surfaced as 79
+      // driver-only sessions polluting `GET /api/races`.)
+      const raceEnd = Date.parse(String(raceSession["date_end"] ?? ""));
+      if (Number.isNaN(raceEnd) || nowMs > raceEnd + LIVE_WINDOW_MS) continue;
+
       const starts = meetingSessions
         .map((s) => Date.parse(String(s["date_start"] ?? "")))
         .filter((n) => !Number.isNaN(n));
