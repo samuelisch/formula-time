@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
@@ -56,6 +56,18 @@ function stubFetch(races: RaceIndexEntry[]): void {
     "fetch",
     vi.fn(async () => new Response(JSON.stringify(races), { status: 200 })),
   );
+}
+
+/** Fails every call until `succeedAfter` calls have been made, then serves `races`. */
+function stubFetchFailing(races: RaceIndexEntry[], succeedAfter = Infinity): ReturnType<typeof vi.fn> {
+  let calls = 0;
+  const fn = vi.fn(async () => {
+    calls += 1;
+    if (calls <= succeedAfter) return new Response(JSON.stringify({ error: "boom" }), { status: 500 });
+    return new Response(JSON.stringify(races), { status: 200 });
+  });
+  vi.stubGlobal("fetch", fn);
+  return fn;
 }
 
 function renderPage(): void {
@@ -151,5 +163,18 @@ describe("RacesPage", () => {
     const italyLink = screen.getByRole("link", { name: /Italy · Race/ });
     expect(italyLink).toHaveAttribute("href", "/races/11361");
     expect(screen.getByText("2026-09-06 · 53 laps")).toBeInTheDocument();
+  });
+
+  it("shows Could not load past races on a failed fetch, and Retry loads the races", async () => {
+    const fetchStub = stubFetchFailing(races, 1);
+    renderPage();
+
+    expect(await screen.findByText("Could not load past races")).toBeInTheDocument();
+    expect(screen.queryByText("Italy · Race")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.getByText("Italy · Race")).toBeInTheDocument());
+    expect(fetchStub).toHaveBeenCalledTimes(2);
   });
 });

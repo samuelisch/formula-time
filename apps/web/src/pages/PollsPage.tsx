@@ -28,11 +28,12 @@
 //      the meantime, keeps the dropdown from ever silently pre-selecting a
 //      historical race before this fires).
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 
 import { apiFetch } from "../api.ts";
 import { Card } from "../components/Card.tsx";
+import { QueryState } from "../components/QueryState.tsx";
 import { stringField } from "../lib/format.ts";
 import { useConnection, useDisplayed, useLeaderLap, useSessionMeta, useSessionStatus, useStatusReceived } from "../live/selectors.ts";
 import type { PollPublic } from "../live/types.ts";
@@ -139,7 +140,15 @@ export function PollsPage() {
 
   const showLapLine = isCurrentSelected && sessionStatus === "live";
   const isUpcoming = isCurrentSelected && sessionStatus === "upcoming";
-  const loadingHistorical = !isCurrentSelected && historicalPolls.isLoading;
+
+  function emptyState(): ReactNode {
+    return (
+      <div className={styles.empty}>
+        <p>No polls for this race</p>
+        {isUpcoming ? <p>Polls open on the Friday of the race weekend once the entry list is known</p> : null}
+      </div>
+    );
+  }
 
   return (
     <Card>
@@ -150,15 +159,26 @@ export function PollsPage() {
 
         {isSettling ? (
           <p className={styles.quiet}>Connecting…</p>
-        ) : loadingHistorical ? (
-          <p className={styles.quiet}>Loading polls…</p>
-        ) : polls.length === 0 ? (
-          <div className={styles.empty}>
-            <p>No polls for this race</p>
-            {isUpcoming ? <p>Polls open on the Friday of the race weekend once the entry list is known</p> : null}
-          </div>
+        ) : isCurrentSelected ? (
+          // The current session's polls come straight from the push (or the
+          // pre-first-push GET /api/polls fallback) -- neither is a
+          // useQuery in the failed-fetch sense issue #94 is about, so this
+          // path stays outside QueryState.
+          polls.length === 0 ? (
+            emptyState()
+          ) : (
+            <PollList polls={polls} />
+          )
         ) : (
-          <PollList polls={polls} />
+          <QueryState
+            status={historicalPolls.status}
+            error={historicalPolls.error}
+            onRetry={() => void historicalPolls.refetch()}
+            loadingText="Loading polls…"
+            errorText="Could not load polls for this race"
+          >
+            {(historicalPolls.data ?? []).length === 0 ? emptyState() : <PollList polls={historicalPolls.data ?? []} />}
+          </QueryState>
         )}
       </div>
     </Card>
