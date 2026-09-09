@@ -1,13 +1,14 @@
-// A collapsible card listing race-control messages newest first (issue
-// #93). Source: `race_control.recent_messages` (the reducer keeps the last
-// 100 rows, each `{ event_id, payload }`; `payload` is the raw OpenF1
-// race_control row), read through the board seam (`useBoardRaceControl()`),
-// so it is spoiler-safe on a delayed viewer and works on replay exactly as
-// it does live.
+// A collapsible card listing race-control messages newest first. Source:
+// `race_control.recent_messages` (the reducer keeps the last 100 rows, each
+// `{ event_id, payload }`; `payload` is the raw OpenF1 race_control row),
+// read through the board seam (`useBoardRaceControl()`), so it is
+// spoiler-safe on a delayed viewer and works on replay exactly as it does
+// live.
 import type { RawRecord } from "@formula-time/domain";
 
 import { Card } from "../components/Card.tsx";
 import { Collapsible } from "../components/Collapsible.tsx";
+import { cx } from "../lib/classNames.ts";
 import { clock, numberField, stringField } from "../lib/format.ts";
 import { useBoardRaceControl } from "./useBoardState.ts";
 import styles from "./RaceControlFeed.module.css";
@@ -17,9 +18,9 @@ export interface RaceControlFeedProps {
   defaultOpen?: boolean;
 }
 
-// Only RED and YELLOW have a dedicated `--flag-*` variable (issue #92); any
-// other flag (BLUE, BLACK AND WHITE, CLEAR is never stored, ...) falls back
-// to the amber used for safety-car rows so a flag row always shows a dot.
+// Only RED and YELLOW have a dedicated `--flag-*` variable; any other flag
+// (BLUE, BLACK AND WHITE, CLEAR is never stored, ...) falls back to the
+// amber used for safety-car rows so a flag row always shows a dot.
 function dotColour(flag: string): string {
   if (flag === "RED") return "var(--flag-red)";
   if (flag === "YELLOW") return "var(--flag-yellow)";
@@ -63,7 +64,7 @@ export function RaceControlFeed({ defaultOpen = false }: RaceControlFeedProps = 
               const category = stringField(payload, "category");
               const meta = metaOf(payload);
               return (
-                <li key={event_id} className={category === "SafetyCar" ? `${styles.row} ${styles.safetyCar}` : styles.row}>
+                <li key={event_id} className={cx(styles.row, category === "SafetyCar" && styles.safetyCar)}>
                   <span className={styles.time}>{clock(stringField(payload, "date"))}</span>
                   <span className={styles.category}>
                     {flag !== null && <span className={styles.dot} style={{ background: dotColour(flag) }} aria-hidden="true" />}

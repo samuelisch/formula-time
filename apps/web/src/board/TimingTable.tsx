@@ -1,6 +1,6 @@
 import { Card } from "../components/Card.tsx";
 import { DriverRow } from "./DriverRow.tsx";
-import { useBoardDriverOrder, useBoardPositionDeltas, useBoardPush } from "./useBoardState.ts";
+import { useBoardDriverCount, useBoardDriverOrder, useBoardPositionDeltas } from "./useBoardState.ts";
 import { useDriverSelection } from "./useDriverSelection.ts";
 import styles from "./TimingTable.module.css";
 
@@ -8,16 +8,12 @@ const COLUMN_COUNT = 8;
 
 export function TimingTable() {
   const order = useBoardDriverOrder();
-  const push = useBoardPush();
-  // Called once here, not per row: every DriverRow gets `selected` as a
-  // plain boolean prop, so only the rows whose selection actually changed
-  // re-render (issue #90 fix round 1 -- see DriverRow.tsx's comment).
+  // Called once here, not per row: every DriverRow gets `selected` and
+  // `delta` as plain props, so only the rows whose own value actually
+  // changed re-render (see DriverRow.tsx's memoisation comment).
   const { selected, toggle } = useDriverSelection();
-  // Likewise computed once here (not per row) so every row shares one
-  // baseline; DriverRow reads its own driver's entry as a plain number prop
-  // (issue #91).
   const deltas = useBoardPositionDeltas();
-  const driverCount = push === null ? 0 : Object.keys(push.state.drivers).length;
+  const driverCount = useBoardDriverCount();
 
   return (
     <Card>

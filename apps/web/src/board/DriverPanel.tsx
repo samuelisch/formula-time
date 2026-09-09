@@ -1,6 +1,6 @@
-// The driver detail side panel (issue #90): reads only `useBoardDriver()`
-// and `useBoardSessionMeta()` through the board seam, so it renders a live
-// push and a folded replay push identically, and `useDriverSelection()` for
+// The driver detail side panel: reads only `useBoardDriver()` and
+// `useBoardSessionMeta()` through the board seam, so it renders a live push
+// and a folded replay push identically, and `useDriverSelection()` for
 // which driver (and Escape to clear) -- never the live store or the URL
 // directly. Mounted unconditionally in `Board`'s `side` slot; renders
 // nothing when no driver is selected or the selection is not in the current
@@ -24,10 +24,9 @@ function pitOutText(isPitOutLap: boolean | null): string {
   return isPitOutLap ? "Yes" : "No";
 }
 
-// Fix round 1 (issue #90 review): number(value, 3) + a literal "s" appended
-// outside it rendered "—s" for a null gap/interval (the race leader's gap,
-// for one) instead of the issue's verbatim "missing values render —" -- the
-// "s" suffix has to be conditional on there being a number to suffix.
+// The "s" suffix must be conditional on there being a number to suffix --
+// otherwise a null gap/interval (the race leader's gap, for one) renders
+// "—s" instead of a plain "—".
 function secondsText(value: number | null): string {
   return value === null ? "—" : `${number(value, 3)}s`;
 }

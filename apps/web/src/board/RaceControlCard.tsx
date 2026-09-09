@@ -1,7 +1,7 @@
 import type { RaceState } from "@formula-time/domain";
 
 import { Card } from "../components/Card.tsx";
-import { useBoardPush, useBoardRaceControl } from "./useBoardState.ts";
+import { useBoardDriverCount, useBoardRaceControl } from "./useBoardState.ts";
 import styles from "./RaceControlCard.module.css";
 
 // The POC's phase rule (poc/ui/app.js renderRaceControl), lifted for the board.
@@ -13,11 +13,16 @@ function phaseOf(sessionStatus: string | null, driverCount: number): string {
   return sessionStatus;
 }
 
+function safetyCarText(safetyCar: RaceState["race_control"]["safety_car"]): string {
+  if (safetyCar === "VSC") return "Virtual Safety Car (VSC)";
+  if (safetyCar === "SC") return "Safety Car (SC)";
+  return "";
+}
+
 // Joins: safety car deployment, active_flags as "scope: flag", driver_flags
 // as "#num: flag"; "No active flag" when all three are empty.
 function flagLine(raceControl: RaceState["race_control"]): string {
-  const safetyCar =
-    raceControl.safety_car === "VSC" ? "Virtual Safety Car (VSC)" : raceControl.safety_car === "SC" ? "Safety Car (SC)" : "";
+  const safetyCar = safetyCarText(raceControl.safety_car);
   const trackFlags = Object.entries(raceControl.active_flags)
     .map(([scope, flag]) => `${scope}: ${flag}`)
     .join(" · ");
@@ -28,9 +33,8 @@ function flagLine(raceControl: RaceState["race_control"]): string {
 }
 
 export function RaceControlCard() {
-  const push = useBoardPush();
   const raceControl = useBoardRaceControl();
-  const driverCount = push === null ? 0 : Object.keys(push.state.drivers).length;
+  const driverCount = useBoardDriverCount();
 
   return (
     <Card>
