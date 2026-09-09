@@ -1,4 +1,4 @@
-import type { RaceState } from "@formula-time/domain";
+import type { RaceEvent, RaceState } from "@formula-time/domain";
 
 export type PollTemplateKind = "winner" | "podium";
 export type PollLifecycleStatus = "open" | "locked" | "resolved" | "void";
@@ -28,6 +28,23 @@ export interface LivePush {
   total_laps: number | null;
   state: RaceState;
   polls: PollPublic[];
+  /**
+   * The `RaceEvent` rows the projector applied in the tick that produced
+   * this push, in `seq` order (issue #114); `[]` on a tick with none,
+   * including the join snapshot -- the state is the fold, the events are
+   * already in the log a client backfills via `GET
+   * /api/races/:session_key/events`. Optional so a push from an api still
+   * on the pre-#114 shape still parses; `apps/web/src/live/timeline.ts`
+   * treats a missing field as `[]`.
+   */
+  events?: RaceEvent[];
+  /**
+   * Set when this push is a rebuild-from-log after a late-commit alarm
+   * (issue #114): `events` is `[]` regardless, and a client timeline
+   * built from the stream must be discarded and re-backfilled, since the
+   * rebuild may have changed rows the client already folded.
+   */
+  rebuilt?: boolean;
 }
 
 export type Connection = "connecting" | "open" | "reconnecting";
