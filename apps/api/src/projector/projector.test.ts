@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { Session } from "@formula-time/db";
+import type { RaceEvent } from "@formula-time/domain";
 
 import type { EventRow, EventSource } from "./event-source.js";
 import { RaceStateProjector } from "./projector.js";
@@ -101,6 +102,46 @@ describe("RaceStateProjector", () => {
     expect(source.readAfterCalls[0]?.sessionKey).toBe(SESSION.sessionKey);
   });
 
+  test("subscriber receives exactly the rows applied that tick, as RaceEvent, in seq order (issue #114)", async () => {
+    const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3)];
+    const source = new FakeSource(rows, rows.map((r) => r.eventId));
+    const projector = tracked(
+      new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }),
+    );
+
+    const seen: Array<{ events: RaceEvent[]; rebuilt: boolean }> = [];
+    projector.subscribe((_state, _cursor, events, rebuilt) => seen.push({ events, rebuilt }));
+
+    projector.start();
+    await vi.waitFor(() => expect(projector.status().caughtUp).toBe(true));
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.rebuilt).toBe(false);
+    expect(seen[0]?.events.map((e) => e.event_id)).toEqual(["event-1", "event-2", "event-3"]);
+    expect(seen[0]?.events[0]).toEqual({
+      event_id: "event-1",
+      endpoint: "drivers",
+      source_time: null,
+      payload: { driver_number: 1 },
+    });
+  });
+
+  test("a tick that applies nothing new publishes events: [] (issue #114)", async () => {
+    const rows = [driverRow(1, 1)];
+    const source = new FakeSource(rows, []); // nothing visible yet -- startup tick catches up with no rows
+    const projector = tracked(
+      new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }),
+    );
+    const seen: RaceEvent[][] = [];
+    projector.subscribe((_state, _cursor, events) => seen.push(events));
+
+    projector.start();
+    await vi.waitFor(() => expect(projector.status().caughtUp).toBe(true));
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual([]);
+  });
+
   test("a full batch triggers an immediate second read before any subscriber call", async () => {
     const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3)];
     const source = new FakeSource(rows, rows.map((r) => r.eventId));
@@ -171,9 +212,9 @@ describe("RaceStateProjector", () => {
       }),
     );
 
-    const seen: Array<{ cursor: bigint; driverCount: number }> = [];
-    projector.subscribe((state, cursor) =>
-      seen.push({ cursor, driverCount: Object.keys(state.drivers).length }),
+    const seen: Array<{ cursor: bigint; driverCount: number; events: RaceEvent[]; rebuilt: boolean }> = [];
+    projector.subscribe((state, cursor, events, rebuilt) =>
+      seen.push({ cursor, driverCount: Object.keys(state.drivers).length, events, rebuilt }),
     );
 
     projector.start();
@@ -181,6 +222,8 @@ describe("RaceStateProjector", () => {
     // then the normal fold applies rows 1, 2, 4, 5 (3 stays hidden).
     await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(1));
     expect(projector.snapshot().drivers["3"]).toBeUndefined();
+    expect(seen[0]?.rebuilt).toBe(false);
+    expect(seen[0]?.events.map((e) => e.event_id)).toEqual(["event-1", "event-2", "event-4", "event-5"]);
 
     // "c" commits late: it becomes visible, e.g. because a second writer
     // connection landed it out of order (never happens with the
@@ -197,6 +240,11 @@ describe("RaceStateProjector", () => {
     expect(projector.snapshot().drivers["3"]).toBeDefined();
     expect(projector.status().cursor).toBe(5n);
     expect(source.readWindowCalls[0]?.sessionKey).toBe(SESSION.sessionKey);
+    // A rebuild discards the client's event timeline -- issue #114: the
+    // rebuild pushes `events: []` and `rebuilt: true` rather than the rows
+    // it re-folded, since a rebuild is a fold correction, not new events.
+    expect(seen[1]?.events).toEqual([]);
+    expect(seen[1]?.rebuilt).toBe(true);
   });
 
   test("runDetector: a rejected re-fold read keeps serving the previous state and retries next pass", async () => {
@@ -231,9 +279,9 @@ describe("RaceStateProjector", () => {
         }),
       );
 
-      const seen: Array<{ cursor: bigint; driverCount: number }> = [];
-      projector.subscribe((state, cursor) =>
-        seen.push({ cursor, driverCount: Object.keys(state.drivers).length }),
+      const seen: Array<{ cursor: bigint; driverCount: number; rebuilt: boolean }> = [];
+      projector.subscribe((state, cursor, _events, rebuilt) =>
+        seen.push({ cursor, driverCount: Object.keys(state.drivers).length, rebuilt }),
       );
 
       projector.start();
@@ -264,6 +312,7 @@ describe("RaceStateProjector", () => {
       await vi.advanceTimersByTimeAsync(10);
       expect(seen).toHaveLength(2);
       expect(seen[1]?.driverCount).toBe(5);
+      expect(seen[1]?.rebuilt).toBe(true);
       expect(projector.snapshot().drivers["3"]).toBeDefined();
       expect(projector.status().cursor).toBe(5n);
     } finally {
