@@ -20,6 +20,17 @@
 // `status` gates whether a finished session still reacts to rebuilds/
 // reconnects: once finished the log is static and the timeline this hook
 // already built is complete, so further stream activity is ignored.
+//
+// Review round 2 (this PR): every `appendEvents(built, ...)` call --
+// backfill pages, the pending-merge, and each stream push -- is
+// serialized through one promise chain (`enqueueAppend`), and the
+// backfill-to-stream handoff captures/clears `pending` and flips
+// `backfilling` in one synchronous step, so a push arriving right at
+// that handoff can neither run a concurrent `appendEvents` on the same
+// mutable arrays nor get silently dropped. The subscriber also skips a
+// notification whose `state.live` is unchanged (the store's own 250ms
+// `tick()` never touches `live`, but still notifies every subscriber)
+// and any push whose `seq` is not past the last one already folded in.
 import { useEffect, useRef, useState } from "react";
 
 import type { RaceEvent } from "@formula-time/domain";
@@ -120,6 +131,26 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus): U
         setSnapshot((prev) => ({ timeline: { ...built }, headSeq: seq ?? prev.headSeq }));
       }
 
+      // Serializes every appendEvents(built, ...) call through one chain
+      // (review round 2 bug): the backfill's own per-page appends, the
+      // pending-merge append, and every subsequent stream-push append all
+      // mutate the same `built` arrays, so two of them must never run
+      // concurrently. Without this, the window between the backfill loop
+      // deciding "no more pages" and the pending-merge's own
+      // `appendEvents` call actually resolving let a push that arrived in
+      // that window take the "direct append" branch (since `backfilling`
+      // had already flipped) and run a second, concurrent `appendEvents`
+      // on the same mutable timeline.
+      let appendChain: Promise<void> = Promise.resolve();
+      function enqueueAppend(events: RaceEvent[]): Promise<void> {
+        const step = appendChain.then(async () => {
+          if (!isCurrent()) return;
+          await appendEvents(built, events);
+        });
+        appendChain = step;
+        return step;
+      }
+
       // Deferred to a microtask, not called synchronously: this runs from
       // inside a `useLiveStore.subscribe` callback, itself invoked while
       // the store is still iterating its listener set for the state
@@ -142,6 +173,19 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus): U
       }
 
       let previousConnection = useLiveStore.getState().connection;
+      // Reference-equality guard (review round 2): the store's own 250ms
+      // `tick()` (apps/web/src/live/store.ts, while a viewer has a delay)
+      // calls `set({ displayed, bufferShort })` -- it never touches
+      // `live` -- but a plain whole-state `subscribe` still re-fires this
+      // listener on every `set()` regardless of which fields changed.
+      // Without this guard, each tick re-processed the *same* push object,
+      // re-running `appendEvents` (which rebuilds a dedup `Set` over the
+      // whole timeline) for no reason. `lastProcessedSeq` is a second,
+      // independent guard against reprocessing a push whose `seq` we've
+      // already folded in, in case some other path ever hands this
+      // listener a new `live` object carrying a seq we've already seen.
+      let previousLive = useLiveStore.getState().live;
+      let lastProcessedSeq = 0;
       unsubscribeStore = useLiveStore.subscribe((state) => {
         if (!isCurrent()) return;
 
@@ -153,6 +197,8 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus): U
         }
 
         const push = state.live;
+        if (push === previousLive) return;
+        previousLive = push;
         if (push === null) return;
 
         if (push.rebuilt === true && statusRef.current !== "finished") {
@@ -160,17 +206,21 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus): U
           return;
         }
 
+        const seq = pushSeq(push.seq);
+        if (seq !== null && seq <= lastProcessedSeq) return;
+
         const events = push.events ?? [];
         if (events.length === 0) return;
+        if (seq !== null) lastProcessedSeq = seq;
 
         if (backfilling) {
           pending = pending.concat(events);
           return;
         }
 
-        void appendEvents(built, events).then(() => {
+        void enqueueAppend(events).then(() => {
           if (!isCurrent()) return;
-          publish(pushSeq(push.seq));
+          publish(seq);
         });
       });
 
@@ -198,7 +248,24 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus): U
           for (;;) {
             const page = await fetchPageWithRetry(sinceSeq);
             if (!isCurrent()) return;
-            await appendEvents(built, page.events);
+
+            // Defensive guard: the api's contract (PR #102) is that
+            // `next_seq` is null only when `events` is empty -- a full
+            // page always carries the last row's seq. If that ever isn't
+            // true, `sinceSeq` would never advance and this loop would
+            // refetch the same page forever; surface an error and stop
+            // instead.
+            if (page.events.length >= PAGE_LIMIT && page.next_seq === null) {
+              setError(
+                new Error(
+                  `GET /api/races/${sessionKey}/events: a full page (limit ${PAGE_LIMIT}) came back with next_seq null -- cannot page further`,
+                ),
+              );
+              setLoading(false);
+              return;
+            }
+
+            await enqueueAppend(page.events);
             if (!isCurrent()) return;
             if (page.next_seq !== null) sinceSeq = page.next_seq;
             publish(page.next_seq);
@@ -210,10 +277,20 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus): U
 
         if (!isCurrent()) return;
 
-        backfilling = false;
+        // Capture the pending list, clear it, and flip `backfilling` all
+        // synchronously in this one step -- before awaiting anything
+        // (review round 2 bug fix). Any push arriving from this point
+        // forward sees `backfilling === false` and enqueues its own
+        // append (see the subscriber above), which `enqueueAppend`'s
+        // shared chain guarantees runs only after this merge's append
+        // below actually finishes -- so no push can be silently dropped
+        // (routed to a `pending` array nobody reads again) and no two
+        // `appendEvents` calls on `built` ever run concurrently.
         const toAppend = pending;
         pending = [];
-        await appendEvents(built, toAppend);
+        backfilling = false;
+
+        await enqueueAppend(toAppend);
         if (!isCurrent()) return;
         publish(null);
         setLoading(false);

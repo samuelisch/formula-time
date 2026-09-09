@@ -7,11 +7,30 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RaceEventsPage, SessionStatus } from "../races/api.ts";
+import * as replayTimelineModule from "../replay/timeline.ts";
 import { emptyAnchors } from "./anchors.ts";
 import { emptyBuffer } from "./buffer.ts";
 import { useLiveStore } from "./store.ts";
 import { PAGE_LIMIT, RETRY_BACKOFF_MS, useSessionTimeline } from "./timeline.ts";
 import type { LivePush } from "./types.ts";
+
+// Review round 2 regression tests need to observe (and, for one test,
+// briefly pause) `appendEvents` calls on the shared `Timeline` -- so
+// `appendEvents` is mocked here, but wired by default to delegate to the
+// real implementation (captured via `vi.hoisted`, since `vi.mock`'s
+// factory is itself hoisted above ordinary top-level variables) so every
+// other test still folds for real and gets real results; only the one
+// test that overrides `mockImplementation` sees different timing, and
+// the shared `afterEach` below restores the passthrough for whichever
+// test runs next.
+const mocks = vi.hoisted(() => {
+  return { actualAppendEvents: undefined as unknown as typeof import("../replay/timeline.ts").appendEvents };
+});
+vi.mock("../replay/timeline.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../replay/timeline.ts")>();
+  mocks.actualAppendEvents = actual.appendEvents;
+  return { ...actual, appendEvents: vi.fn(actual.appendEvents) };
+});
 
 function resetLiveStore(): void {
   useLiveStore.setState({
@@ -110,6 +129,9 @@ describe("useSessionTimeline", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    // Restore the default passthrough in case a test overrode it.
+    vi.mocked(replayTimelineModule.appendEvents).mockReset();
+    vi.mocked(replayTimelineModule.appendEvents).mockImplementation(mocks.actualAppendEvents);
   });
 
   it("pages from since_seq=0 with limit=5000 until a short page, folding every page", async () => {
@@ -241,5 +263,108 @@ describe("useSessionTimeline", () => {
     await vi.waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBeNull();
     expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual(["e1"]);
+  });
+
+  it("serializes appendEvents calls: a push arriving mid pending-merge does not run concurrently with it (review round 2)", async () => {
+    // Backfill's one page is appendEvents call 0; the pending-merge (an
+    // empty pending list here, since no push lands during backfill) is
+    // call 1 -- pause exactly that call to reproduce the window review
+    // round 2 found unsafe: `backfilling` flips before this call
+    // resolves, so a push arriving right here used to take the
+    // direct-append branch and run a second, concurrent appendEvents.
+    let activeCalls = 0;
+    let maxConcurrent = 0;
+    let callIndex = 0;
+    let releasePendingMerge: (() => void) | null = null;
+
+    vi.mocked(replayTimelineModule.appendEvents).mockImplementation(async (timeline, events) => {
+      const myCallIndex = callIndex;
+      callIndex += 1;
+      activeCalls += 1;
+      maxConcurrent = Math.max(maxConcurrent, activeCalls);
+      try {
+        if (myCallIndex === 1) {
+          await new Promise<void>((resolve) => {
+            releasePendingMerge = resolve;
+          });
+        }
+        return await mocks.actualAppendEvents(timeline, events);
+      } finally {
+        activeCalls -= 1;
+      }
+    });
+
+    const fetchStub = queuedFetch([shortPage([event("e1")], 1)]);
+    vi.stubGlobal("fetch", fetchStub);
+
+    const { result } = renderHook(() => useSessionTimeline(9999, "live"));
+
+    // Wait until the pending-merge call (call index 1) is paused mid-flight.
+    await waitFor(() => expect(releasePendingMerge).not.toBeNull());
+    expect(maxConcurrent).toBe(1);
+
+    // A push arrives while that call is still paused.
+    act(() => {
+      useLiveStore.setState({ live: streamPush("2", [event("e2")]) });
+    });
+
+    // Give a (buggy) concurrent call every chance to start before release.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(maxConcurrent).toBe(1);
+    expect(callIndex).toBe(2); // e2's call has not started yet -- still queued behind the paused one
+
+    releasePendingMerge!();
+
+    await waitFor(() => expect(result.current.headSeq).toBe(2));
+    expect(maxConcurrent).toBe(1);
+    expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual(["e1", "e2"]);
+  });
+
+  it("skips a store notification whose live push is unchanged (the store's own tick), but processes a genuinely new push (review round 2)", async () => {
+    const fetchStub = queuedFetch([shortPage([event("e1")], 1)]);
+    vi.stubGlobal("fetch", fetchStub);
+
+    const { result } = renderHook(() => useSessionTimeline(9999, "live"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual(["e1"]);
+
+    const appendMock = vi.mocked(replayTimelineModule.appendEvents);
+    const callsBefore = appendMock.mock.calls.length;
+
+    // Repeated set() calls that leave `live` unchanged -- exactly what the
+    // store's own 250ms tick() does while a viewer has a delay (it only
+    // ever touches `displayed`/`bufferShort`).
+    act(() => {
+      useLiveStore.setState({});
+      useLiveStore.setState({});
+      useLiveStore.setState({});
+    });
+
+    expect(appendMock.mock.calls.length).toBe(callsBefore);
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+
+    // A genuinely new push is still processed.
+    act(() => {
+      useLiveStore.setState({ live: streamPush("2", [event("e2")]) });
+    });
+    await waitFor(() => expect(result.current.headSeq).toBe(2));
+    expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual(["e1", "e2"]);
+  });
+
+  it("stops with an error instead of looping forever when a full page comes back with next_seq: null", async () => {
+    // A full page (events.length === limit) must always carry a non-null
+    // next_seq per the api's contract (PR #102) -- this malformed
+    // response is the defensive guard's target.
+    const malformedFullPage: RaceEventsPage = { ...fullPage("p1", PAGE_LIMIT), next_seq: null };
+    const fetchStub = queuedFetch([malformedFullPage]);
+    vi.stubGlobal("fetch", fetchStub);
+
+    const { result } = renderHook(() => useSessionTimeline(9999, "live"));
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error?.message).toContain("next_seq null");
+    // No infinite loop: exactly the one (malformed) page was fetched.
+    expect(fetchStub).toHaveBeenCalledTimes(1);
   });
 });
