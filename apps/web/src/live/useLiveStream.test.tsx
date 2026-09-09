@@ -23,10 +23,13 @@ function resetStore(): void {
  * have run its effect before it is called, so it must not be destructured up front. */
 function capturingEventSource(): { EventSourceImpl: typeof EventSource; es(): FakeEventSource } {
   let captured: FakeEventSource | undefined;
+  function capture(instance: FakeEventSource): void {
+    captured = instance;
+  }
   class CapturingEventSource extends FakeEventSource {
     public constructor(_url: string) {
       super();
-      captured = this;
+      capture(this);
     }
   }
   return {

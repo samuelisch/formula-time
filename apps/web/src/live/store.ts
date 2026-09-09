@@ -7,7 +7,7 @@ import { axisOf, type Connection, type LivePush } from "./types.ts";
 export interface LiveStore {
   connection: Connection;
   catchingUp: boolean;
-  /** True once at least one `status` SSE frame has landed -- distinguishes "still settling" (connected, nothing received yet) from "connected and confirmed no push is imminent" (issue #80/#94 fix round 2: PollsPage's default-race-selection needs this to know when it is safe to fall back to a historical race). */
+  /** True once at least one `status` SSE frame has landed -- distinguishes "still settling" (connected, nothing received yet) from "connected and confirmed no push is imminent". PollsPage's default-race-selection needs this to know when it is safe to fall back to a historical race. */
   statusReceived: boolean;
   lastMessageAt: number | null;
   live: LivePush | null; // newest push, the live edge

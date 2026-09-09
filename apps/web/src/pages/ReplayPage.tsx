@@ -1,6 +1,6 @@
-// `/races/:session_key` (ADR-0009 §5, issue #57): fetches the export file,
-// folds it in the browser with the shared reducer, and plays it back on the
-// same timing board through `BoardSourceProvider`. No server-side replay
+// `/races/:session_key` (ADR-0009 §5): fetches the export file, folds it in
+// the browser with the shared reducer, and plays it back on the same
+// timing board through `BoardSourceProvider`. No server-side replay
 // session -- the browser owns playback entirely.
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router";
@@ -64,10 +64,10 @@ export function ReplayPage() {
           and must not appear on a replay. The banner in particular would
           always fire here -- the exporter only exports finished sessions --
           and link the replay back to itself. No polls button in `controls`.
-          `AlignPanel` (issue #67) mounts here too, now that `useAligner`
-          reads through `useTimeTarget()`/the board-source seam instead of
-          the live store directly, so it lines the replay up with a
-          broadcast the same way the live board does. */}
+          `AlignPanel` mounts here too: `useAligner` reads through
+          `useTimeTarget()`/the board-source seam instead of the live store
+          directly, so it lines the replay up with a broadcast the same way
+          the live board does. */}
       <BoardSourceProvider push={playback.push}>
         <TimeTargetProvider value={target}>
           <Board controls={<AlignPanel />} transport={<TransportBar />} side={<DriverPanel />} />

@@ -18,13 +18,12 @@ import styles from "./Shell.module.css";
 // A stoppage must read as a quiet feed, never a frozen app (POC quiet-feed rule).
 const QUIET_AFTER_MS = 5_000;
 
-// The issue's literal format is "{country_name} · {circuit_short_name}", the
-// raw OpenF1 field names. The wire never carries those: the projector's
-// sessionAsRawRecord() (apps/api/src/projector/projector.ts) puts the
-// sessions table's own columns on the wire instead -- `country` (not
-// `country_name`) and `name` (the session name, e.g. "Race"; there is no
-// persisted circuit display name at all). Render from the real fields
-// (owner-vetoable, flagged in the PR).
+// The raw OpenF1 fields are "{country_name} · {circuit_short_name}", but the
+// wire never carries those: the projector's sessionAsRawRecord()
+// (apps/api/src/projector/projector.ts) puts the sessions table's own
+// columns on the wire instead -- `country` (not `country_name`) and `name`
+// (the session name, e.g. "Race"; there is no persisted circuit display
+// name at all). Render from the real fields.
 function sessionLine(session: RawRecord | null, status: SessionStatusValue | null): string {
   if (session === null) return "Waiting for a session";
   const country = stringField(session, "country");
@@ -95,12 +94,6 @@ export function Shell() {
         </nav>
         <Pill tone={pill.tone}>{pill.text}</Pill>
       </header>
-      {/* DelayControl and AlignPanel used to sit here, under the header on
-          every route -- the placement this comment always called temporary,
-          pending the board's toolbar slot. They now mount in BoardPage's
-          toolbar (issue #57 fix round 5): they act on the live store's push
-          buffer, so on a replay route they were live controls sitting on top
-          of a folded race. Alignment on a replay is #67. */}
       <main className={styles.main}>
         <Outlet />
       </main>

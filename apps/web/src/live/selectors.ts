@@ -78,7 +78,7 @@ export function sessionStatusOf(session: RawRecord | null | undefined): SessionS
   return status === "upcoming" || status === "live" || status === "finished" ? status : null;
 }
 
-/** `"upcoming" | "live" | "finished" | null` from the displayed session's `status` field -- never "the pushed session exists" alone, which was the #72 bug (a finished or upcoming session read as live). */
+/** `"upcoming" | "live" | "finished" | null` from the displayed session's `status` field -- never "the pushed session exists" alone, which would let a finished or upcoming session read as live. */
 export function useSessionStatus(): SessionStatusValue | null {
   return useLiveStore((state) => sessionStatusOf(state.displayed?.state.session));
 }

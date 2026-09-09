@@ -8,11 +8,9 @@ import { ReplayPage } from "../pages/ReplayPage.tsx";
 import { Shell } from "./Shell.tsx";
 
 // `/` is the chooser (RacesPage), `/live` the live board, `/races/:session_key`
-// the replay, `/polls` unchanged (owner ruling on issue #57). `errorElement`
-// on the root layout route replaces React Router's default unstyled error
-// page (owner report: an unmatched path rendered "Unexpected Application
-// Error!") -- it renders in place of Shell, so it never depends on the live
-// store or nav.
+// the replay, `/polls` unchanged. `errorElement` on the root layout route
+// replaces React Router's default unstyled error page -- it renders in
+// place of Shell, so it never depends on the live store or nav.
 export const router = createBrowserRouter([
   {
     path: "/",

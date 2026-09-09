@@ -1,9 +1,9 @@
-// The router's errorElement (owner report: an unmatched path, e.g.
-// /races/11353 on a deploy where only the chooser has merged, rendered
-// React Router's default unstyled "Unexpected Application Error!" page).
-// Mounted on the root layout route in app/router.tsx, so it renders in
-// place of Shell -- no live store, no nav -- hence the shell palette
-// variables (index.css) rather than any Shell-dependent styling.
+// The router's errorElement -- catches an unmatched path (e.g. an
+// unroutable /races/:session_key) that would otherwise render React
+// Router's default unstyled error page. Mounted on the root layout route
+// in app/router.tsx, so it renders in place of Shell -- no live store, no
+// nav -- hence the shell palette variables (index.css) rather than any
+// Shell-dependent styling.
 import { isRouteErrorResponse, Link, useRouteError } from "react-router";
 
 import styles from "./ErrorPage.module.css";
