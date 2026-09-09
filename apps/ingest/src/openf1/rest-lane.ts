@@ -248,6 +248,12 @@ export class RestLane {
   // queued: `events.session_key` is a FK, one such row fails the writer's
   // whole batch, and the writer requeues that batch at the front forever.
   private readonly knownSessionKeys = new Set<number>();
+  // While a session is live the idle discovery loop does not run, so the
+  // sessions snapshot (and knownSessionKeys) would freeze: a race session
+  // whose upsert had not landed before FP1 went live would never become
+  // known and Friday's 30-minute retry would never fire. pollOnce() refreshes
+  // the snapshot every discoveryIntervalMs instead, as its own tick.
+  private nextSessionsRefreshAt = 0;
 
   private running = false;
   private timer: NodeJS.Timeout | null = null;
@@ -295,14 +301,40 @@ export class RestLane {
    */
   public async discoverOnce(): Promise<{ sessionCount: number; live: boolean }> {
     const nowMs = this.now();
+    const refreshed = await this.refreshSessions(nowMs);
+    if (refreshed === null) return { sessionCount: 0, live: this.sessionKey !== null };
+    const { rows, upserted } = refreshed;
+
+    // Behaviour 5 (one drivers fetch per tick) holds here too: a session
+    // discovered inside its live window fetches its entry list at selection,
+    // and Friday's meeting-wide fetch then waits for the next tick.
+    const selectionFetched = await this.ensureLiveSession(rows, nowMs, upserted);
+
+    // Behaviour 2 (Friday): checked on every discovery tick, same "on
+    // discovery of a meeting" wording as the brief — this is the idle (60s)
+    // loop's own extra fetch, not competing with the rotation budget (there
+    // is no rotation while idle).
+    if (!selectionFetched) await this.checkFridayFetch(this.lastSessions, nowMs);
+
+    return { sessionCount: rows.length, live: this.sessionKey !== null };
+  }
+
+  /**
+   * `sessions?year=` plus the upsert of every row: refreshes `lastSessions`
+   * and `knownSessionKeys` (only rows whose upsert succeeded). Shared by the
+   * idle discovery tick and the live loop's periodic refresh. `null` when
+   * the fetch failed or returned no array.
+   */
+  private async refreshSessions(nowMs: number): Promise<{ rows: RawRecord[]; upserted: Set<RawRecord> } | null> {
+    this.nextSessionsRefreshAt = nowMs + this.discoveryIntervalMs;
     let sessions: unknown;
     try {
       sessions = await this.fetcher(`${OPENF1_BASE}/sessions?year=${this.year}`);
     } catch (error) {
       this.log(`rest: session discovery failed: ${error instanceof Error ? error.message : String(error)}`);
-      return { sessionCount: 0, live: this.sessionKey !== null };
+      return null;
     }
-    if (!Array.isArray(sessions)) return { sessionCount: 0, live: this.sessionKey !== null };
+    if (!Array.isArray(sessions)) return null;
     const rows = sessions as RawRecord[];
 
     // Tracks which rows' onSession (the sessions upsert) succeeded THIS
@@ -325,40 +357,31 @@ export class RestLane {
       }
     }
 
-    await this.ensureLiveSession(rows, nowMs, upserted);
-
     // Only rows whose upsert succeeded: Friday's condition is "the race
     // session is in the sessions table", and a drivers row tagged to a
     // session that is not would poison the writer's batch (FK).
-    const known = rows.filter((row) => upserted.has(row));
-    this.lastSessions = known;
-
-    // Behaviour 2 (Friday): checked on every discovery tick, same "on
-    // discovery of a meeting" wording as the brief — this is the idle (60s)
-    // loop's own extra fetch, not competing with the rotation budget (there
-    // is no rotation while idle).
-    await this.checkFridayFetch(known, nowMs);
-
-    return { sessionCount: rows.length, live: this.sessionKey !== null };
+    this.lastSessions = rows.filter((row) => upserted.has(row));
+    return { rows, upserted };
   }
 
+  /** Returns whether it made a drivers fetch this tick (the selection fetch of behaviour 1). */
   private async ensureLiveSession(
     sessions: RawRecord[],
     nowMs: number,
     upserted: Set<RawRecord>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const live = pickLiveSession(sessions, nowMs);
-    if (!live) return;
+    if (!live) return false;
     if (!upserted.has(live)) {
       // Its sessions upsert failed this tick (thrown, caught, and logged
       // above) — selecting it anyway would mean every later event insert
       // fails its FK forever against a `sessions` row that doesn't exist.
       // Leave sessionKey null; the next discoverOnce() retries the upsert.
       this.log("rest: session not selected: upsert failed");
-      return;
+      return false;
     }
     const key = Number(live["session_key"]);
-    if (!Number.isFinite(key)) return;
+    if (!Number.isFinite(key)) return false;
     if (this.sessionKey !== key) {
       this.session = live;
       this.sessionKey = key;
@@ -385,8 +408,9 @@ export class RestLane {
       this.entryListSatisfied = false;
       this.entryListFallbackEmitted = false;
       this.entryListNextRetryAt = nowMs;
-      await this.tryEntryListSelectionFetch(nowMs);
+      return this.tryEntryListSelectionFetch(nowMs);
     }
+    return false;
   }
 
   /**
@@ -576,6 +600,15 @@ export class RestLane {
     // nothing is skipped.
     if (await this.runDueDriversFetch(nowMs)) {
       return { endpoint: "drivers", rows: 0, newRows: 0, malformed: 0 };
+    }
+
+    // The idle discovery loop is off while live; refresh the sessions
+    // snapshot on its cadence as this tick's one request, so a late upsert
+    // (a race session that failed while FP1 went live) becomes known and
+    // Friday's retry can fire on a later tick.
+    if (nowMs >= this.nextSessionsRefreshAt) {
+      await this.refreshSessions(nowMs);
+      return { endpoint: "sessions", rows: 0, newRows: 0, malformed: 0 };
     }
 
     const endpoint = POLL_ROTATION[this.rotationIndex % POLL_ROTATION.length]!;

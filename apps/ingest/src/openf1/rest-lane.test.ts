@@ -564,7 +564,9 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
     const queue = new EventQueue<QueueItem>();
     const lane = new RestLane(queue, { fetcher, now: () => now, onLog: () => {} });
 
-    await lane.discoverOnce(); // FP1 becomes live; the Friday meeting-wide fetch is also due and fails
+    await lane.discoverOnce(); // FP1 becomes live: its selection fetch takes this tick's drivers budget
+    expect(calls.filter((u) => u.includes("meeting_key=1293"))).toHaveLength(0);
+    await lane.pollOnce(); // next tick: the Friday meeting-wide fetch is due and fails
     expect(calls.filter((u) => u.includes("meeting_key=1293"))).toHaveLength(1);
     queue.drain(1000);
 
@@ -605,6 +607,7 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
     });
 
     await lane.discoverOnce(); // FP1 goes live too: its static fallback (11360) is recorded separately
+    await lane.pollOnce(); // the Friday fetch runs on the next tick (one drivers fetch per tick)
 
     const raceCalls = onNewRows.mock.calls.filter((c) => c[1] === "drivers" && c[0] === 11361);
     expect(raceCalls).toHaveLength(1);
@@ -625,22 +628,28 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
     const onSession = vi.fn(async (row: RawRecord) => {
       if (raceFails && row["session_type"] === "Race") throw new Error("db down");
     });
+    let now = Date.parse("2026-09-04T11:31:00Z");
     const queue = new EventQueue<QueueItem>();
-    const lane = new RestLane(queue, {
-      fetcher,
-      now: () => Date.parse("2026-09-04T11:31:00Z"),
-      onSession,
-      onLog: () => {},
-    });
+    const lane = new RestLane(queue, { fetcher, now: () => now, onSession, onLog: () => {} });
 
     const raceRows = () => queue.drain(1000).filter((i) => i.endpoint === "drivers" && i.sessionKey === 11361n);
 
-    await lane.discoverOnce(); // RACE's upsert failed: it is not "in the sessions table" yet
+    await lane.discoverOnce(); // FP1 goes live; RACE's upsert failed: it is not "in the sessions table" yet
+    const idle = await lane.pollOnce(); // live loop: Friday is not due (race unknown), so the rotation runs
+    expect(idle?.endpoint).toBe(POLL_ROTATION[0]);
     expect(calls.some((u) => u.includes("meeting_key="))).toBe(false);
     expect(raceRows()).toHaveLength(0); // FP1's own static fallback (11360) is fine; nothing for 11361
 
+    // The idle discovery loop is off while FP1 is live; the live loop refreshes
+    // the sessions snapshot on the discovery cadence instead (its own tick).
+    now += 60_000;
     raceFails = false;
-    await lane.discoverOnce(); // now it is: the Friday fetch fires and its row is queued
+    const refresh = await lane.pollOnce();
+    expect(refresh?.endpoint).toBe("sessions");
+    expect(calls.some((u) => u.includes("meeting_key="))).toBe(false);
+
+    const friday = await lane.pollOnce(); // RACE is known now: the Friday fetch fires and its row is queued
+    expect(friday?.endpoint).toBe("drivers");
     expect(calls.filter((u) => u.includes("meeting_key=1293"))).toHaveLength(1);
     expect(raceRows()).toHaveLength(1);
   });
@@ -743,7 +752,41 @@ describe("RestLane: drivers fetch budget (issue #39)", () => {
     expect(calls.some((u) => u.includes(`/${POLL_ROTATION[1]}?`))).toBe(false);
     calls = [];
 
+    const refresh = await lane.pollOnce(); // the live loop's sessions refresh (60 s cadence) is also due: its own tick
+    expect(refresh?.endpoint).toBe("sessions");
+    expect(calls.every((u) => u.includes("/sessions?"))).toBe(true);
+    calls = [];
+
     const resumed = await lane.pollOnce(); // must resume at rotation index 1, not 2
     expect(resumed?.endpoint).toBe(POLL_ROTATION[1]);
+  });
+
+  test("a session discovered inside both its live window and its meeting's Friday window makes one drivers fetch in that tick; Friday waits for the next", async () => {
+    const FP1: RawRecord = {
+      session_key: 11360,
+      meeting_key: 1293,
+      session_type: "Practice",
+      date_start: "2026-09-04T11:30:00Z",
+      date_end: "2026-09-04T12:30:00Z",
+    };
+    const RACE: RawRecord = { ...SESSION, session_type: "Race" };
+    const calls: string[] = [];
+    const fetcher = async (url: string): Promise<unknown> => {
+      calls.push(url);
+      if (url.includes("/sessions?")) return [FP1, RACE];
+      if (url.includes("/drivers?")) {
+        return [{ session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" }];
+      }
+      return [];
+    };
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START, onLog: () => {} }); // restart mid-race
+
+    await lane.discoverOnce(); // RACE selected: selection fetch only
+    expect(calls.filter((u) => u.includes("/drivers?"))).toEqual([expect.stringContaining("session_key=11361")]);
+
+    const next = await lane.pollOnce(); // Friday's meeting-wide fetch takes the next tick
+    expect(next?.endpoint).toBe("drivers");
+    expect(calls.filter((u) => u.includes("meeting_key=1293"))).toHaveLength(1);
   });
 });
