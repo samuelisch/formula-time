@@ -45,13 +45,16 @@ export const DriverRow = memo(function DriverRow({ number: driverNumber, delta =
   if (driver === null) return null;
 
   const cueClass = delta > 0 ? styles.cueGain : delta < 0 ? styles.cueLoss : undefined;
+  // Fix round 1 (issue #91 review): the issue asks for the arrow/number cue
+  // "plus a subtle row highlight on the change" -- a second signal on the
+  // row itself, not just the small cell. Driven by the same `delta` (0 once
+  // useBoardPositionDeltas() expires the cue), so the highlight fades with
+  // the arrow, not on its own timer.
+  const rowChangeClass = delta > 0 ? styles.rowGain : delta < 0 ? styles.rowLoss : undefined;
+  const rowClassName = [styles.row, selected ? styles.selected : null, rowChangeClass].filter(Boolean).join(" ");
 
   return (
-    <tr
-      className={selected ? `${styles.row} ${styles.selected}` : styles.row}
-      onClick={() => onSelect(driverNumber)}
-      aria-selected={selected}
-    >
+    <tr className={rowClassName} onClick={() => onSelect(driverNumber)} aria-selected={selected}>
       <td className={styles.position}>{driver.position === null ? "—" : driver.position}</td>
       <td className={cueClass}>{cueText(delta)}</td>
       <td>
