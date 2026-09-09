@@ -12,4 +12,4 @@ Each subagent: `pnpm install --frozen-lockfile` first (the commit hook runs type
 
 After a merge that touches your service, verify the deploy: `railway deployment list -s <service>` shows SUCCESS, and `railway logs -s <service> | tail` shows no repeated failure line.
 
-Service: `apps/ingest`. Sole writer of `sessions` and `events`; never folds. OpenF1 facts come from the POC's hard-won list and from measured responses, never from types. Verify deploys on the `ingest` service.
+Service: `apps/ingest`. Sole writer of `sessions` and `events`; never folds. OpenF1 facts come from the POC's hard-won list and from measured responses, never from types. Verify deploys on the `ingest` service. Design-bearing on this side: row identity (ADR-0001 §2 invariant 3) and the single queue and connection (ADR-0007). The same rule applies: owner-reviewed in person, and you change neither without a brief that says so.
