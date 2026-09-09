@@ -5,6 +5,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router";
 
+import { AlignPanel } from "../align/AlignPanel.tsx";
 import { Board } from "../board/Board.tsx";
 import { DriverPanel } from "../board/DriverPanel.tsx";
 import { BoardSourceProvider } from "../board/useBoardState.ts";
@@ -59,20 +60,18 @@ export function ReplayPage() {
   return (
     <div className={styles.replay}>
       {/* The pure `Board`, never `BoardPage`: the live route's furniture
-          (the finished/upcoming banner, polls, delay and align controls) all
-          read the live session and must not appear on a replay. The banner
-          in particular would always fire here -- the exporter only exports
-          finished sessions -- and link the replay back to itself. No
-          `controls`: a replay has none of the live route's row-1 buttons. */}
+          (the finished/upcoming banner and polls) reads the live session
+          and must not appear on a replay. The banner in particular would
+          always fire here -- the exporter only exports finished sessions --
+          and link the replay back to itself. No polls button in `controls`.
+          `AlignPanel` (issue #67) mounts here too, now that `useAligner`
+          reads through `useTimeTarget()`/the board-source seam instead of
+          the live store directly, so it lines the replay up with a
+          broadcast the same way the live board does. */}
       <BoardSourceProvider push={playback.push}>
-        <Board
-          transport={
-            <TimeTargetProvider value={target}>
-              <TransportBar />
-            </TimeTargetProvider>
-          }
-          side={<DriverPanel />}
-        />
+        <TimeTargetProvider value={target}>
+          <Board controls={<AlignPanel />} transport={<TransportBar />} side={<DriverPanel />} />
+        </TimeTargetProvider>
       </BoardSourceProvider>
     </div>
   );

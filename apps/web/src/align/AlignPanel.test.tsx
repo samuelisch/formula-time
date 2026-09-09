@@ -5,7 +5,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyAnchors } from "../live/anchors.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
+import { TimeTargetProvider } from "../transport/TimeTarget.ts";
+import { useLiveTimeTarget } from "../transport/useLiveTimeTarget.ts";
 import { AlignPanel } from "./AlignPanel.tsx";
+
+// `useAligner` (inside `AlignPanel`) reads through `useTimeTarget()` (issue
+// #67), so every render here needs a provider -- the live-backed one
+// `BoardPage` mounts in the app.
+function LiveAlignPanel() {
+  const target = useLiveTimeTarget();
+  return (
+    <TimeTargetProvider value={target}>
+      <AlignPanel />
+    </TimeTargetProvider>
+  );
+}
 
 // The hook's default capture entry points (capture.ts) reach real browser
 // APIs jsdom doesn't implement (getDisplayMedia) or a real npm package
@@ -52,7 +66,7 @@ describe("AlignPanel", () => {
   });
 
   it("shows only the start button before capture begins", () => {
-    render(<AlignPanel />);
+    render(<LiveAlignPanel />);
     expect(screen.getByRole("button", { name: /Align with my screen/ })).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
@@ -63,7 +77,7 @@ describe("AlignPanel", () => {
     // before anything about capture succeeds or fails.
     vi.mocked(loadTesseract).mockReturnValue(new Promise(() => {}));
 
-    render(<AlignPanel />);
+    render(<LiveAlignPanel />);
     await user.click(screen.getByRole("button", { name: /Align with my screen/ }));
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading OCR…");
@@ -75,7 +89,7 @@ describe("AlignPanel", () => {
     vi.mocked(loadTesseract).mockResolvedValue({ createWorker: vi.fn() });
     vi.mocked(captureDisplayMedia).mockRejectedValue(new Error("Permission denied"));
 
-    render(<AlignPanel />);
+    render(<LiveAlignPanel />);
     await user.click(screen.getByRole("button", { name: /Align with my screen/ }));
 
     expect(

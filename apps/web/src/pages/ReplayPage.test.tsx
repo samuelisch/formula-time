@@ -127,9 +127,10 @@ describe("ReplayPage", () => {
   // route's furniture all reads the live session or the live store, and on a
   // replay every piece of it is wrong: the finished banner always fires (the
   // exporter only exports finished sessions) and would link the replay back
-  // to itself, and the delay/align controls act on a push buffer the replay
-  // does not use.
-  it("mounts none of the live route's furniture: no banner, no polls button, no delay or align control", async () => {
+  // to itself, and the delay control (before issue #67) acted on a push
+  // buffer the replay does not use. `AlignPanel` is the one live-only piece
+  // issue #67 promotes to both routes -- see the dedicated test below.
+  it("mounts none of the live route's session furniture: no banner, no polls button, no Live button", async () => {
     stubFetch();
     renderPage();
 
@@ -140,7 +141,18 @@ describe("ReplayPage", () => {
     expect(screen.queryByRole("link", { name: "Watch the replay" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Race starts/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Polls/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Live" })).not.toBeInTheDocument(); // DelayControl
-    expect(screen.queryByRole("button", { name: /Align with my screen/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Live" })).not.toBeInTheDocument(); // DelayControl/TransportBar's live-only button
+  });
+
+  // Issue #67: alignment on a replay drives the same `useAligner`, now
+  // routed through `useTimeTarget()` instead of the live store directly, so
+  // the align button mounts in the replay toolbar next to the transport bar.
+  it("mounts the align button in the toolbar, next to the transport bar", async () => {
+    stubFetch();
+    renderPage();
+
+    await waitFor(() => screen.getByRole("slider", { name: "Playback position" }));
+
+    expect(screen.getByRole("button", { name: /Align with my screen/ })).toBeInTheDocument();
   });
 });

@@ -6,7 +6,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
-import { useAnchors, useDelay, useDisplayed, useLeaderLap } from "../live/selectors.ts";
+import { useBoardLeaderLap, useBoardRaceControl } from "../board/useBoardState.ts";
+import { useTimeTarget } from "../transport/TimeTarget.ts";
+import type { TimeTarget } from "../transport/TimeTarget.ts";
 import {
   captureDisplayMedia as defaultCaptureDisplayMedia,
   createOcrWorker as defaultCreateOcrWorker,
@@ -46,6 +48,39 @@ const PREVIEW_MS = 200;
 const AUTO_DETECT_MS = 3_000;
 const PREVIEW_WIDTH = 480;
 
+/**
+ * Routes one anchored observation's computed offset through the
+ * `TimeTarget` seam instead of a raw `setDelayMs` (issue #67, fix round 1;
+ * does not touch `core.ts`/`policy.ts` -- `ms` is exactly what
+ * `applyReading` used to pass straight to `setDelayMs`, always
+ * `Math.max(0, offsetMs)`, and `offsetMs` is `OffsetTracker.offsetMs()`
+ * (`core.ts`): `observedWall − anchorSourceMs`. That is a constant mapping
+ * between the viewer's wall clock and the data's source-time axis --
+ * true whether the anchor is seconds old (live) or days old (a replay
+ * recording) -- so the position to show is always `sourceMs = nowWallMs −
+ * offsetMs`, on both platforms. One branch, no anchor needed here.
+ *
+ * `now` must be the SAME wall clock `observedWall` itself was computed
+ * from (the caller closes over one `nowWallMs = Date.now()` for both), not
+ * a fresh `Date.now()` call here -- otherwise the two calls' sub-ms drift
+ * leaks into the position.
+ *
+ * Live: `seekTo(atMs)` resolves to `setDelayMs(now() − atMs)` (floored at
+ * 0), so seeking to `now() − ms` sets the delay to exactly `ms` -- the
+ * pre-#67 behaviour, unchanged.
+ *
+ * Replay: seeks the playback clock to `nowWallMs − offsetMs`, which lands
+ * at the anchor's own source time (plus whatever small residual `now`
+ * differs from `observedWall`) -- not `anchorMs + ms`, which is wrong
+ * end to end for a historic anchor (`ms` is then days, not a lead) and
+ * clamps to the end of the recording. Playback always resumes, never
+ * pauses.
+ */
+export function applyOffsetToTarget(target: TimeTarget, ms: number, now: () => number = Date.now): void {
+  target.seekTo(now() - ms);
+  target.playback()?.play();
+}
+
 export type AlignerPhase = "idle" | "starting" | "running";
 
 export interface UseAlignerOptions {
@@ -75,11 +110,17 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   const loadTesseractImpl = options.loadTesseract ?? defaultLoadTesseract;
   const createOcrWorkerImpl = options.createOcrWorker ?? defaultCreateOcrWorker;
 
-  const anchors = useAnchors();
-  const leaderLap = useLeaderLap();
-  const displayed = useDisplayed();
-  const sessionStatus = displayed?.state.race_control.session_status ?? null;
-  const { setDelayMs } = useDelay();
+  // Issue #67: read through the `TimeTarget` seam (`anchors()`, and the
+  // apply rule below) and through the board-source seam (`leaderLap`,
+  // `sessionStatus`, both of which must reflect the *displayed* push -- the
+  // replay fold on a replay, never the live store, which the board-aware
+  // hooks already handle: `useBoardLeaderLap` reads the viewer's own lap,
+  // never the live one; PRD §4 review note) -- never the live store
+  // directly.
+  const target = useTimeTarget();
+  const anchors = target.anchors();
+  const leaderLap = useBoardLeaderLap();
+  const sessionStatus = useBoardRaceControl().session_status;
 
   const [phase, setPhase] = useState<AlignerPhase>("idle");
   const [status, setStatus] = useState(IDLE_STATUS);
@@ -93,8 +134,8 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   // Live values the sampling loop (a plain interval callback, outside
   // React's render cycle) needs to read without re-subscribing on every
   // change -- kept current via a ref synced each render, POC-style.
-  const liveRef = useRef({ anchors, leaderLap, sessionStatus, setDelayMs });
-  liveRef.current = { anchors, leaderLap, sessionStatus, setDelayMs };
+  const liveRef = useRef({ anchors, leaderLap, sessionStatus, target });
+  liveRef.current = { anchors, leaderLap, sessionStatus, target };
 
   // Offscreen DOM handles this hook owns imperatively (drawn into and
   // resized from timer/OCR callbacks, not from render) -- lazily created
@@ -269,6 +310,10 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   // lights-out is the separate pixel path below).
   const applyLapReading = useCallback(
     (lap: number, frameAt: number) => {
+      // One wall-clock read shared with `applyOffsetToTarget`'s `now` below
+      // -- both must use the exact same `nowWallMs` (see that function's
+      // doc comment), not two separate `Date.now()` calls a few lines apart.
+      const nowWallMs = Date.now();
       const status = applyReading({
         anchors: liveRef.current.anchors,
         kind: "flip",
@@ -276,11 +321,11 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
         isRestart: false,
         label: `Lap ${lap}`,
         frameAt,
-        nowWallMs: Date.now(),
+        nowWallMs,
         nowPerfMs: performance.now(),
         pipelineBiasMs: pipelineBiasMsRef.current,
         tracker: offsetTrackerRef.current,
-        setDelayMs: liveRef.current.setDelayMs,
+        setDelayMs: (ms) => applyOffsetToTarget(liveRef.current.target, ms, () => nowWallMs),
       });
       setStatus(status);
     },
@@ -334,6 +379,8 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   const handleLightsOut = useCallback((frameAt: number) => {
     const isRestart = lightsGateRef.current.isRestart();
     const label = lightsLabel(isRestart);
+    // Same shared-`nowWallMs` requirement as `applyLapReading` above.
+    const nowWallMs = Date.now();
     const status = applyReading({
       anchors: liveRef.current.anchors,
       kind: "lights",
@@ -341,11 +388,11 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
       isRestart,
       label,
       frameAt,
-      nowWallMs: Date.now(),
+      nowWallMs,
       nowPerfMs: performance.now(),
       pipelineBiasMs: pipelineBiasMsRef.current,
       tracker: offsetTrackerRef.current,
-      setDelayMs: liveRef.current.setDelayMs,
+      setDelayMs: (ms) => applyOffsetToTarget(liveRef.current.target, ms, () => nowWallMs),
     });
     setStatus(status);
   }, []);

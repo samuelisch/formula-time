@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { emptyAnchors, type Anchors } from "../live/anchors.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
+import { makePush } from "../test/fixtures.ts";
 import { BUFFER_SHORT_NOTICE, useLiveTimeTarget } from "./useLiveTimeTarget.ts";
 
 function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>> = {}): void {
@@ -84,7 +85,7 @@ describe("useLiveTimeTarget", () => {
     expect(useLiveStore.getState().delayMs).toBe(9_000);
   });
 
-  it("seekTo() sets the delay from the target source time, clamped to the buffered span", () => {
+  it("seekTo() sets the delay from the target source time, floored at zero", () => {
     resetStore({ buffer: bufferedSpan });
     const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
 
@@ -94,11 +95,37 @@ describe("useLiveTimeTarget", () => {
     result.current.seekTo(NOW); // the live edge => delay 0
     expect(useLiveStore.getState().delayMs).toBe(0);
 
-    result.current.seekTo(NOW - 1_000_000); // far before the buffer => clamped to spanMs
-    expect(useLiveStore.getState().delayMs).toBe(180_000);
-
-    result.current.seekTo(NOW + 1_000); // past "now" => clamped to 0
+    result.current.seekTo(NOW + 1_000); // past "now" => floored to 0
     expect(useLiveStore.getState().delayMs).toBe(0);
+  });
+
+  // Fix round 1 on PR #110: no upper clamp to the buffered span (removed --
+  // the pre-#67 direct `setDelayMs` call had none either). A delay asking
+  // for older history than this tab has buffered is exactly what the
+  // store's own `bufferShort`/`reselect` is for: it falls back to the
+  // oldest buffered entry and `notice()` surfaces the warning, rather than
+  // `seekTo` silently capping the delay to the span.
+  it("seekTo() past the buffered span sets the full delay and lets the store fall back to the oldest push", () => {
+    // `live` (`reselect`'s liveAxis) must be set for the store to actually
+    // fall back rather than short-circuit to `{ displayed: null,
+    // bufferShort: false }`, and the fallback entry's `raw` must be a real
+    // encoded push -- once it becomes `displayed`, this hook's own
+    // `axisOf(displayed)` parses it on every render -- axis pinned to NOW
+    // via `sent_at` (no source time), matching `bufferedSpan`'s own axis.
+    function pushAt(atMs: number): { at: number; raw: string } {
+      return { at: atMs, raw: JSON.stringify(makePush({ sent_at: atMs }, { latest_source_time: null })) };
+    }
+    resetStore({
+      buffer: { entries: [pushAt(0), pushAt(180_000)] },
+      live: makePush({ sent_at: NOW }, { latest_source_time: null }),
+    });
+    const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
+
+    act(() => result.current.seekTo(NOW - 1_000_000)); // far before the buffer
+
+    expect(useLiveStore.getState().delayMs).toBe(1_000_000); // not clamped to spanMs (180_000)
+    expect(useLiveStore.getState().bufferShort).toBe(true);
+    expect(result.current.notice()).toBe(BUFFER_SHORT_NOTICE);
   });
 
   it("notice() carries the buffered-delay warning exactly when the store reports bufferShort", () => {

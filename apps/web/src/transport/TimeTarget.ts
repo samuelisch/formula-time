@@ -34,6 +34,18 @@ export interface TimeTarget {
   playback(): { playing: boolean; play(): void; pause(): void } | null;
   /** A human-readable limitation of the current position, or null. */
   notice(): string | null;
+  /**
+   * Net effect, in ms, of every `seekTo`/`nudge` call made against this
+   * target so far, relative to an un-nudged reference (issue #67; both
+   * implementations provide it, like `notice()`). Replay: 0 for a fold
+   * that has only ever played straight through, since ticking while
+   * playing advances both the real position and this "un-nudged"
+   * reference by the same amount -- null before a fold has loaded. Live:
+   * the current delay in ms (`range().endMs − displayedAt()`, the same
+   * reading `TransportBar` showed before this issue) -- never null once a
+   * target exists.
+   */
+  syncOffsetMs(): number | null;
 }
 
 const TimeTargetContext = createContext<TimeTarget | null>(null);
