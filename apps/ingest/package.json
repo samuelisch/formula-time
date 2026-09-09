@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@formula-time/db": "workspace:*",
-    "@formula-time/domain": "workspace:*"
+    "@formula-time/domain": "workspace:*",
+    "mqtt": "5.15.2"
   }
 }

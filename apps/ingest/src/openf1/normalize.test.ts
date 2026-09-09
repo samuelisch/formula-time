@@ -93,6 +93,31 @@ describe("LiveNormalizer", () => {
     expect(event?.sourceTime).toBeNull();
   });
 
+  // Review round 2 (PR #105, issue #25): `overtakes` is one of the eight
+  // named MQTT topics this PR turns on end-to-end for the first time (REST's
+  // POLL_ROTATION has never polled it), and it was missing from
+  // endpointConfigs — every overtakes row got a null sourceTime. Payload
+  // shape confirmed against a real capture: `../f1-live-events-poc/poc/
+  // live-logs/mqtt-probe-2026-09-06T12-57-39-863Z/topics/v1_overtakes.jsonl`
+  // — `{"meeting_key":1293,"session_key":11361,"overtaking_driver_number":81,
+  // "overtaken_driver_number":3,"date":"2026-09-06T13:03:40.488000",
+  // "position":5,"_key":"...","_id":...}` — a `date` field, same shape as
+  // position/intervals/pit/race_control/weather.
+  test("overtakes carries sourceTime from its `date` field (real capture: mqtt-probe .../topics/v1_overtakes.jsonl)", () => {
+    const normalizer = new LiveNormalizer();
+    const { rows: [event] } = normalizer.normalize("overtakes", [
+      {
+        meeting_key: 1293,
+        session_key: 11361,
+        overtaking_driver_number: 81,
+        overtaken_driver_number: 3,
+        date: "2026-09-06T13:03:40.488000",
+        position: 5,
+      },
+    ]);
+    expect(event?.sourceTime).toBe("2026-09-06T13:03:40.488000");
+  });
+
   test("a malformed row (null) is skipped and counted, without throwing or losing later rows", () => {
     const normalizer = new LiveNormalizer();
     const valid1 = { driver_number: 1, date: "2026-09-06T13:00:00Z" };

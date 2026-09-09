@@ -22,6 +22,13 @@ export const endpointConfigs: Record<string, EndpointConfig> = {
   pit: { timestampField: "date" },
   race_control: { timestampField: "date" },
   weather: { timestampField: "date" },
+  // Review round 2 (PR #105, issue #25): `overtakes` is one of the eight
+  // named MQTT topics, and this PR is what turns it on end-to-end for the
+  // first time — REST's POLL_ROTATION has never polled it. Confirmed
+  // against a real capture (`../f1-live-events-poc/poc/live-logs/
+  // mqtt-probe-2026-09-06T12-57-39-863Z/topics/v1_overtakes.jsonl`): a
+  // `date` field, same shape as position/intervals/pit/race_control/weather.
+  overtakes: { timestampField: "date" },
   stints: {},
 };
 
