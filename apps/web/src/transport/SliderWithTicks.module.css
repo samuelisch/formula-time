@@ -1,0 +1,46 @@
+.wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 12rem;
+  padding-top: 1.1rem;
+}
+
+.tooltip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.track {
+  position: relative;
+  height: 0;
+}
+
+.tick {
+  position: absolute;
+  top: 0.55rem;
+  width: 1px;
+  height: 0.5rem;
+  background: var(--color-border);
+  transform: translateX(-50%);
+}
+
+.tickLabel {
+  position: absolute;
+  top: 0.55rem;
+  transform: translateX(-50%);
+  font-size: 0.65rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.slider {
+  width: 100%;
+  position: relative;
+  z-index: 1;
+}
