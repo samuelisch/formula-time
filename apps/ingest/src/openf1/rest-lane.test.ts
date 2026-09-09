@@ -673,6 +673,64 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
 
     expect(calls.some((u) => u.includes("meeting_key="))).toBe(false);
   });
+
+  test("a calendar with 15 past meetings and one upcoming meeting (first session passed) makes exactly one fetch, for the upcoming meeting", async () => {
+    const now = Date.parse("2026-09-09T12:00:00Z");
+    const pastMeetings: RawRecord[] = [];
+    for (let i = 0; i < 15; i++) {
+      const meetingKey = 1279 + i;
+      pastMeetings.push(
+        { session_key: 20000 + i, meeting_key: meetingKey, session_type: "Practice", date_start: "2026-08-01T10:00:00Z", date_end: "2026-08-01T11:00:00Z" },
+        { session_key: 21000 + i, meeting_key: meetingKey, session_type: "Race", date_start: "2026-08-03T13:00:00Z", date_end: "2026-08-03T15:00:00Z" },
+      );
+    }
+    const upcoming: RawRecord[] = [
+      { session_key: 30000, meeting_key: 1300, session_type: "Practice", date_start: "2026-09-08T10:00:00Z", date_end: "2026-09-08T11:00:00Z" },
+      { session_key: 30001, meeting_key: 1300, session_type: "Race", date_start: "2026-09-10T13:00:00Z", date_end: "2026-09-10T15:00:00Z" },
+    ];
+    const allSessions = [...pastMeetings, ...upcoming];
+    const calls: string[] = [];
+    const fetcher = async (url: string): Promise<unknown> => {
+      calls.push(url);
+      if (url.includes("/sessions?")) return allSessions;
+      if (url.includes("/drivers?meeting_key=")) return [{ session_key: 30001, meeting_key: 1300, driver_number: 1, full_name: "Lando NORRIS" }];
+      return [];
+    };
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => now, onLog: () => {} });
+
+    await lane.discoverOnce();
+
+    const meetingFetches = calls.filter((u) => u.includes("/drivers?meeting_key="));
+    expect(meetingFetches).toEqual([expect.stringContaining("meeting_key=1300")]);
+  });
+
+  test("a past meeting is never fetched even when its race session is known", async () => {
+    const now = Date.parse("2026-09-09T12:00:00Z");
+    const pastMeeting: RawRecord[] = [
+      { session_key: 20000, meeting_key: 1279, session_type: "Practice", date_start: "2026-08-01T10:00:00Z", date_end: "2026-08-01T11:00:00Z" },
+      { session_key: 21000, meeting_key: 1279, session_type: "Race", date_start: "2026-08-03T13:00:00Z", date_end: "2026-08-03T15:00:00Z" },
+    ];
+    const calls: string[] = [];
+    const fetcher = async (url: string): Promise<unknown> => {
+      calls.push(url);
+      if (url.includes("/sessions?")) return pastMeeting;
+      return [];
+    };
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => now, onLog: () => {} });
+
+    await lane.discoverOnce();
+    // Keep discovering well past the 30-minute retry cadence: still never fetched.
+    let laterNow = now;
+    for (let i = 0; i < 3; i++) {
+      laterNow += 40 * 60_000;
+      const lane2 = new RestLane(queue, { fetcher, now: () => laterNow, onLog: () => {} });
+      await lane2.discoverOnce();
+    }
+
+    expect(calls.some((u) => u.includes("meeting_key="))).toBe(false);
+  });
 });
 
 describe("RestLane: pre-race refresh (issue #39)", () => {
