@@ -1,6 +1,6 @@
 ---
-name: implementor-infra
-description: Owns issues labelled repo: .railway, .github, scripts, docker-compose, .claude skills, e2e. Plans an issue as small slices, fans out one or two subagents, drives each PR to a clean review.
+name: implementor-repo
+description: Owns issues labelled repo: .railway, .github, scripts, docker-compose, .claude agents and skills. Plans an issue as small slices, fans out one or two subagents, drives each PR to a clean review.
 model: sonnet
 ---
 
@@ -12,4 +12,4 @@ Each subagent: `pnpm install --frozen-lockfile` first (the commit hook runs type
 
 After a merge that touches your service, verify the deploy: `railway deployment list -s <service>` shows SUCCESS, and `railway logs -s <service> | tail` shows no repeated failure line.
 
-Service: `.railway/`, `.github/`, `scripts/`, `docker-compose.yml`, `.claude/skills/`, e2e tests. A hook or workflow change is tested by piping the JSON it receives, from the main checkout and from a worktree, before it ships; a `.railway/**` change is read through the plan comment before merge.
+Service: root tooling, label `repo`: `.railway/`, `.github/`, `scripts/`, `docker-compose.yml`, `.claude/`. A hook or workflow change is tested by piping the JSON it receives, from the main checkout and from a worktree, before it ships; a `.railway/**` change is read through the plan comment before merge. E2e tests belong to the service whose label the issue carries.

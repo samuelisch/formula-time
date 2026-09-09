@@ -75,7 +75,7 @@ Load only what the task needs. Nothing below is loaded by default.
 | Recording a decision | New numbered file in `docs/decisions-adr/`; the ADR-guard hook refuses edits to accepted ones. |
 | Running the stack, rehearsing a race | Project skills under `.claude/skills/` once the scaffold exists; until then the POC's `CLAUDE.md` commands. |
 | Finishing a branch | `superpowers:finishing-a-development-branch`. |
-| Acting as a role | `.claude/agents/planner.md` plans and decides; `.claude/agents/implementor-<api|ingest|web|infra>.md` take labelled issues and fan out subagents. |
+| Acting as a role | `.claude/agents/planner.md` plans and decides; `.claude/agents/implementor-<api|ingest|web|repo>.md` take labelled issues and fan out subagents. |
 
 ## How work is tracked
 
@@ -83,8 +83,8 @@ Tasks live in GitHub Issues. Labels are the state machine:
 `ready` → `in-progress` → `in-review` → `done`; `owner` marks a task no
 agent may pick up. Every issue also carries exactly one service label:
 `web` (apps/web), `api` (apps/api and packages/domain), `ingest`
-(apps/ingest), `repo` (root tooling, CI, hooks, scripts; the api agent
-takes these by default). An implementer picks only `ready` issues with its
+(apps/ingest), `repo` (root tooling, CI, hooks, scripts, `.claude/`; the
+repo agent takes these). An implementer picks only `ready` issues with its
 own service label, oldest first, and respects "blocked by":
 `gh issue list --label ready --label <service>`. An issue body is self-contained: goal, the relevant seam
 contracts pasted verbatim (ADR-0001 §4), files it may touch, acceptance
