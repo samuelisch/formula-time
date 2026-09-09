@@ -54,12 +54,12 @@ function session(sessionKey: bigint, status: FakeSessionRow["status"]): FakeSess
   };
 }
 
-function event(sessionKey: bigint, seq: bigint): FakeEventRow {
+function event(sessionKey: bigint, seq: bigint, endpoint = "position"): FakeEventRow {
   return {
     seq,
     eventId: `event-${sessionKey.toString()}-${seq.toString()}`,
     sessionKey,
-    endpoint: "position",
+    endpoint,
     sourceTime: new Date("2026-09-08T12:30:00.000Z"),
     payload: { driver_number: 1 },
   };
@@ -98,6 +98,15 @@ function makeFakeDb() {
             .filter((e) => e.sessionKey === where.sessionKey && e.seq > where.seq.gt)
             .sort((a, b) => (a.seq < b.seq ? -1 : a.seq > b.seq ? 1 : 0))
             .slice(0, take);
+        },
+      ),
+      findFirst: vi.fn(
+        async ({ where }: { where: { sessionKey: bigint; endpoint: { not: string } } }) => {
+          calls.push("event.findFirst");
+          const found = events.find(
+            (e) => e.sessionKey === where.sessionKey && e.endpoint !== where.endpoint.not,
+          );
+          return found === undefined ? null : { seq: found.seq };
         },
       ),
     },
@@ -163,6 +172,56 @@ describe("createExporter", () => {
     expect(db.exports).toHaveLength(1);
     expect(db.calls).not.toContain("export.create");
     expect(db.calls).not.toContain("event.findMany");
+  });
+
+  test("finished, only drivers events: skipped, no exports row, logged once", async () => {
+    const db = makeFakeDb();
+    db.sessions.push(session(6n, "finished"));
+    db.events.push(event(6n, 1n, "drivers"), event(6n, 2n, "drivers"));
+
+    const log = vi.fn();
+    const exporter = createExporter({ db: db as unknown as PrismaClient, dir: join(tmpRoot, "out"), log });
+
+    await exporter.runOnce();
+    expect(db.exports).toHaveLength(0);
+    expect(db.calls).not.toContain("export.create");
+    expect(log).toHaveBeenCalledWith("export skipped 6: no timing events");
+    expect(log).toHaveBeenCalledTimes(1);
+
+    // Re-checked on a later tick, but logged only once per process.
+    await exporter.runOnce();
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  test("finished, only drivers events at first: exported once a timing event lands", async () => {
+    const db = makeFakeDb();
+    db.sessions.push(session(7n, "finished"));
+    db.events.push(event(7n, 1n, "drivers"));
+
+    const log = vi.fn();
+    const exporter = createExporter({ db: db as unknown as PrismaClient, dir: join(tmpRoot, "out"), log });
+
+    await exporter.runOnce();
+    expect(db.exports).toHaveLength(0);
+
+    // A late load adds timing data; the next tick exports it.
+    db.events.push(event(7n, 2n, "position"));
+    await exporter.runOnce();
+    expect(db.exports).toHaveLength(1);
+    expect(db.exports[0]?.sessionKey).toBe(7n);
+  });
+
+  test("finished, has a position event: exported (not skipped)", async () => {
+    const db = makeFakeDb();
+    db.sessions.push(session(8n, "finished"));
+    db.events.push(event(8n, 1n, "drivers"), event(8n, 2n, "position"));
+
+    const log = vi.fn();
+    const exporter = createExporter({ db: db as unknown as PrismaClient, dir: join(tmpRoot, "out"), log });
+    await exporter.runOnce();
+
+    expect(db.exports).toHaveLength(1);
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining("export skipped"));
   });
 
   test("live session: untouched", async () => {

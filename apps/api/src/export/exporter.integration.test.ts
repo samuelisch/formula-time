@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { gunzip } from "node:zlib";
 
 import { createDb, type PrismaClient } from "@formula-time/db";
-import { afterAll, afterEach, beforeAll, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 
 import { createExporter } from "./exporter.js";
 
@@ -18,11 +18,12 @@ const gunzipAsync = promisify(gunzip);
 const db: PrismaClient = createDb();
 
 const SESSION_KEY = 9_000_003n;
+const DRIVERS_ONLY_SESSION_KEY = 9_000_004n;
 
 async function wipe(): Promise<void> {
-  await db.export.deleteMany({ where: { sessionKey: SESSION_KEY } });
-  await db.event.deleteMany({ where: { sessionKey: SESSION_KEY } });
-  await db.session.deleteMany({ where: { sessionKey: SESSION_KEY } });
+  await db.export.deleteMany({ where: { sessionKey: { in: [SESSION_KEY, DRIVERS_ONLY_SESSION_KEY] } } });
+  await db.event.deleteMany({ where: { sessionKey: { in: [SESSION_KEY, DRIVERS_ONLY_SESSION_KEY] } } });
+  await db.session.deleteMany({ where: { sessionKey: { in: [SESSION_KEY, DRIVERS_ONLY_SESSION_KEY] } } });
 }
 
 let dir: string;
@@ -65,6 +66,30 @@ beforeAll(async () => {
         payload: { driver_number: 3, full_name: "Driver Three" },
       },
     ],
+  });
+
+  // A finished practice/qualifying-shaped session whose only ingest
+  // activity was the `drivers` endpoint -- no timing data to replay.
+  await db.session.create({
+    data: {
+      sessionKey: DRIVERS_ONLY_SESSION_KEY,
+      name: "Exporter Integration Test Practice",
+      country: "Testland",
+      circuitKey: 1,
+      dateStart: new Date("2026-09-08T09:00:00.000Z"),
+      dateEnd: new Date("2026-09-08T10:00:00.000Z"),
+      totalLaps: null,
+      status: "finished",
+    },
+  });
+  await db.event.create({
+    data: {
+      eventId: "exporter-it-drivers-only",
+      sessionKey: DRIVERS_ONLY_SESSION_KEY,
+      endpoint: "drivers",
+      sourceTime: new Date("2026-09-08T09:05:00.000Z"),
+      payload: { driver_number: 4, full_name: "Driver Four" },
+    },
   });
 });
 
@@ -122,4 +147,16 @@ test("exports a real session: gzip file matches ADR-0009 §1 exactly; a second r
   await exporter.runOnce();
   const countAfter = await db.export.count({ where: { sessionKey: SESSION_KEY } });
   expect(countAfter).toBe(countBefore);
+});
+
+test("finished session with only drivers events: skipped, no exports row against real Postgres", async () => {
+  dir = await mkdtemp(join(tmpdir(), "exporter-integration-"));
+  const log = vi.fn();
+  const exporter = createExporter({ db, dir, log });
+
+  await exporter.runOnce();
+
+  const row = await db.export.findUnique({ where: { sessionKey: DRIVERS_ONLY_SESSION_KEY } });
+  expect(row).toBeNull();
+  expect(log).toHaveBeenCalledWith(`export skipped ${DRIVERS_ONLY_SESSION_KEY.toString()}: no timing events`);
 });

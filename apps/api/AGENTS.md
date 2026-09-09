@@ -37,8 +37,11 @@ One process holding:
   timeline; the fan-out itself does not interpret either field.
 - **The SSE route handler** — live: attach the socket to the fan-out.
   Finished: redirect to the export. It never touches state.
-- **The exporter** — session finished and not yet exported: write the
-  immutable file once. Idempotent; retried by the same check.
+- **The exporter** — session finished, not yet exported, and holding at
+  least one event whose endpoint is not `drivers` (timing data to replay):
+  write the immutable file once. Idempotent; retried by the same check. A
+  finished session with only `drivers` events (or none) is skipped, logged
+  once per process, and re-checked on later ticks.
 
 This service is the sole writer of `polls` and `votes`. It reads `sessions`
 and `events`; it never writes `events`. Vote acknowledgement: acknowledge
@@ -49,6 +52,16 @@ row.
 ADR-0009: `exports` is a fifth table, written only by the api (the
 exporter). It does not write `sessions` — `sessions.exported_at` was
 dropped in the same migration that added `exports`.
+
+`apps/api/src/export/prune-exports.ts` is a one-off maintenance command,
+not part of the running service: it removes `exports` rows (and their
+files) written before the exporter required a timing event, i.e. rows for
+finished sessions whose only ingest activity was the `drivers` endpoint.
+Run it inside the api container after a build, `node
+apps/api/dist/export/prune-exports.js`, which only logs what it would
+delete; add `--apply` to actually delete the file and the row for each
+affected session. It never touches a session that has any non-`drivers`
+event.
 
 Fastify handles routing, cookies, static files, and validation. The SSE
 route is hand-written on the raw response — compression middleware would
