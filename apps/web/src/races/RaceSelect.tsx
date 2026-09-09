@@ -1,12 +1,12 @@
-// Reusable race picker (issue #80; also meant for the chooser -- RacesPage
-// -- later). Lists the current session first (labelled with its status),
-// then the historical races from `GET /api/races`, newest first as served,
+// Reusable race picker (also meant for the chooser -- RacesPage -- later).
+// Lists the current session first (labelled with its status), then the
+// historical races from `GET /api/races`, newest first as served,
 // deduplicated against the current session's key.
 //
-// `current === null` means "no session has been confirmed yet" (fix round
-// 2 on PR #85's review): this still renders a leading, disabled placeholder
-// entry rather than silently letting the browser's native <select> fallback
-// pick the first *historical* race as visually selected. A caller (e.g.
+// `current === null` means "no session has been confirmed yet": this still
+// renders a leading, disabled placeholder entry rather than silently
+// letting the browser's native <select> fallback pick the first
+// *historical* race as visually selected. A caller (e.g.
 // PollsPage) must never treat "no current session known yet" as license to
 // show a different, unrelated race's data -- that was the actual bug this
 // placeholder exists to make impossible to reintroduce: if the dropdown can

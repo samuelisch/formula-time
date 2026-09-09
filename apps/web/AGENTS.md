@@ -21,9 +21,9 @@
   lights-out detection (`src/align/`) produce a personal offset applied
   straight to `setDelayMs` on the live store -- no server seek, no trim
   loop; the render is a pure function of the delay against the push ring
-  buffer (now − offset). Manual delay nudge (`DelayControl`) is the
-  primary UI; auto-align (`AlignPanel`/`useAligner`) is experimental.
-  `tesseract.js` (the OCR library) is a dependency loaded with a dynamic
+  buffer (now − offset). `TransportBar` (`src/transport/`) is the primary
+  UI for nudging the delay; auto-align (`AlignPanel`/`useAligner`) is
+  experimental. `tesseract.js` (the OCR library) is a dependency loaded with a dynamic
   `import()` in `src/align/capture.ts` so ordinary viewers never download
   it; worker and core paths are left at the library's CDN defaults --
   Netlify serves this app's bundle, but the OCR worker itself comes from
@@ -72,6 +72,15 @@
 - `src/live/useLiveStream.ts` is the only place in the app that
   constructs an `EventSource`; it is mounted once in `Shell`. No other
   component or hook opens its own connection.
+- `src/transport/TimeTarget.ts` is the seam `TransportBar` drives against,
+  with `useLiveTimeTarget` (the live store's delay) and
+  `useReplayTimeTarget` (a replay's playback clock) as its two
+  implementations, so one control surface serves both.
+- `src/replay/timeline.ts`'s `Timeline` is the incremental fold --
+  keyframes, lap markers, `foldAt` for scrubbing -- shared by the replay
+  path (`src/replay/foldRace.ts`, the whole event log in one shot) and the
+  live path (`src/live/timeline.ts`, built page by page while a session
+  is still live).
 - Styling is CSS Modules (`*.module.css` next to the component); the dark
   palette lives as CSS variables in `src/index.css`.
 - Unit tests are `*.test.ts(x)` next to the source. The root

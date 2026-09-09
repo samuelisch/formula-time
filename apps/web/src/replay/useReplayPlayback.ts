@@ -41,7 +41,6 @@ function pushFor(folded: FoldedRace, sourceMs: number): LivePush {
 
 /** Drives playback for a folded race: a `PlaybackClock` plus a `requestAnimationFrame` loop while playing. */
 export function useReplayPlayback(folded: FoldedRace | null): ReplayPlayback {
-  const clockRef = useRef<PlaybackClock | null>(null);
   const rafRef = useRef<number | null>(null);
 
   const startSourceMs = folded?.firstSourceMs ?? 0;
@@ -50,29 +49,38 @@ export function useReplayPlayback(folded: FoldedRace | null): ReplayPlayback {
   const [sourceMs, setSourceMs] = useState(startSourceMs);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // A new race (or a re-fold) gets a fresh clock at its own bounds. Adjusted
-  // during render rather than in an effect (React's "adjusting state when a
-  // prop changes" pattern) so there is no extra committed render with a
-  // stale clock; `foldedRef` is the "previous props" this compares against.
-  const foldedRef = useRef<FoldedRace | null>(null);
-  if (foldedRef.current !== folded) {
-    foldedRef.current = folded;
-    clockRef.current =
-      folded === null ? null : createPlaybackClock({ startSourceMs, endSourceMs, initialWallMs: performance.now() });
+  function freshClock(): PlaybackClock | null {
+    // `initialWallMs: 0` is a harmless placeholder -- `play()` and `seek()`
+    // always re-baseline it before any `tick()` reads it.
+    return folded === null ? null : createPlaybackClock({ startSourceMs, endSourceMs, initialWallMs: 0 });
+  }
+
+  // A new race (or a re-fold) gets a fresh clock at its own bounds, and
+  // sourceMs/isPlaying reset to match it. `clock` is state, not a `useMemo`,
+  // so its identity is a guaranteed React contract rather than a caching
+  // optimisation React is free to discard and recompute. All three are
+  // adjusted during render rather than in an effect (React's "adjusting
+  // state when a prop changes" pattern) so there is no extra committed
+  // render with a stale clock; `prevFolded` is the "previous props" this
+  // compares against.
+  const [clock, setClock] = useState<PlaybackClock | null>(freshClock);
+  const [prevFolded, setPrevFolded] = useState(folded);
+  if (prevFolded !== folded) {
+    setPrevFolded(folded);
+    setClock(freshClock());
     setSourceMs(startSourceMs);
     setIsPlaying(false);
   }
 
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || clock === null) return;
+    const activeClock = clock;
     let cancelled = false;
 
     function frame(): void {
       if (cancelled) return;
-      const clock = clockRef.current;
-      if (clock === null) return;
-      setSourceMs(clock.tick(performance.now()));
-      if (!clock.isPlaying()) {
+      setSourceMs(activeClock.tick(performance.now()));
+      if (!activeClock.isPlaying()) {
         setIsPlaying(false);
         return;
       }
@@ -84,28 +92,28 @@ export function useReplayPlayback(folded: FoldedRace | null): ReplayPlayback {
       cancelled = true;
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [isPlaying]);
+  }, [isPlaying, clock]);
 
   const play = useCallback(() => {
-    const clock = clockRef.current;
     if (clock === null) return;
     clock.play();
     setIsPlaying(clock.isPlaying());
-  }, []);
+  }, [clock]);
 
   const pause = useCallback(() => {
-    const clock = clockRef.current;
     if (clock === null) return;
     clock.pause();
     setIsPlaying(false);
-  }, []);
+  }, [clock]);
 
-  const seek = useCallback((target: number) => {
-    const clock = clockRef.current;
-    if (clock === null) return;
-    clock.seek(target);
-    setSourceMs(clock.sourceMs());
-  }, []);
+  const seek = useCallback(
+    (target: number) => {
+      if (clock === null) return;
+      clock.seek(target);
+      setSourceMs(clock.sourceMs());
+    },
+    [clock],
+  );
 
   const jumpToStart = useCallback(() => {
     seek(startSourceMs);

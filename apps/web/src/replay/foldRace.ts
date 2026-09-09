@@ -1,12 +1,11 @@
-// The browser-side fold (ADR-0009 §5, issue #57): builds the whole race
-// timeline once so scrubbing and playback never re-read the network. The
-// incremental fold itself -- keyframes, `foldAt`, dedupe, the null-source
-// truncation rule -- moved to `timeline.ts` in issue #97 PR1, shared with
-// the live path (`apps/web/src/live/timeline.ts`), which builds the same
-// kind of `Timeline` page by page while a session is still live. See that
-// module's header for the design notes; this file is now a thin wrapper:
-// fold the whole event log in one `appendEvents` call and attach the
-// final state.
+// The browser-side fold (ADR-0009 §5): builds the whole race timeline once
+// so scrubbing and playback never re-read the network. The incremental
+// fold itself -- keyframes, `foldAt`, dedupe, the null-source truncation
+// rule -- lives in `timeline.ts`, shared with the live path
+// (`apps/web/src/live/timeline.ts`), which builds the same kind of
+// `Timeline` page by page while a session is still live. See that module's
+// header for the design notes; this file is now a thin wrapper: fold the
+// whole event log in one `appendEvents` call and attach the final state.
 import type { RawRecord, RaceEvent, RaceState } from "@formula-time/domain";
 
 import {

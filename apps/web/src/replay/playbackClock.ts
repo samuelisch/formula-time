@@ -1,11 +1,11 @@
-// The replay playback clock (issue #57): a pure, React-free state machine on
-// the `source_time` axis so it is trivially unit-testable (no timers, no
-// `requestAnimationFrame`). 1x only (issue #81 removed the 5x/20x speed
-// multiplier: data plays at the rate it was recorded).
+// The replay playback clock: a pure, React-free state machine on the
+// `source_time` axis so it is trivially unit-testable (no timers, no
+// `requestAnimationFrame`). 1x only: data plays at the rate it was
+// recorded.
 //
-// Contract (fix round 3 -- the wiring only calls `tick` while playing, never
-// while paused or idle, so this clock cannot rely on `tick` alone to keep
-// its wall-clock baseline fresh): call `tick(nowWallMs)` on every frame
+// Contract: the wiring only calls `tick` while playing, never while paused
+// or idle, so this clock cannot rely on `tick` alone to keep its
+// wall-clock baseline fresh -- call `tick(nowWallMs)` on every frame
 // *while playing*; `play()` and `seek()` each re-baseline the wall clock to
 // `nowMs` (default `performance.now()`) themselves. Without this, the first
 // `tick` after any idle gap (mount-to-play, a pause, or a seek while paused)

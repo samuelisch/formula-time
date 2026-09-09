@@ -1,6 +1,6 @@
-// Voting is always live (issue #51 decision): POST /api/vote via useMutation
-// regardless of the viewer's delay, since the server judges the lock against
-// live data (PRD §4).
+// Voting is always live: POST /api/vote via useMutation regardless of the
+// viewer's delay, since the server judges the lock against live data
+// (PRD §4).
 import { useMutation, type UseMutationResult } from "@tanstack/react-query";
 
 import { apiFetch } from "../api.ts";

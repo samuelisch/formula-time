@@ -1,9 +1,8 @@
-// The shared transport bar (issue #81): one control surface for both the
-// live delay and replay playback, driven entirely through `useTimeTarget()`
-// so it carries no platform-specific logic. Replaces the live `DelayControl`
-// and the replay-only `TransportBar`. Mounted by both `BoardPage` and
-// `ReplayPage` inside a `TimeTargetProvider`, in the board's toolbar
-// `transport` slot (`board/Board.tsx`).
+// The shared transport bar: one control surface for both the live delay and
+// replay playback, driven entirely through `useTimeTarget()` so it carries
+// no platform-specific logic. Mounted by both `BoardPage` and `ReplayPage`
+// inside a `TimeTargetProvider`, in the board's toolbar `transport` slot
+// (`board/Board.tsx`).
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { clock } from "../lib/format.ts";
@@ -47,10 +46,10 @@ export function TransportBar() {
   const notice = target.notice();
 
   // All lap anchors as tick marks, unfiltered -- the current-lap tooltip's
-  // lookup (fix round 2, PR #106): a viewer's actual lap can have an anchor
-  // before `range.startMs` (live's rolling buffer can open mid-lap), and
-  // the tooltip must still find it even though that tick itself is never
-  // rendered (out of the slider's own bounds).
+  // lookup: a viewer's actual lap can have an anchor before `range.startMs`
+  // (live's rolling buffer can open mid-lap), and the tooltip must still
+  // find it even though that tick itself is never rendered (out of the
+  // slider's own bounds).
   const allTicks = useMemo<TickMark[]>(
     () =>
       anchors.laps
@@ -59,8 +58,8 @@ export function TransportBar() {
     [anchors],
   );
 
-  // Tick marks (PR 2, issue #81): each lap anchor within `range()`, so a
-  // tick never renders past the slider's own bounds.
+  // Each lap anchor within `range()`, so a tick never renders past the
+  // slider's own bounds.
   const ticks = useMemo<TickMark[]>(() => {
     if (range === null) return [];
     return allTicks.filter((tick) => tick.value >= range.startMs && tick.value <= range.endMs);
@@ -94,7 +93,7 @@ export function TransportBar() {
     seekAndMaybePause(Date.parse(found.source_time));
   }
 
-  // Replay-only wording (issue #67): once a sync offset is available
+  // Replay-only wording: once a sync offset is available
   // (`useReplayTimeTarget` always provides one once folded), show it in
   // seconds relative to the un-nudged clock -- the replay analogue of
   // live's "seconds behind now" delay reading -- instead of the absolute

@@ -1,16 +1,15 @@
-// The transport seam (issue #81): one interface both the live board and a
-// replay implement, so a single `TransportBar` drives either without any
+// The transport seam: one interface both the live board and a replay
+// implement, so a single `TransportBar` drives either without any
 // platform-specific logic of its own. `useLiveTimeTarget` (backed by the
 // live store) and `useReplayTimeTarget` (backed by the playback clock and a
 // folded race's lap markers) are the two implementations; `TransportBar`
 // only ever calls through this interface.
 //
-// `notice()` is the one addition to the interface as issue #81 specified it
-// (amended on the issue, fix round 4 on PR #87): without it the live store's
-// `bufferShort` -- the old `DelayControl`'s "showing the oldest" warning --
-// had nowhere to surface, so a viewer nudging past the buffered span landed
-// on stale data silently. Live returns the buffered-delay message; replay,
-// whose whole fold is always seekable, returns null.
+// `notice()` exists because without it the live store's `bufferShort` -- a
+// "showing the oldest" warning -- had nowhere to surface, so a viewer
+// nudging past the buffered span landed on stale data silently. Live
+// returns the buffered-delay message; replay, whose whole fold is always
+// seekable, returns null.
 //
 // A plain .ts file (not .tsx), so `TimeTargetProvider` is built with
 // `createElement` rather than JSX -- the same convention `useBoardState.ts`
@@ -36,8 +35,8 @@ export interface TimeTarget {
   notice(): string | null;
   /**
    * Net effect, in ms, of every `seekTo`/`nudge` call made against this
-   * target so far, relative to an un-nudged reference (issue #67; both
-   * implementations provide it, like `notice()`). Replay: 0 for a fold
+   * target so far, relative to an un-nudged reference; both implementations
+   * provide it, like `notice()`. Replay: 0 for a fold
    * that has only ever played straight through, since ticking while
    * playing advances both the real position and this "un-nudged"
    * reference by the same amount -- null before a fold has loaded. Live:
