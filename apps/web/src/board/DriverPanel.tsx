@@ -24,6 +24,14 @@ function pitOutText(isPitOutLap: boolean | null): string {
   return isPitOutLap ? "Yes" : "No";
 }
 
+// Fix round 1 (issue #90 review): number(value, 3) + a literal "s" appended
+// outside it rendered "—s" for a null gap/interval (the race leader's gap,
+// for one) instead of the issue's verbatim "missing values render —" -- the
+// "s" suffix has to be conditional on there being a number to suffix.
+function secondsText(value: number | null): string {
+  return value === null ? "—" : `${number(value, 3)}s`;
+}
+
 function pitStopLine(pit: RawRecord): string {
   return `L${text(pit["lap_number"])} · ${number(pit["pit_duration"], 1)}s`;
 }
@@ -61,9 +69,9 @@ export function DriverPanel() {
       </div>
       <dl className={styles.stats}>
         <dt>Gap</dt>
-        <dd>{number(driver.gap_to_leader, 3)}s</dd>
+        <dd>{secondsText(driver.gap_to_leader)}</dd>
         <dt>Interval</dt>
-        <dd>{number(driver.interval, 3)}s</dd>
+        <dd>{secondsText(driver.interval)}</dd>
         <dt>Lap</dt>
         <dd>{lapText(driver.current_lap, totalLaps)}</dd>
         <dt>Last lap</dt>
