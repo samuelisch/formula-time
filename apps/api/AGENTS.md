@@ -20,6 +20,9 @@ One process holding:
   (`polls/poll-read.ts`) reads `polls`/`votes` straight from Postgres for
   any race, live or historical; it never touches the poll module's
   in-memory state.
+- **The events-by-race read route** — `GET /api/races/:session_key/events`
+  (`routes/races.ts`) pages the `events` log by `seq` for any session, live
+  included, reusing the projector's own select (`projector/event-source.ts`).
 - **The fan-out** — one `JSON.stringify` per push, gzip once per push,
   identical bytes to every socket. A vote never triggers a push.
 - **The SSE route handler** — live: attach the socket to the fan-out.
