@@ -144,14 +144,18 @@ describe("loadRecordings", () => {
     expect(db.insertOrder[ENTRY_LIST_2026.length + 2]!.startsWith("weather:")).toBe(true);
   });
 
-  test("the session is upserted finished via the override, not the naturally-computed status", async () => {
+  test("the session is upserted finished via the override", async () => {
     const db = fakeDb();
-    // `now` is well before the session's window (`computeSessionStatus`
-    // alone would say "upcoming") — proving the `{ status: "finished" }`
-    // override, not the natural computation, is what lands. Pinning `now`
-    // *inside* the window instead would now hit the ADR-0010 live guard and
-    // refuse the session entirely (covered separately below).
-    await loadRecordings([dir], db, { now: () => FAR_PAST_NOW, onLog: () => {} });
+    // Round-3 review fix (issue #39): the ADR-0010 guard now refuses any
+    // session whose window hasn't closed yet (not only a `live` one), so
+    // `now` must be past the window (FAR_FUTURE_NOW) for the load to be
+    // accepted at all — a `now` before the window (`computeSessionStatus`
+    // would say "upcoming") is refused up front (covered below), no longer
+    // reachable. The final `{ status: "finished" }` override still runs
+    // regardless of the naturally-computed status; with the window closed
+    // that computation already agrees, so this pins the override's own
+    // behaviour rather than a divergence from it.
+    await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
 
     const row = db.sessions.get("9999");
     expect(row?.status).toBe("finished");
@@ -280,6 +284,48 @@ describe("loadRecordings: ADR-0010 — refuses a live session, writes nothing fo
       expect(totals.sessionsSkipped).toBe(1);
       expect(db.sessions.get("9301")?.status).toBe("live"); // untouched, not overwritten to finished
       expect(logs).toContain("load: refused 9301: session is live; the live ingest service owns it");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("round-3 review fix: an upcoming session (window not yet open) is refused too, not only a live one", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "load-recording-upcoming-window-test-"));
+    try {
+      await writeFile(
+        path.join(dir, "session.json"),
+        sessionJson({ sessionKey: 9501, dateStart: "2026-01-01T13:00:00+00:00", dateEnd: "2026-01-01T15:00:00+00:00" }),
+      );
+      const db = fakeDb();
+      const logs: string[] = [];
+      const totals = await loadRecordings([dir], db, {
+        now: () => FAR_PAST_NOW, // well before the window even opens: naturally "upcoming"
+        onLog: (line) => logs.push(line),
+      });
+
+      expect(totals.inserted).toBe(0);
+      expect(totals.sessionsSkipped).toBe(1);
+      expect(db.sessions.has("9501")).toBe(false);
+      expect(logs).toContain("load: refused 9501: window not closed; the live ingest service owns it");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a finished session (window closed) still loads", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "load-recording-finished-window-test-"));
+    try {
+      await writeFile(
+        path.join(dir, "session.json"),
+        sessionJson({ sessionKey: 9601, dateStart: "2026-01-01T13:00:00+00:00", dateEnd: "2026-01-01T15:00:00+00:00" }),
+      );
+      const db = fakeDb();
+      const logs: string[] = [];
+      const totals = await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: (line) => logs.push(line) });
+
+      expect(totals.sessionsSkipped).toBe(0);
+      expect(db.sessions.get("9601")?.status).toBe("finished");
+      expect(logs.some((line) => line.includes("9601") && line.includes("window not closed"))).toBe(false);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

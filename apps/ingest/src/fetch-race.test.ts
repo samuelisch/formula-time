@@ -334,6 +334,39 @@ describe("fetchRaces: ADR-0010 — refuses a live session, writes nothing for it
     // any of the 8 endpoint fetches, so a refused session costs nothing else.
     expect(requestedUrls).toHaveLength(1);
   });
+
+  test("round-3 review fix: an upcoming session (window not yet open) is refused too, not only a live one", async () => {
+    const requestedUrls: string[] = [];
+    const fetcher: Fetcher = async (url) => {
+      requestedUrls.push(url);
+      if (url.includes("/sessions?")) {
+        return [
+          {
+            session_key: 9501,
+            session_name: "Race",
+            country_name: "Italy",
+            circuit_key: 39,
+            date_start: "2026-01-01T13:00:00+00:00",
+            date_end: "2026-01-01T15:00:00+00:00",
+          },
+        ];
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const db = fakeLoaderDb();
+    const logs: string[] = [];
+    const result = await fetchRaces([9501], db, fetcher, {
+      now: () => Date.parse("2025-01-01T00:00:00Z"), // well before the window even opens: naturally "upcoming"
+      onLog: (line) => logs.push(line),
+    });
+
+    expect(result.inserted).toBe(0);
+    expect(result.sessionsSkipped).toBe(1);
+    expect(db.sessions.has("9501")).toBe(false);
+    expect(logs).toContain("load: refused 9501: window not closed; the live ingest service owns it");
+    expect(requestedUrls).toHaveLength(1);
+  });
 });
 
 describe("fetchRaces: no session found for the session_key", () => {
