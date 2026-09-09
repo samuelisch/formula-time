@@ -16,6 +16,7 @@
     "dev:api": "pnpm --filter @formula-time/api dev",
     "dev:ingest": "pnpm --filter @formula-time/ingest dev",
     "ingest:load": "pnpm --filter @formula-time/ingest load --",
+    "ingest:fetch-race": "pnpm --filter @formula-time/ingest fetch-race --",
     "dev:web": "pnpm --filter @formula-time/web dev",
     "sim": "pnpm --filter @formula-time/ingest sim --",
     "db:up": "scripts/with-db-env.sh docker compose up -d postgres",
