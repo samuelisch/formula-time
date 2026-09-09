@@ -1,16 +1,26 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router";
 
 import { makeDriver, makePush } from "../test/fixtures.ts";
 import { TimingTable } from "./TimingTable.tsx";
 import { BoardSourceProvider } from "./useBoardState.ts";
 
-function renderWith(push: ReturnType<typeof makePush> | null): void {
-  render(
-    <BoardSourceProvider push={push}>
-      <TimingTable />
-    </BoardSourceProvider>,
+// Wrapped in a MemoryRouter: DriverRow reads/writes the driver selection
+// through useDriverSelection() (useSearchParams), which needs a Router
+// context even when a row's click is never simulated (issue #90).
+function tree(push: ReturnType<typeof makePush> | null) {
+  return (
+    <MemoryRouter>
+      <BoardSourceProvider push={push}>
+        <TimingTable />
+      </BoardSourceProvider>
+    </MemoryRouter>
   );
+}
+
+function renderWith(push: ReturnType<typeof makePush> | null) {
+  return render(tree(push));
 }
 
 describe("TimingTable ordering", () => {
@@ -68,5 +78,54 @@ describe("TimingTable row formatting", () => {
     expect(screen.getAllByText("—s")).toHaveLength(2); // gap and interval
     // position, full name, team name, tyre, and last pit all fall back to "—"
     expect(screen.getAllByText("—")).toHaveLength(5);
+  });
+});
+
+// TimingTable wires useBoardPositionDeltas() (issue #91) to each DriverRow.
+// A single render never has a previous push to compare against, so these
+// cases render once and then push a second, changed state.
+describe("TimingTable position cues", () => {
+  function pushWithPosition(position: number) {
+    const driver = makeDriver({ driver_number: 1, name_acronym: "VER", position });
+    return makePush({}, { drivers: { "1": driver }, driver_order: [1] });
+  }
+
+  it("renders a gain cue for a driver who moved up since the previous push", () => {
+    const { rerender } = renderWith(pushWithPosition(3));
+    rerender(tree(pushWithPosition(1)));
+    expect(screen.getByText("▲ 2")).toBeInTheDocument();
+  });
+
+  it("renders a loss cue for a driver who moved down since the previous push", () => {
+    const { rerender } = renderWith(pushWithPosition(1));
+    rerender(tree(pushWithPosition(4)));
+    expect(screen.getByText("▼ 3")).toBeInTheDocument();
+  });
+
+  it("renders no cue text for a driver whose position did not change", () => {
+    const { rerender } = renderWith(pushWithPosition(2));
+    rerender(tree(pushWithPosition(2)));
+    expect(screen.queryByText(/^[▲▼]/)).not.toBeInTheDocument();
+  });
+
+  // Fix round 1 (issue #91 review): the issue asks for the arrow/number cue
+  // "plus a subtle row highlight on the change" -- a second, row-level
+  // signal, not only the small cell.
+  it("adds a row-highlight class on a position change", () => {
+    const { rerender } = renderWith(pushWithPosition(3));
+    rerender(tree(pushWithPosition(1)));
+    const row = screen.getByText("VER").closest("tr")!;
+    expect(row.className).toMatch(/rowGain/);
+  });
+
+  it("adds no row-highlight class for a driver whose position never changed", () => {
+    // A fresh render (not a rerender after a real change), so there is
+    // nothing in useBoardPositionDeltas()'s baseline for this to compare
+    // against yet -- unlike a same-position rerender right after a real
+    // gain/loss, whose cue is still within its 8s window and correctly
+    // still highlighted.
+    renderWith(pushWithPosition(2));
+    const row = screen.getByText("VER").closest("tr")!;
+    expect(row.className).not.toMatch(/rowGain|rowLoss/);
   });
 });

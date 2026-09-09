@@ -28,6 +28,20 @@ export function number(value: unknown, digits = 1): string {
   return value.toFixed(digits);
 }
 
+/** A lap or sector duration in seconds, as `SS.SSS` below 60s or `M:SS.SSS` at or above 60s; "—" for anything not a number. */
+export function lapTime(value: unknown): string {
+  if (typeof value !== "number" || Number.isNaN(value)) return "—";
+  if (value < 60) return value.toFixed(3);
+  const minutes = Math.floor(value / 60);
+  const seconds = value - minutes * 60;
+  return `${minutes}:${seconds.toFixed(3).padStart(6, "0")}`;
+}
+
+/** `L<lap> · <duration>s`, or "—" for no pit stop. Shared by the timing table's "last pit" column (DriverRow.tsx) and the driver panel's pit-stop history (DriverPanel.tsx) -- issue #90 review round 2: no copy-paste between files. */
+export function pitStopText(pit: RawRecord | null): string {
+  return pit === null ? "—" : `L${text(pit["lap_number"])} · ${number(pit["pit_duration"], 1)}s`;
+}
+
 /** `HH:MM:SS UTC` from an ISO source time, or "—" when absent/unparseable. */
 export function clock(iso: string | null | undefined): string {
   if (iso === null || iso === undefined) return "—";

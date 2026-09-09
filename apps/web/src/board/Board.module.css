@@ -1,10 +1,33 @@
+/* One grid for the whole board (issue #90 fix round 1): below ~860px, a
+   single column in DOM order (strip, toolbar, side, cards, table) -- the
+   side slot is a full-width card directly under the toolbar, per the
+   issue's acceptance criterion. The wide breakpoint below only reassigns
+   grid areas; it never reorders the DOM, so `side` stays a single element
+   in the tree and reading/tab order is unaffected by which layout is
+   active. Every direct child of `.board` needs a named area (`strip` and
+   `side` included, even though both can render empty) -- an unnamed grid
+   child auto-places into an implicit row instead of respecting DOM order. */
 .board {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-areas:
+    "strip"
+    "toolbar"
+    "side"
+    "cards"
+    "table";
   gap: 1rem;
 }
 
+.stripArea {
+  grid-area: strip;
+}
+
+.stripArea:empty {
+  display: none;
+}
+
 .toolbar {
+  grid-area: toolbar;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -26,8 +49,35 @@
   font-variant-numeric: tabular-nums;
 }
 
+.side {
+  grid-area: side;
+}
+
+.side:empty {
+  display: none;
+}
+
 .grid {
+  grid-area: cards;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
   gap: 1rem;
+}
+
+.table {
+  grid-area: table;
+  /* Stops the table's own min-content width from pushing the side column
+     off-screen once it sits next to `table` in the wide layout below. */
+  min-width: 0;
+}
+
+@media (min-width: 861px) {
+  .board {
+    grid-template-columns: 1fr 20rem;
+    grid-template-areas:
+      "strip   strip"
+      "toolbar toolbar"
+      "cards   cards"
+      "table   side";
+  }
 }

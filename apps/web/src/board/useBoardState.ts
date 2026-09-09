@@ -17,7 +17,7 @@ import { leaderLap } from "@formula-time/domain";
 import { createContext, createElement, useContext, useMemo, useRef, type ReactNode } from "react";
 
 import { sessionStatusOf, useDisplayed, type SessionStatusValue } from "../live/selectors.ts";
-import type { LivePush } from "../live/types.ts";
+import { axisOf, type LivePush } from "../live/types.ts";
 
 export interface BoardSource {
   push: LivePush | null;
@@ -127,4 +127,93 @@ export function useBoardDriver(driverNumber: number): DriverState | null {
     cacheRef.current = { driverNumber, snapshot, value: driver };
     return driver;
   }, [push, driverNumber]);
+}
+
+/** How long a position-change cue stays visible after the push that set it (issue #91). */
+const POSITION_CUE_TTL_MS = 8000;
+
+interface PositionCue {
+  /** previous position - current position: positive is a gain, negative a loss. */
+  delta: number;
+  setAt: number;
+}
+
+interface PositionCueState {
+  sessionKey: string | null;
+  axisMillis: number | null;
+  /** Each driver's position as of the last push this hook has folded in. */
+  positions: Record<number, number>;
+  cues: Record<number, PositionCue>;
+}
+
+function emptyPositionCueState(): PositionCueState {
+  return { sessionKey: null, axisMillis: null, positions: {}, cues: {} };
+}
+
+/**
+ * Position deltas since the previous push, keyed by driver number: positive
+ * means the driver gained places, negative means it lost them, and a driver
+ * absent from the result has no live cue (issue #91).
+ *
+ * The baseline lives in a ref keyed by `session_key`, reset -- silently, with
+ * no cue -- on a new session or whenever the push's axis (`axisOf()`, the
+ * same anchor alignment uses) goes backwards, which is what a replay
+ * rewind/scrub looks like. That is the one rule that keeps a delayed or
+ * scrubbing viewer from seeing a cue for a "change" that is really just the
+ * playhead moving backwards.
+ *
+ * A cue fades 8s after the push that set it, compared against `Date.now()`
+ * on each render this hook runs (i.e. each push) rather than a per-row
+ * timer -- so a cue can outlive its 8s window by up to one push interval if
+ * pushes are sparse, which is an acceptable trade for not running a timer
+ * per driver row.
+ */
+export function useBoardPositionDeltas(): Record<number, number> {
+  const push = useBoardPush();
+  const cueStateRef = useRef<PositionCueState>(emptyPositionCueState());
+
+  return useMemo(() => {
+    if (push === null) return {};
+    const cueState = cueStateRef.current;
+
+    const axisMillis = axisOf(push);
+    const isNewSession = cueState.sessionKey !== push.session_key;
+    const isBackwards = !isNewSession && cueState.axisMillis !== null && axisMillis < cueState.axisMillis;
+
+    if (isNewSession || isBackwards) {
+      cueState.sessionKey = push.session_key;
+      cueState.axisMillis = axisMillis;
+      cueState.positions = {};
+      cueState.cues = {};
+      for (const driver of Object.values(push.state.drivers)) {
+        if (driver.position !== null) cueState.positions[driver.driver_number] = driver.position;
+      }
+      return {};
+    }
+
+    cueState.sessionKey = push.session_key;
+    cueState.axisMillis = axisMillis;
+
+    for (const driver of Object.values(push.state.drivers)) {
+      const previous = cueState.positions[driver.driver_number] ?? null;
+      const current = driver.position;
+      if (current !== null && previous !== null && previous !== current) {
+        cueState.cues[driver.driver_number] = { delta: previous - current, setAt: Date.now() };
+      }
+      if (current !== null) {
+        cueState.positions[driver.driver_number] = current;
+      }
+    }
+
+    const now = Date.now();
+    const result: Record<number, number> = {};
+    for (const [driverNumber, cue] of Object.entries(cueState.cues)) {
+      if (now - cue.setAt > POSITION_CUE_TTL_MS) {
+        delete cueState.cues[Number(driverNumber)];
+      } else {
+        result[Number(driverNumber)] = cue.delta;
+      }
+    }
+    return result;
+  }, [push]);
 }

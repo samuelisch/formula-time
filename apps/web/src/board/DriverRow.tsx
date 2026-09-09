@@ -1,45 +1,75 @@
 import { memo } from "react";
-import type { DriverState, RawRecord } from "@formula-time/domain";
+import type { DriverState } from "@formula-time/domain";
 
-import { number, text } from "../lib/format.ts";
+import { number, pitStopText, text } from "../lib/format.ts";
 import { useBoardDriver } from "./useBoardState.ts";
+import { TeamDot } from "./TeamDot.tsx";
 import styles from "./TimingTable.module.css";
 
 function tyreText(tyre: DriverState["tyre"]): string {
   return tyre.compound === null ? "—" : `${tyre.compound} · age ${text(tyre.age)}`;
 }
 
-function pitText(pit: RawRecord | null): string {
-  return pit === null ? "—" : `L${text(pit["lap_number"])} · ${number(pit["pit_duration"], 1)}s`;
+// ▲2 (green, a gain) or ▼1 (red, a loss); empty for 0 or unknown (issue #91).
+function cueText(delta: number): string {
+  if (delta > 0) return `▲ ${delta}`;
+  if (delta < 0) return `▼ ${Math.abs(delta)}`;
+  return "";
 }
 
 export interface DriverRowProps {
   number: number;
+  /** Places gained (positive) or lost (negative) since the previous push, from useBoardPositionDeltas(); 0 or absent renders no cue (issue #91). */
+  delta?: number;
+  /** Whether this driver is the one selected for the detail panel (issue #90). */
+  selected: boolean;
+  /** Toggles this driver's selection; called with `number`. Passed down from a single `useDriverSelection()` call in `TimingTable` -- see the memoisation note below. */
+  onSelect: (driverNumber: number) => void;
 }
 
 // Memoised: useBoardDriver() returns the previous reference when this
 // driver's data has not changed since the last push, so a push that touches
-// one driver re-renders only that driver's row.
-export const DriverRow = memo(function DriverRow({ number: driverNumber }: DriverRowProps) {
+// one driver re-renders only that driver's row. `selected` and `onSelect`
+// arrive as props from one shared `useDriverSelection()` call in
+// `TimingTable`, rather than each row calling the hook itself: every row
+// calling `useSearchParams()` directly would re-render all of them on any
+// selection change (the URL/location context notifies every subscriber, not
+// just the row whose own `selected` value changed), defeating the point of
+// this memoisation for that case. With `selected` as a plain boolean prop,
+// only the previously-selected and newly-selected rows actually change props
+// and re-render (issue #90 fix round 1). `delta` is likewise a plain number
+// prop (not read from a hook here), so the same shallow comparison also
+// skips a row whose cue did not change (issue #91).
+export const DriverRow = memo(function DriverRow({ number: driverNumber, delta = 0, selected, onSelect }: DriverRowProps) {
   const driver = useBoardDriver(driverNumber);
   if (driver === null) return null;
 
+  const cueClass = delta > 0 ? styles.cueGain : delta < 0 ? styles.cueLoss : undefined;
+  // Fix round 1 (issue #91 review): the issue asks for the arrow/number cue
+  // "plus a subtle row highlight on the change" -- a second signal on the
+  // row itself, not just the small cell. Driven by the same `delta` (0 once
+  // useBoardPositionDeltas() expires the cue), so the highlight fades with
+  // the arrow, not on its own timer.
+  const rowChangeClass = delta > 0 ? styles.rowGain : delta < 0 ? styles.rowLoss : undefined;
+  const rowClassName = [styles.row, selected ? styles.selected : null, rowChangeClass].filter(Boolean).join(" ");
+
   return (
-    <tr>
+    <tr className={rowClassName} onClick={() => onSelect(driverNumber)} aria-selected={selected}>
       <td className={styles.position}>{driver.position === null ? "—" : driver.position}</td>
+      <td className={cueClass}>{cueText(delta)}</td>
       <td>
         <strong>{text(driver.name_acronym)}</strong>
         <br />
         <span className={styles.muted}>{text(driver.full_name)}</span>
       </td>
       <td>
-        <span className={styles.teamDot} style={{ background: `#${text(driver.team_colour, "888")}` }} aria-hidden="true" />
+        <TeamDot teamColour={driver.team_colour} />
         {text(driver.team_name)}
       </td>
       <td>{number(driver.gap_to_leader, 3)}s</td>
       <td>{number(driver.interval, 3)}s</td>
       <td>{tyreText(driver.tyre)}</td>
-      <td>{pitText(driver.latest_pit_stop)}</td>
+      <td>{pitStopText(driver.latest_pit_stop)}</td>
     </tr>
   );
 });

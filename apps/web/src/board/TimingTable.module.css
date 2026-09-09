@@ -38,16 +38,47 @@
   font-weight: 700;
 }
 
-.muted {
-  color: var(--color-muted);
+/* Position-change cue (issue #91): green for a gain, red for a loss, via the
+   existing palette variables (--color-accent is the site's F1 red). */
+.cueGain {
+  color: var(--color-green);
+  font-weight: 700;
 }
 
-.teamDot {
-  display: inline-block;
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 999px;
-  margin-right: 0.4rem;
+.cueLoss {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+/* The row itself, subtly tinted on a position change (issue #91's "plus a
+   subtle row highlight on the change") -- a low-opacity wash of the same
+   green/red as the cue cell, not a solid fill, so it reads as secondary to
+   the arrow/number. Values are --color-green (#66d18f) and --color-accent
+   (#e10600) at 12% opacity; CSS custom properties can't be partially
+   applied inside rgba() without wider relative-color-syntax support, so
+   these are spelled out directly rather than computed from the variables. */
+.rowGain {
+  background: rgba(102, 209, 143, 0.12);
+}
+
+.rowLoss {
+  background: rgba(225, 6, 0, 0.12);
+}
+
+.row {
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--color-raised);
+}
+
+.selected {
+  background: var(--color-raised);
+}
+
+.muted {
+  color: var(--color-muted);
 }
 
 .empty {
