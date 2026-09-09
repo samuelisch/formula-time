@@ -41,6 +41,36 @@ describe("SliderWithTicks", () => {
     expect(screen.getByText("Lap 2")).toBeInTheDocument();
   });
 
+  // Fix round 2 on PR #106: `TransportBar` filters `ticks` to `range()` so
+  // a tick mark never renders past the slider's own bounds, but the
+  // viewer's actual lap can have started before `range.startMs` (live's
+  // rolling buffer can open mid-lap) -- the tooltip lookup must use the
+  // unfiltered `allTicks`, not the rendered (and here empty) `ticks`.
+  it("finds the current lap from allTicks even when its anchor is outside the rendered range", () => {
+    const allTicks: TickMark[] = [
+      { lap: 1, value: -50_000 }, // before range.startMs (0) -- never rendered
+      { lap: 2, value: 30_000 },
+    ];
+    const visibleTicks: TickMark[] = [{ lap: 2, value: 30_000 }]; // range-filtered: lap 1 is out of range
+    render(
+      <SliderWithTicks
+        min={0}
+        max={100_000}
+        value={10_000} // between lap 1's (out-of-range) anchor and lap 2's
+        ticks={visibleTicks}
+        allTicks={allTicks}
+        ariaLabel="Playback position"
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Lap 1")).toBeInTheDocument();
+  });
+
+  it("falls back to ticks for the tooltip lookup when allTicks is not given", () => {
+    render(<SliderWithTicks min={0} max={100_000} value={45_000} ticks={TICKS} ariaLabel="Playback position" onChange={vi.fn()} />);
+    expect(screen.getByText("Lap 2")).toBeInTheDocument();
+  });
+
   it("snaps the emitted value when a pointer drag lands within the threshold of a tick", () => {
     const onChange = vi.fn();
     render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={onChange} />);
@@ -102,6 +132,26 @@ describe("SliderWithTicks", () => {
     fireEvent.pointerCancel(slider);
     fireEvent.change(slider, { target: { value: "31000" } });
     expect(onChange).toHaveBeenLastCalledWith(31_000); // cancelled, no snap
+  });
+
+  // Fix round 2 on PR #106: an interrupted drag (focus moves away, or the
+  // browser revokes pointer capture) must not leave `isDragging` stuck
+  // true, or a later keyboard step would snap.
+  it("clears the drag state on blur or lost pointer capture, so an interrupted drag doesn't leave keyboard steps snapping", () => {
+    const onChange = vi.fn();
+    render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={onChange} />);
+    const slider = screen.getByRole("slider", { name: "Playback position" });
+
+    fireEvent.pointerDown(slider);
+    fireEvent.blur(slider);
+    fireEvent.change(slider, { target: { value: "31000" } });
+    expect(onChange).toHaveBeenLastCalledWith(31_000); // interrupted by blur, no snap
+
+    onChange.mockClear();
+    fireEvent.pointerDown(slider);
+    fireEvent.lostPointerCapture(slider);
+    fireEvent.change(slider, { target: { value: "31000" } });
+    expect(onChange).toHaveBeenLastCalledWith(31_000); // interrupted by lost pointer capture, no snap
   });
 
   it("disables the underlying input when disabled", () => {

@@ -46,14 +46,25 @@ export function TransportBar() {
   // `bufferShort` ("showing the oldest"), on replay always null.
   const notice = target.notice();
 
+  // All lap anchors as tick marks, unfiltered -- the current-lap tooltip's
+  // lookup (fix round 2, PR #106): a viewer's actual lap can have an anchor
+  // before `range.startMs` (live's rolling buffer can open mid-lap), and
+  // the tooltip must still find it even though that tick itself is never
+  // rendered (out of the slider's own bounds).
+  const allTicks = useMemo<TickMark[]>(
+    () =>
+      anchors.laps
+        .map((anchor) => ({ lap: anchor.lap, value: Date.parse(anchor.source_time) }))
+        .filter((tick) => Number.isFinite(tick.value)),
+    [anchors],
+  );
+
   // Tick marks (PR 2, issue #81): each lap anchor within `range()`, so a
   // tick never renders past the slider's own bounds.
   const ticks = useMemo<TickMark[]>(() => {
     if (range === null) return [];
-    return anchors.laps
-      .map((anchor) => ({ lap: anchor.lap, value: Date.parse(anchor.source_time) }))
-      .filter((tick) => Number.isFinite(tick.value) && tick.value >= range.startMs && tick.value <= range.endMs);
-  }, [anchors, range]);
+    return allTicks.filter((tick) => tick.value >= range.startMs && tick.value <= range.endMs);
+  }, [allTicks, range]);
 
   /** Race-start and lap jumps move the position and, on replay, pause -- live has no playback to pause. */
   function seekAndMaybePause(atMs: number): void {
@@ -134,6 +145,7 @@ export function TransportBar() {
           max={range?.endMs ?? 0}
           value={displayedAtMs ?? range?.startMs ?? 0}
           ticks={ticks}
+          allTicks={allTicks}
           disabled={range === null || range.startMs === range.endMs}
           ariaLabel="Playback position"
           onChange={(value) => target.seekTo(value)}

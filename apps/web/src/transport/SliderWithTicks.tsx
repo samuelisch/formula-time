@@ -9,9 +9,19 @@
 // `step` (100ms) also fires a `change` event on every arrow-key press, and
 // snapping unconditionally there could pull a keyboard step onto a tick
 // that is not on the 100ms grid, making the control appear stuck. A
-// `pointerdown`/`pointerup`/`pointercancel` pair on the input tracks
-// whether the current `change` came from a drag; keyboard and programmatic
-// changes pass the raw stepped value straight through.
+// `pointerdown`/`pointerup`/`pointercancel`/`onLostPointerCapture`/`onBlur`
+// set on the input tracks whether the current `change` came from a drag
+// (the last two clear it if a drag is interrupted -- e.g. focus moves away
+// mid-drag -- so it cannot leave a later keyboard step snapping); keyboard
+// and programmatic changes pass the raw stepped value straight through.
+//
+// `ticks` (rendered tick marks) and `allTicks` (fix round 2, PR #106) are
+// deliberately separate: `TransportBar` filters `ticks` to `range()` so a
+// tick never renders past the slider's own bounds, but the current-lap
+// tooltip must still find the viewer's actual lap even when that lap's own
+// anchor sits before `range.startMs` (live's rolling buffer can open
+// mid-lap) -- `allTicks` is the unfiltered list for that lookup only,
+// defaulting to `ticks` when the caller has nothing more complete to give.
 import { useState, type ChangeEvent } from "react";
 
 import { currentLap, percent, snapTarget, type TickMark } from "./sliderMath.ts";
@@ -25,13 +35,25 @@ export interface SliderWithTicksProps {
   min: number;
   max: number;
   value: number;
+  /** Rendered as tick marks -- the caller should already have filtered this to `range()`. */
   ticks: TickMark[];
+  /** Used only for the current-lap tooltip lookup; unfiltered, so a lap whose anchor is outside `range()` is still found. Defaults to `ticks`. */
+  allTicks?: TickMark[];
   disabled?: boolean;
   ariaLabel: string;
   onChange(value: number): void;
 }
 
-export function SliderWithTicks({ min, max, value, ticks, disabled = false, ariaLabel, onChange }: SliderWithTicksProps) {
+export function SliderWithTicks({
+  min,
+  max,
+  value,
+  ticks,
+  allTicks,
+  disabled = false,
+  ariaLabel,
+  onChange,
+}: SliderWithTicksProps) {
   const [isDragging, setIsDragging] = useState(false);
 
   function handleChange(event: ChangeEvent<HTMLInputElement>): void {
@@ -44,7 +66,7 @@ export function SliderWithTicks({ min, max, value, ticks, disabled = false, aria
     onChange(snapped !== null ? snapped.value : raw);
   }
 
-  const lap = currentLap(value, ticks);
+  const lap = currentLap(value, allTicks ?? ticks);
 
   return (
     <div className={styles.wrapper}>
@@ -73,6 +95,8 @@ export function SliderWithTicks({ min, max, value, ticks, disabled = false, aria
         onPointerDown={() => setIsDragging(true)}
         onPointerUp={() => setIsDragging(false)}
         onPointerCancel={() => setIsDragging(false)}
+        onLostPointerCapture={() => setIsDragging(false)}
+        onBlur={() => setIsDragging(false)}
       />
     </div>
   );
