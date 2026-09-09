@@ -68,3 +68,13 @@ gzip per viewer, which the fan-out design forbids.
 - Config is read from the platform secret store, never from files in the
   image: `DATABASE_URL`, `OPENF1_LOGIN`, `OPENF1_PASSWORD`, `PORT`,
   `LIVE_SOURCE`, `EXPORT_DIR` (default `./exports`, ADR-0009 §2).
+- The `viewer_id` cookie's attributes come from one helper,
+  `viewerCookieOptions(env)` (`polls/viewer-identity.ts`), so `routes.ts`
+  and the raw fallback string `resolveViewerId` builds can never drift
+  (ADR-0015). `env === "production"` gets `SameSite=None; Secure`, needed
+  for the cookie to travel between the split origins (ADR-0008); anything
+  else gets `SameSite=Lax`, not `Secure`, because dev runs over plain http
+  and a browser drops a `SameSite=None` cookie that is not `Secure`.
+  `POST /api/vote` also checks `Origin` against the same `CORS_ORIGIN`
+  allowlist the cors plugin uses (`originAllowed` in `cors.ts`) — the CSRF
+  guard `SameSite=Lax` used to give for free.

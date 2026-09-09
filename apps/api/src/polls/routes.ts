@@ -22,9 +22,10 @@ import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 
 import type { PrismaClient } from "@formula-time/db";
 
+import { originAllowed, parseAllowedOrigins } from "../cors.js";
 import type { PollModule } from "./poll-module.js";
 import { pollsBySession } from "./poll-read.js";
-import { resolveViewerId } from "./viewer-identity.js";
+import { resolveViewerId, viewerCookieOptions } from "./viewer-identity.js";
 
 interface VoteBody {
   poll_id: string;
@@ -47,15 +48,20 @@ export function registerPolls(module: PollModule, db: PrismaClient): FastifyPlug
     fastify.register(cookie);
 
     fastify.post<{ Body: VoteBody }>("/vote", { schema: { body: voteBodySchema } }, async (request, reply) => {
-      const { viewerId, setCookie } = resolveViewerId(request.headers.cookie);
+      // SameSite=None (below) dropped the CSRF guard Lax gave for free, so
+      // the vote route checks Origin itself, against the same allowlist
+      // the cors plugin uses (ADR-0015). Checked before touching viewer
+      // identity or the poll module: a disallowed origin gets nothing else.
+      const allowedOrigins = parseAllowedOrigins(process.env.CORS_ORIGIN);
+      if (!originAllowed(request.headers.origin, allowedOrigins)) {
+        reply.code(403);
+        return { error: "origin not allowed" };
+      }
+
+      const env = process.env.NODE_ENV;
+      const { viewerId, setCookie } = resolveViewerId(request.headers.cookie, env);
       if (setCookie !== null) {
-        reply.setCookie("viewer_id", viewerId, {
-          path: "/",
-          maxAge: 31536000,
-          sameSite: "lax",
-          httpOnly: true,
-          secure: true,
-        });
+        reply.setCookie("viewer_id", viewerId, viewerCookieOptions(env));
       }
 
       const result = await module.vote(request.body.poll_id, viewerId, request.body.option_id);
