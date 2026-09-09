@@ -7,11 +7,9 @@
 - **Amends:** ADR-0001 §3 (the "Deep rewind on live" row: "Keep the POC's
   server-side interim session; browser fold is the target" — the browser
   fold is now the build, no server-side interim session is built in this
-  app) and §4 (seam contracts: the push shape gains `events`; the paged
-  event log route from issue #102 is the join read); ADR-0013 (Decision
-  point 1's delta payload shape, frozen verbatim as `{ type: "delta", seq,
-  base_seq, sent_at, session_key, patch, polls }`, gains `events` and,
-  conditionally, `rebuilt` — point 4 below)
+  app); ADR-0013 (Decision point 1's delta payload shape, frozen verbatim
+  as `{ type: "delta", seq, base_seq, sent_at, session_key, patch, polls }`,
+  gains `events` and, conditionally, `rebuilt` — point 4 below)
 
 ## Context
 
