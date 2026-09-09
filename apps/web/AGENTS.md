@@ -1,5 +1,8 @@
 # apps/web — local conventions
 
+Issue label: `web`. An agent working here picks `ready` issues labelled
+`web` (`gh issue list --label ready --label web`) and nothing else.
+
 ## What this app owns
 
 - Vite + React. Built assets are static, hosted on Netlify (interim
