@@ -32,7 +32,9 @@ sha256_hex() {
 }
 
 # git is absent in the Docker image; fall back to the working directory so
-# this script never fails a deploy that reaches it.
+# this script never fails a deploy that reaches it. Without git (the Docker
+# image) the hash is of the working directory; Railway and CI set
+# DATABASE_URL themselves, so the derived port is unused there.
 if command -v git >/dev/null 2>&1; then
   toplevel="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 else

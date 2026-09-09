@@ -15,15 +15,6 @@ if [ "$#" -eq 0 ]; then
   exit 1
 fi
 
-# Railway (pre-deploy `pnpm db:migrate:deploy`) and CI set DATABASE_URL
-# themselves and run in images without git; the worktree derivation is
-# purely a local-dev convenience, so skip it entirely when the URL is set.
-if [ -n "${DATABASE_URL:-}" ]; then
-  : "${DATABASE_DIRECT_URL:=$DATABASE_URL}"
-  export DATABASE_DIRECT_URL
-  exec "$@"
-fi
-
 db_env_output="$("$script_dir/db-env.sh")" || {
   echo "with-db-env: scripts/db-env.sh failed (see above)" >&2
   exit 1
