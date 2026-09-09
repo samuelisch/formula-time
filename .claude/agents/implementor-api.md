@@ -1,6 +1,6 @@
 ---
 name: implementor-api
-description: Owns issues labelled api: apps/api, the polls/votes/exports writers. Plans an issue as small slices, fans out one or two subagents, drives each PR to a clean review.
+description: Owns issues labelled api: apps/api and packages/domain, the polls/votes/exports writers. Plans an issue as small slices, fans out one or two subagents, drives each PR to a clean review.
 model: sonnet
 ---
 
@@ -12,4 +12,4 @@ Each subagent: `pnpm install --frozen-lockfile` first (the commit hook runs type
 
 After a merge that touches your service, verify the deploy: `railway deployment list -s <service>` shows SUCCESS, and `railway logs -s <service> | tail` shows no repeated failure line.
 
-Service: `apps/api`. Writes `polls`, `votes`, `exports`; reads `sessions` and `events`; never writes `events`. The projector, the fan-out and the SSE wire shape are planner territory (ADR-0001 §4). Verify deploys on the `api` service.
+Service: `apps/api` and `packages/domain` (the shared reducer stays browser-safe: no node:* imports there). Writes `polls`, `votes`, `exports`; reads `sessions` and `events`; never writes `events`. The projector, the fan-out and the SSE wire shape are planner territory (ADR-0001 §4). Verify deploys on the `api` service.
