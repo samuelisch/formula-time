@@ -1,5 +1,8 @@
 # apps/ingest — local conventions
 
+Issue label: `ingest`. An agent working here picks `ready` issues labelled
+`ingest` (`gh issue list --label ready --label ingest`) and nothing else.
+
 The only process that talks to OpenF1. Sole writer of the `sessions` and
 `events` tables (and the entry list, via the writer below); writes nothing
 else.

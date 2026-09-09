@@ -1,5 +1,9 @@
 # apps/api — AGENTS.md
 
+Issue labels: `api` (this service and `packages/domain`) and, by default,
+`repo` (root tooling, CI, hooks, scripts). An agent working here picks
+`ready` issues with those labels and nothing else.
+
 `api` is the "app service" of ADR-0001, named by ADR-0003: one process, one
 deploy unit. This file adds local convention on top of the root
 `AGENTS.md`; it restates nothing there. Vocabulary used below: *fold*

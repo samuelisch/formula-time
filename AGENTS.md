@@ -80,7 +80,12 @@ Load only what the task needs. Nothing below is loaded by default.
 
 Tasks live in GitHub Issues. Labels are the state machine:
 `ready` → `in-progress` → `in-review` → `done`; `owner` marks a task no
-agent may pick up. An issue body is self-contained: goal, the relevant seam
+agent may pick up. Every issue also carries exactly one service label:
+`web` (apps/web), `api` (apps/api and packages/domain), `ingest`
+(apps/ingest), `repo` (root tooling, CI, hooks, scripts; the api agent
+takes these by default). An implementer picks only `ready` issues with its
+own service label, oldest first, and respects "blocked by":
+`gh issue list --label ready --label <service>`. An issue body is self-contained: goal, the relevant seam
 contracts pasted verbatim (ADR-0001 §4), files it may touch, acceptance
 criteria as commands, and "blocked by #N". Facts the deliverable must
 state are quoted in the body; a paraphrase of a quoted fact is a review
