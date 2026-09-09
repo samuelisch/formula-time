@@ -100,10 +100,12 @@ describe("BoardPage", () => {
     const user = userEvent.setup();
     const router = renderWithRouter(makePush());
 
-    // Once the panel is open, "VER" also appears in the panel itself; the
-    // table row is always the first match (TimingTable renders before the
-    // side column in Board.tsx).
-    const clickDriverRow = () => user.click(screen.getAllByText("VER")[0]!);
+    // Once the panel is open, "VER" also appears in the panel itself. The
+    // side slot sits ahead of the table in DOM order (issue #90 fix round
+    // 1, Board.tsx), so the table's own match is not reliably the first
+    // one; find the "VER" that is actually inside a table row instead.
+    const clickDriverRow = () =>
+      user.click(screen.getAllByText("VER").find((el) => el.closest("tr") !== null)!);
 
     await clickDriverRow();
     expect(router.state.location.search).toBe("?driver=1");
