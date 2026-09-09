@@ -1,10 +1,9 @@
-// Covers the two review findings on `useAligner.ts` that can't be reached
-// through `AlignPanel.test.tsx` (which only ever exercises "starting" and a
-// rejected `getDisplayMedia`): the OCR worker leak on stop/unmount, and the
-// stop-during-setup race. Drives `start()`/`stop()` directly via
-// `renderHook`, with every capture/OCR touch point faked through
-// `UseAlignerOptions` so the async setup chain can be paused and resumed by
-// hand.
+// Covers two `useAligner.ts` cases that `AlignPanel.test.tsx` can't reach
+// (it only ever exercises "starting" and a rejected `getDisplayMedia`): the
+// OCR worker leak on stop/unmount, and the stop-during-setup race. Drives
+// `start()`/`stop()` directly via `renderHook`, with every capture/OCR touch
+// point faked through `UseAlignerOptions` so the async setup chain can be
+// paused and resumed by hand.
 import { act, renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyAnchors, type Anchors } from "../live/anchors.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
-import { TimeTargetProvider, type TimeTarget } from "../transport/TimeTarget.ts";
+import { TimeTargetProvider, type TimeTarget, type TimeTargetProviderProps } from "../transport/TimeTarget.ts";
 import { useLiveTimeTarget } from "../transport/useLiveTimeTarget.ts";
 import type { OcrWorker, TesseractModule } from "./capture.ts";
 import { createOffsetTracker } from "./core.ts";
@@ -34,15 +33,16 @@ function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>>
   });
 }
 
-// `useAligner` reads through `useTimeTarget()` (issue #67); every
-// `renderHook` below mounts it inside this live-backed provider, matching
-// how `BoardPage` wires it in the app -- none of these tests exercise an
-// anchored reading, so the real store (reset by `resetStore()` above) is
-// enough. `applyOffsetToTarget`'s own describe block below drives fake
-// targets directly instead, to cover the routing this issue adds.
+// `useAligner` reads through `useTimeTarget()`; every `renderHook` below
+// mounts it inside this live-backed provider, matching how `BoardPage`
+// wires it in the app -- none of these tests exercise an anchored reading,
+// so the real store (reset by `resetStore()` above) is enough.
+// `applyOffsetToTarget`'s own describe block below drives fake targets
+// directly instead, to cover that routing.
 function LiveWrapper({ children }: { children: ReactNode }) {
   const target = useLiveTimeTarget();
-  return createElement(TimeTargetProvider, { value: target, children });
+  const props: TimeTargetProviderProps = { value: target, children };
+  return createElement(TimeTargetProvider, props);
 }
 
 function fakeTrack(): MediaStreamTrack {
@@ -241,15 +241,15 @@ describe("useAligner", () => {
     expect(result.current.phase).toBe("running"); // the live chain's state survives
   });
 
-  // Round 2 finding: the first pass's stale-chain cleanup at the video.play()
-  // and createOcrWorker() checkpoints released streamRef.current/
+  // Guards against a stale-chain cleanup bug at the video.play() and
+  // createOcrWorker() checkpoints: releasing streamRef.current/
   // video.srcObject/workerRef.current -- the SHARED refs -- instead of the
-  // stale chain's own locally-acquired stream/worker. Once a second chain had
-  // already run to completion and taken those refs over, resolving the first
-  // chain's paused promise would stop the live chain's stream and blank its
-  // video source. These two tests pause at each of those later checkpoints
-  // (the earlier two tests above only ever pause at captureDisplayMedia, the
-  // earliest checkpoint, which is why this passed CI the first time).
+  // stale chain's own locally-acquired stream/worker. Once a second chain
+  // had already run to completion and taken those refs over, resolving the
+  // first chain's paused promise would stop the live chain's stream and
+  // blank its video source. These two tests pause at each of those later
+  // checkpoints (the earlier two tests above only ever pause at
+  // captureDisplayMedia, the earliest checkpoint).
 
   it("keeps the second chain's stream and video source when Stop lands while a stale chain is paused at video.play()", async () => {
     const { stream: stream1, track: track1 } = fakeStream();
@@ -403,8 +403,7 @@ describe("useAligner", () => {
   });
 });
 
-// --- Routing an anchored reading's offset through the TimeTarget seam
-// (issue #67) -----------------------------------------------------------
+// --- Routing an anchored reading's offset through the TimeTarget seam ----
 //
 // `applyOffsetToTarget` is what `applyLapReading`/`handleLightsOut` pass as
 // `applyReading`'s `setDelayMs` callback -- these drive it directly with
@@ -472,20 +471,17 @@ describe("applyOffsetToTarget", () => {
     expect(target.play).toHaveBeenCalledTimes(1);
   });
 
-  // Fix round 1 on PR #110: the coordinator's ruling. `offsetMs` is
-  // `OffsetTracker.offsetMs()`, `observedWall − anchorSourceMs` -- for a
-  // replay of a days-old recording watched today, that gap is genuinely
-  // huge (days), not a small "lead". The bug in the original PR treated it
-  // as a lead and did `seekTo(anchorMs + ms)`, landing ~2 anchor-gaps past
-  // "now" and clamping to the end of the recording -- exactly the failure
-  // issue #67 named: "on a replay, 'Lights out' jumps the clock to lap 1"
-  // never actually happened. The fix (`seekTo(now() − ms)`, `now` the SAME
-  // wall clock `observedWall` was computed from) makes the huge offset and
-  // the huge "now" cancel, landing back at the anchor's own source time
-  // plus only the small residual between `observedWall` and that shared
-  // `now` -- proven below end to end with the real `computeObservedWall`
-  // and `OffsetTracker`, a historic anchor, and a fake `Date.now()` set to
-  // "today", days later.
+  // `offsetMs` is `OffsetTracker.offsetMs()`, `observedWall −
+  // anchorSourceMs` -- for a replay of a days-old recording watched today,
+  // that gap is genuinely huge (days), not a small "lead". Treating it as a
+  // lead and doing `seekTo(anchorMs + ms)` would land ~2 anchor-gaps past
+  // "now" and clamp to the end of the recording. `seekTo(now() − ms)`,
+  // `now` the SAME wall clock `observedWall` was computed from, makes the
+  // huge offset and the huge "now" cancel, landing back at the anchor's own
+  // source time plus only the small residual between `observedWall` and
+  // that shared `now` -- proven below end to end with the real
+  // `computeObservedWall` and `OffsetTracker`, a historic anchor, and a
+  // fake `Date.now()` set to "today", days later.
   it("replay: a historic anchor plus a far-later Date.now() lands the seek at the anchor's source time, not the end of the recording", () => {
     const target = fakeReplayTarget();
     const anchorIso = "2026-09-06T13:05:00.000Z"; // lap 1's source time, days before "today"

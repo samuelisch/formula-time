@@ -20,8 +20,8 @@ export interface TesseractModule {
   createWorker(lang: string): Promise<OcrWorker>;
 }
 
-/** Dynamic import so ordinary viewers never download tesseract.js (issue
- * #50: worker and core paths left at the library's CDN defaults). */
+/** Dynamic import so ordinary viewers never download tesseract.js; worker
+ * and core paths are left at the library's CDN defaults. */
 export async function loadTesseract(): Promise<TesseractModule> {
   return (await import("tesseract.js")) as unknown as TesseractModule;
 }
@@ -40,7 +40,7 @@ export async function captureDisplayMedia(): Promise<MediaStream> {
 const CROP_STORAGE_KEY = "align-crop";
 
 /** One read decides whether to trust a remembered box -- it may be from
- * another window, resolution, or session (POC: isValidCrop). */
+ * another window, resolution, or session. */
 export function readStoredCrop(): Crop | null {
   try {
     const stored: unknown = JSON.parse(localStorage.getItem(CROP_STORAGE_KEY) ?? "null");

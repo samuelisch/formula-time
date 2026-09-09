@@ -1,15 +1,14 @@
-// Pure, DOM-free policy layer for auto-align (issue #50): arming, lap-verdict
-// dispatch, and the apply rule. No capture, no OCR, no store -- capture.ts
-// and useAligner.ts wire this to the browser and to `useAnchors()` /
-// `setDelayMs`. Ported from the POC's poc/ui/align.js glue, with the seek
-// path dropped: the apply rule ends at `setDelayMs`, never a server seek.
+// Pure, DOM-free policy layer for auto-align: arming, lap-verdict dispatch,
+// and the apply rule. No capture, no OCR, no store -- capture.ts and
+// useAligner.ts wire this to the browser and to `useAnchors()` /
+// `setDelayMs`; the apply rule ends at `setDelayMs`, never a server seek.
 import { chooseAnchorTarget, type OffsetTracker } from "./core.ts";
 import type { Anchors } from "../live/anchors.ts";
 
 export type LapVerdict = "first" | "same" | "flip" | "rejected";
 export type ObserveKind = "lights" | "flip";
 
-// --- Lights-out arming (POC: lightsArmed()) --------------------------------
+// --- Lights-out arming --------------------------------------------------
 // Armed below lap 2 (race not clearly underway) and for a lap after
 // "SESSION ABORTED" (the data leads the broadcast, so by the time the viewer
 // SEES restart lights the data status has already moved past ABORTED).
@@ -53,7 +52,7 @@ export function lightsLabel(isRestart: boolean): string {
   return isRestart ? "Restart lights out" : "Lights out";
 }
 
-// --- Lap verdict -> action (POC: handleReading()'s tracker.accept branch) --
+// --- Lap verdict -> action -----------------------------------------------
 
 export type LapAction =
   | { type: "ignore" }
@@ -65,9 +64,9 @@ export interface LapVerdictPolicy {
   decide(verdict: LapVerdict, lap: number, trackerCurrent: number | null): LapAction;
 }
 
-/** Owns `hasLockedOnce` (POC: distinguishes a genuine first lock -- which,
+/** Owns `hasLockedOnce`, which distinguishes a genuine first lock -- which,
  * at lap 1, IS lights-out -- from a re-lock, which never gets that
- * treatment: it's evidence of a misread storm, not race start). */
+ * treatment: it's evidence of a misread storm, not race start. */
 export function createLapVerdictPolicy(): LapVerdictPolicy {
   let hasLockedOnce = false;
   return {
@@ -97,7 +96,7 @@ export function createLapVerdictPolicy(): LapVerdictPolicy {
   };
 }
 
-// --- The apply rule (issue #50 body, verbatim) ------------------------------
+// --- The apply rule -------------------------------------------------------
 //
 // On a lights-out fire at frame time f (performance.now) or a lap flip read
 // at f: target = chooseAnchorTarget(anchors, lap, isRelock) (lights-out uses
@@ -169,11 +168,11 @@ function statusForVerdict(label: string, verdict: "seeded" | "accepted" | "disca
   }
 }
 
-// --- No-read nudge (POC: NO_READ_NUDGE_SAMPLES) -----------------------------
+// --- No-read nudge --------------------------------------------------------
 // ~10s of samples with zero successful parses ever: the crop is probably
 // missing the counter. Nudge once, don't spam.
 
-export const SAMPLE_MS = 100; // spec: flip lateness <=100ms; the diff gate keeps OCR rare
+export const SAMPLE_MS = 100; // flip lateness must stay <=100ms; the diff gate keeps OCR rare
 export const NO_READ_NUDGE_SAMPLES = Math.ceil(10_000 / SAMPLE_MS);
 export const NO_READ_NUDGE_STATUS = "No lap counter read yet — check the box covers LAP N/M";
 
@@ -181,7 +180,7 @@ export function shouldNudgeNoRead(sampleCount: number, everRead: boolean, alread
   return !everRead && !alreadyShown && sampleCount >= NO_READ_NUDGE_SAMPLES;
 }
 
-// --- Pipeline bias (POC: PIPELINE_BIAS_MS, the `?bias=` override) ----------
+// --- Pipeline bias (the `?bias=` override) --------------------------------
 // Measured residual of the correction pipeline that per-event compensation
 // alone can't see. `?bias=` lets it be tuned live without a code change;
 // guarded so a missing or non-numeric param falls back to the measured
@@ -195,7 +194,7 @@ export function resolvePipelineBiasMs(search: string, defaultMs = DEFAULT_PIPELI
   return param !== null && Number.isFinite(override) && override >= 0 ? override : defaultMs;
 }
 
-// --- Crop validation (POC: isValidCrop) -------------------------------------
+// --- Crop validation -------------------------------------------------------
 // Accept a stored crop only if it's a well-formed unit box -- otherwise a
 // corrupted/edited localStorage value could produce a zero-size crop and
 // throw inside getImageData every sample tick.
@@ -217,7 +216,7 @@ export function isValidCrop(box: unknown): box is Crop {
   return candidate.w > 0 && candidate.h > 0;
 }
 
-// --- Start failure formatting (POC: start()'s catch block) -----------------
+// --- Start failure formatting ----------------------------------------------
 
 export function formatStartFailure(error: unknown): string {
   const reason = error instanceof Error ? error.message : "Screen capture failed";

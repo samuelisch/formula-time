@@ -1,9 +1,8 @@
-// Owns capture, timers, and the OCR worker for auto-align (issue #50);
-// React (AlignPanel.tsx) owns nothing but rendering this state. Port of the
-// POC's poc/ui/align.js glue -- see that file's comments for the shape this
-// mirrors. Everything DOM-free lives in policy.ts; every DOM/media/OCR touch
-// point is a function from capture.ts, overridable here for tests.
-import { useCallback, useEffect, useRef, useState } from "react";
+// Owns capture, timers, and the OCR worker for auto-align; React
+// (AlignPanel.tsx) owns nothing but rendering this state. Everything
+// DOM-free lives in policy.ts; every DOM/media/OCR touch point is a function
+// from capture.ts, overridable here for tests.
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 import { useBoardLeaderLap, useBoardRaceControl } from "../board/useBoardState.ts";
@@ -38,10 +37,12 @@ import {
   createLightsGate,
   formatStartFailure,
   lightsLabel,
+  NO_READ_NUDGE_STATUS,
   resolvePipelineBiasMs,
   SAMPLE_MS,
   shouldNudgeNoRead,
   type Crop,
+  type ObserveKind,
 } from "./policy.ts";
 
 const PREVIEW_MS = 200;
@@ -50,15 +51,14 @@ const PREVIEW_WIDTH = 480;
 
 /**
  * Routes one anchored observation's computed offset through the
- * `TimeTarget` seam instead of a raw `setDelayMs` (issue #67, fix round 1;
- * does not touch `core.ts`/`policy.ts` -- `ms` is exactly what
- * `applyReading` used to pass straight to `setDelayMs`, always
- * `Math.max(0, offsetMs)`, and `offsetMs` is `OffsetTracker.offsetMs()`
- * (`core.ts`): `observedWall − anchorSourceMs`. That is a constant mapping
- * between the viewer's wall clock and the data's source-time axis --
- * true whether the anchor is seconds old (live) or days old (a replay
- * recording) -- so the position to show is always `sourceMs = nowWallMs −
- * offsetMs`, on both platforms. One branch, no anchor needed here.
+ * `TimeTarget` seam instead of a raw `setDelayMs`. `ms` is exactly what
+ * `applyReading` passes to `setDelayMs`, always `Math.max(0, offsetMs)`,
+ * and `offsetMs` is `OffsetTracker.offsetMs()` (`core.ts`): `observedWall −
+ * anchorSourceMs`. That is a constant mapping between the viewer's wall
+ * clock and the data's source-time axis -- true whether the anchor is
+ * seconds old (live) or days old (a replay recording) -- so the position to
+ * show is always `sourceMs = nowWallMs − offsetMs`, on both platforms. One
+ * branch, no anchor needed here.
  *
  * `now` must be the SAME wall clock `observedWall` itself was computed
  * from (the caller closes over one `nowWallMs = Date.now()` for both), not
@@ -66,8 +66,7 @@ const PREVIEW_WIDTH = 480;
  * leaks into the position.
  *
  * Live: `seekTo(atMs)` resolves to `setDelayMs(now() − atMs)` (floored at
- * 0), so seeking to `now() − ms` sets the delay to exactly `ms` -- the
- * pre-#67 behaviour, unchanged.
+ * 0), so seeking to `now() − ms` sets the delay to exactly `ms`.
  *
  * Replay: seeks the playback clock to `nowWallMs − offsetMs`, which lands
  * at the anchor's own source time (plus whatever small residual `now`
@@ -110,13 +109,11 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   const loadTesseractImpl = options.loadTesseract ?? defaultLoadTesseract;
   const createOcrWorkerImpl = options.createOcrWorker ?? defaultCreateOcrWorker;
 
-  // Issue #67: read through the `TimeTarget` seam (`anchors()`, and the
-  // apply rule below) and through the board-source seam (`leaderLap`,
-  // `sessionStatus`, both of which must reflect the *displayed* push -- the
-  // replay fold on a replay, never the live store, which the board-aware
-  // hooks already handle: `useBoardLeaderLap` reads the viewer's own lap,
-  // never the live one; PRD §4 review note) -- never the live store
-  // directly.
+  // Read through the `TimeTarget` seam (`anchors()`, and the apply rule
+  // below) and through the board-source seam (`leaderLap`, `sessionStatus`,
+  // both of which must reflect the *displayed* push -- the replay fold on a
+  // replay, never the live store; `useBoardLeaderLap` reads the viewer's
+  // own lap, never the live one) -- never the live store directly.
   const target = useTimeTarget();
   const anchors = target.anchors();
   const leaderLap = useBoardLeaderLap();
@@ -127,23 +124,33 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   const [crop, setCropState] = useState<Crop | null>(null);
   // Separate from `phase`: a capture failure resets phase to "idle" (so the
   // user can retry) but keeps the panel up so the failure status stays
-  // visible (POC: "stop() hides the workspace; re-show it so the failure is
-  // visible").
+  // visible.
   const [visible, setVisible] = useState(false);
 
   // Live values the sampling loop (a plain interval callback, outside
   // React's render cycle) needs to read without re-subscribing on every
-  // change -- kept current via a ref synced each render, POC-style.
+  // change -- kept current via a ref, synced from a layout effect after
+  // each render so the write never happens during render itself. Must be
+  // `useLayoutEffect`, not `useEffect`: layout effects flush synchronously
+  // right after commit, in the same tick, before the browser can run any
+  // queued macrotask -- so `sample()`'s `setInterval` (SAMPLE_MS) can never
+  // observe a commit whose ref sync hasn't run yet. A plain `useEffect` is
+  // scheduled after paint and would open exactly that staleness window.
   const liveRef = useRef({ anchors, leaderLap, sessionStatus, target });
-  liveRef.current = { anchors, leaderLap, sessionStatus, target };
+  useLayoutEffect(() => {
+    liveRef.current = { anchors, leaderLap, sessionStatus, target };
+  });
 
   // Offscreen DOM handles this hook owns imperatively (drawn into and
   // resized from timer/OCR callbacks, not from render) -- lazily created
   // refs, never React state: mutating them must never schedule a re-render.
+  // Each does exactly one `ref.current = ...` write, the pattern React's own
+  // docs carve out as the one safe ref write during render.
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   if (videoElRef.current === null) {
-    videoElRef.current = document.createElement("video");
-    videoElRef.current.muted = true;
+    const el = document.createElement("video");
+    el.muted = true;
+    videoElRef.current = el;
   }
   const video = videoElRef.current;
 
@@ -167,9 +174,10 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   // fills most of a 10x10 tile.
   const frameCanvasElRef = useRef<HTMLCanvasElement | null>(null);
   if (frameCanvasElRef.current === null) {
-    frameCanvasElRef.current = document.createElement("canvas");
-    frameCanvasElRef.current.width = 480;
-    frameCanvasElRef.current.height = 270;
+    const el = document.createElement("canvas");
+    el.width = 480;
+    el.height = 270;
+    frameCanvasElRef.current = el;
   }
   const frameCanvas = frameCanvasElRef.current;
 
@@ -305,31 +313,37 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
     }
   }, [detectCanvas, setCrop, startAutoDetect, video]);
 
+  // Shared by a lap flip (kind "flip") and a lights-out fire (kind
+  // "lights") -- the only two anchored observations. One wall-clock read
+  // shared with `applyOffsetToTarget`'s `now` below -- both must use the
+  // exact same `nowWallMs` (see that function's doc comment), not two
+  // separate `Date.now()` calls a few lines apart.
+  const applyObservedReading = useCallback((kind: ObserveKind, lap: number, isRestart: boolean, label: string, frameAt: number) => {
+    const nowWallMs = Date.now();
+    const status = applyReading({
+      anchors: liveRef.current.anchors,
+      kind,
+      lap,
+      isRestart,
+      label,
+      frameAt,
+      nowWallMs,
+      nowPerfMs: performance.now(),
+      pipelineBiasMs: pipelineBiasMsRef.current,
+      tracker: offsetTrackerRef.current,
+      setDelayMs: (ms) => applyOffsetToTarget(liveRef.current.target, ms, () => nowWallMs),
+    });
+    setStatus(status);
+  }, []);
+
   // The reading applies whether it's a lap flip or the genuine first-ever
-  // lock at lap 1 (issue #50: both are "flip" kind for the offset tracker --
-  // lights-out is the separate pixel path below).
+  // lock at lap 1 -- both are "flip" kind for the offset tracker; lights-out
+  // is the separate pixel path below.
   const applyLapReading = useCallback(
     (lap: number, frameAt: number) => {
-      // One wall-clock read shared with `applyOffsetToTarget`'s `now` below
-      // -- both must use the exact same `nowWallMs` (see that function's
-      // doc comment), not two separate `Date.now()` calls a few lines apart.
-      const nowWallMs = Date.now();
-      const status = applyReading({
-        anchors: liveRef.current.anchors,
-        kind: "flip",
-        lap,
-        isRestart: false,
-        label: `Lap ${lap}`,
-        frameAt,
-        nowWallMs,
-        nowPerfMs: performance.now(),
-        pipelineBiasMs: pipelineBiasMsRef.current,
-        tracker: offsetTrackerRef.current,
-        setDelayMs: (ms) => applyOffsetToTarget(liveRef.current.target, ms, () => nowWallMs),
-      });
-      setStatus(status);
+      applyObservedReading("flip", lap, false, `Lap ${lap}`, frameAt);
     },
-    [],
+    [applyObservedReading],
   );
 
   const handleReading = useCallback(
@@ -376,26 +390,13 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
     }
   }, [handleReading, pendingCanvas, recognizeCanvas]);
 
-  const handleLightsOut = useCallback((frameAt: number) => {
-    const isRestart = lightsGateRef.current.isRestart();
-    const label = lightsLabel(isRestart);
-    // Same shared-`nowWallMs` requirement as `applyLapReading` above.
-    const nowWallMs = Date.now();
-    const status = applyReading({
-      anchors: liveRef.current.anchors,
-      kind: "lights",
-      lap: 0,
-      isRestart,
-      label,
-      frameAt,
-      nowWallMs,
-      nowPerfMs: performance.now(),
-      pipelineBiasMs: pipelineBiasMsRef.current,
-      tracker: offsetTrackerRef.current,
-      setDelayMs: (ms) => applyOffsetToTarget(liveRef.current.target, ms, () => nowWallMs),
-    });
-    setStatus(status);
-  }, []);
+  const handleLightsOut = useCallback(
+    (frameAt: number) => {
+      const isRestart = lightsGateRef.current.isRestart();
+      applyObservedReading("lights", 0, isRestart, lightsLabel(isRestart), frameAt);
+    },
+    [applyObservedReading],
+  );
 
   // Sampling starts as soon as capture is ready -- the whole-frame lights
   // watch needs no box (at race start there IS no lap counter on screen
@@ -403,12 +404,11 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   const sample = useCallback(() => {
     // Counted and checked every tick, independent of whether a crop box
     // exists yet -- a missing/misplaced box is exactly the case this nudge
-    // is for (POC: incremented in the outer setInterval, not gated on the
-    // OCR branch below).
+    // is for.
     sampleCountRef.current += 1;
     if (shouldNudgeNoRead(sampleCountRef.current, everReadRef.current, noReadNudgeShownRef.current)) {
       noReadNudgeShownRef.current = true;
-      setStatus("No lap counter read yet — check the box covers LAP N/M");
+      setStatus(NO_READ_NUDGE_STATUS);
     }
 
     if (!video.videoWidth) return;
@@ -517,19 +517,20 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
       // assigns to those shared refs.
       let ownStream: MediaStream | null = null;
       let ownWorker: OcrWorker | null = null;
+      // Re-checked after every await below: a Stop mid-setup (stoppedRef) or
+      // a Stop-then-Start that let a second chain start (gen mismatch) must
+      // not let this chain go on to show "running" with capture/OCR the
+      // user already asked to stop, or clobber the newer chain's
+      // stream/worker.
+      const isStale = () => gen !== startGenRef.current || stoppedRef.current;
       try {
         const tesseract = await loadTesseractImpl();
-        // Re-checked after every await below: a Stop mid-setup (stoppedRef)
-        // or a Stop-then-Start that let a second chain start (gen mismatch)
-        // must not let this chain go on to show "running" with capture/OCR
-        // the user already asked to stop, or clobber the newer chain's
-        // stream/worker.
-        if (gen !== startGenRef.current || stoppedRef.current) return;
+        if (isStale()) return;
         setStatus("Pick the window playing the broadcast");
 
         const stream = await captureDisplayMediaImpl();
         ownStream = stream;
-        if (gen !== startGenRef.current || stoppedRef.current) {
+        if (isStale()) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
@@ -538,7 +539,7 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
         video.srcObject = stream;
 
         await video.play();
-        if (gen !== startGenRef.current || stoppedRef.current) {
+        if (isStale()) {
           // This chain's own stream -- NOT streamRef.current, which by now
           // may already hold a newer chain's stream (and video.srcObject
           // already shows it); never touched here.
@@ -550,7 +551,7 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
         if (!worker) {
           worker = await createOcrWorkerImpl(tesseract);
           ownWorker = worker;
-          if (gen !== startGenRef.current || stoppedRef.current) {
+          if (isStale()) {
             // Likewise: this chain's own freshly-created worker and stream,
             // never workerRef.current/streamRef.current/video.srcObject.
             void worker.terminate().catch(() => {});

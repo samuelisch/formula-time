@@ -14,15 +14,14 @@ import raceStartSingaporeNight from "./fixtures/lights/race-start-singapore-nigh
 import raceStartSpa from "./fixtures/lights/race-start-spa.json";
 import raceStartZandvoort from "./fixtures/lights/race-start-zandvoort.json";
 
-// Ported from the POC's poc/ts/lights_fixtures_test.ts. Replays real-footage
-// traces exported by /lights_rig.html (poc/fixtures/lights/*.json, copied
-// verbatim into ./fixtures/lights) through the lights-out detector. Each
-// trace is the per-100ms scalar summary the detector consumes — lit-tile
-// counts at several thresholds + changed fraction — so this is deterministic
-// (no capture jitter) and tests the detector's LOGIC against every clip the
-// owner has labeled, not just the two count arrays inlined in core.test.ts.
+// Replays real-footage traces (./fixtures/lights/*.json) through the
+// lights-out detector. Each trace is the per-100ms scalar summary the
+// detector consumes — lit-tile counts at several thresholds + changed
+// fraction — so this is deterministic (no capture jitter) and tests the
+// detector's LOGIC against every clip the owner has labeled, not just the
+// two count arrays inlined in core.test.ts.
 //
-// Expectations by clip kind (decided 2026-09-07):
+// Expectations by clip kind (2026-09-07):
 //   race-start, race-restart  -> fires exactly once, at the marked lights-out
 //   extra-formation-lap       -> fires exactly once too: the reds DO go out on
 //                                an aborted start; the pixel layer must report
@@ -114,12 +113,11 @@ describe("checkFixture: self-test of the checker on synthetic traces", () => {
 
 // --- Real fixtures ---
 //
-// Baseline established by running the POC's own suite before porting
-// (`npx tsx poc/ts/align_core_test.ts && npx tsx poc/ts/lights_fixtures_test.ts`
-// in ../f1-live-events-poc): only race-restart-zandvoort.mov passes there.
-// Per the issue rules, a fixture that fails in the POC is skipped here with
-// the reason quoted verbatim from the POC's output — it is not this port's
-// bug to fix. A fixture that passes in the POC must pass here.
+// Of the 12 labeled clips, only race-restart-zandvoort.mov currently passes
+// the detector's tolerance. The rest are skipped below, each with its
+// failure reason recorded verbatim -- fixing those detections is a separate
+// concern from this file, not something a change here should silently
+// paper over by loosening the check.
 //
 // Pass/skip list (12 fixtures, 1 pass / 11 skip):
 //   ok    race-restart-zandvoort.mov

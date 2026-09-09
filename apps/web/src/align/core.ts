@@ -29,17 +29,17 @@ export interface LapTracker {
   current(): number | null;
 }
 
-// Monotonic guard (spec decision 8): only lastLap+1 is a time-anchored flip.
-// A "first" read tells us the lap but not when it started (decision 4).
+// Monotonic guard: only lastLap+1 is a time-anchored flip. A "first" read
+// tells us the lap but not when it started.
 //
-// Fix (final review, finding 2): a counter hidden across >=2 flips (cutaway/
-// replay) or a bad first read would otherwise wedge the tracker forever —
-// every later read rejected, silently. After 3 CONSECUTIVE reads of the same
-// rejected value, re-lock to it as an unanchored "first" (never as a "flip":
-// a re-lock never claims to know when that lap started, same as any other
-// first read — spec decision 4). The consecutive count resets on any
-// non-rejected verdict or on a different rejected value, so noisy misreads
-// that don't agree with each other never trigger a re-lock.
+// A counter hidden across >=2 flips (cutaway/replay) or a bad first read
+// would otherwise wedge the tracker forever — every later read rejected,
+// silently. After 3 CONSECUTIVE reads of the same rejected value, re-lock to
+// it as an unanchored "first" (never as a "flip": a re-lock never claims to
+// know when that lap started, same as any other first read). The
+// consecutive count resets on any non-rejected verdict or on a different
+// rejected value, so noisy misreads that don't agree with each other never
+// trigger a re-lock.
 export function createLapTracker(): LapTracker {
   let lastLap: number | null = null;
   let rejectedValue: number | null = null;
@@ -81,8 +81,8 @@ export function createLapTracker(): LapTracker {
   };
 }
 
-// Correction policy (spec A2): inside the deadband do nothing; beyond
-// it, seek to the anchor. Rate-warp smoothing is deferred by the spec.
+// Correction policy: inside the deadband do nothing; beyond it, seek to the
+// anchor. Rate-warp smoothing is not implemented here.
 export function decideCorrection(deltaMs: number, deadbandMs = 300): "none" | "seek" {
   if (!Number.isFinite(deltaMs)) return "none";
   return Math.abs(deltaMs) <= deadbandMs ? "none" : "seek";
@@ -97,11 +97,11 @@ export interface Anchors {
   laps?: AnchorLap[];
 }
 
-// Which anchor source_time to align to for a given lap read (spec decision 3
-// + the review's re-lock finding). Lap 1 prefers lights_out ONLY on a genuine
-// first-ever lock — a re-lock at lap 1 is evidence of a misread storm, not
-// race start, so it's treated like any other lap lookup. Null when the data
-// side hasn't produced that anchor yet (caller retries at the next lap).
+// Which anchor source_time to align to for a given lap read. Lap 1 prefers
+// lights_out ONLY on a genuine first-ever lock — a re-lock at lap 1 is
+// evidence of a misread storm, not race start, so it's treated like any
+// other lap lookup. Null when the data side hasn't produced that anchor yet
+// (caller retries at the next lap).
 export function chooseAnchorTarget(
   anchors: Anchors | null | undefined,
   lap: number,
@@ -115,10 +115,10 @@ export function chooseAnchorTarget(
 }
 
 // Compensate an anchor target for the handling time elapsed since the frame
-// that produced the read was grabbed (final review finding 1): OCR plus the
-// anchor fetch can take hundreds of ms to several seconds, and without this
-// the correction chases a target that's already stale, re-baselining the
-// view behind the broadcast. Null-safe: garbage in, null out.
+// that produced the read was grabbed: OCR plus the anchor fetch can take
+// hundreds of ms to several seconds, and without this the correction chases
+// a target that's already stale, re-baselining the view behind the
+// broadcast. Null-safe: garbage in, null out.
 export function compensateTarget(targetIso: string | null | undefined, elapsedMs: number): string | null {
   if (typeof targetIso !== "string") return null;
   const parsed = Date.parse(targetIso);
@@ -185,8 +185,8 @@ export function redFractionGrid(
 
 // Per-sample scalar summary of a grid: how many tiles are "lit" red and what
 // fraction of tiles moved since the previous grid. This is ALL the detector
-// consumes — split out so real footage can be reduced to compact traces
-// (poc/fixtures/lights, via /lights_rig.html) and replayed in node tests.
+// consumes — split out so real footage can be reduced to compact traces and
+// replayed in node tests.
 export function countLit(grid: number[], litThreshold = 0.25): number {
   let count = 0;
   for (let i = 0; i < grid.length; i += 1) if (grid[i]! >= litThreshold) count += 1;

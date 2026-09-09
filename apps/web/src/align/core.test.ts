@@ -7,9 +7,6 @@ import {
   findLapLine, cropFromBBox,
 } from "./core.ts";
 
-// Ported from the POC's poc/ts/align_core_test.ts (node:assert cases), one
-// describe per section comment, same descriptions.
-
 describe("parseLapText: OCR text is noisy; the parser is the guard", () => {
   it("clean HUD text", () => {
     expect(parseLapText("LAP 34/72")).toEqual({ lap: 34, total: 72 });
