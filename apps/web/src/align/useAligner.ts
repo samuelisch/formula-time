@@ -42,6 +42,7 @@ import {
   SAMPLE_MS,
   shouldNudgeNoRead,
   type Crop,
+  type ObserveKind,
 } from "./policy.ts";
 
 const PREVIEW_MS = 200;
@@ -307,31 +308,37 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
     }
   }, [detectCanvas, setCrop, startAutoDetect, video]);
 
+  // Shared by a lap flip (kind "flip") and a lights-out fire (kind
+  // "lights") -- the only two anchored observations. One wall-clock read
+  // shared with `applyOffsetToTarget`'s `now` below -- both must use the
+  // exact same `nowWallMs` (see that function's doc comment), not two
+  // separate `Date.now()` calls a few lines apart.
+  const applyObservedReading = useCallback((kind: ObserveKind, lap: number, isRestart: boolean, label: string, frameAt: number) => {
+    const nowWallMs = Date.now();
+    const status = applyReading({
+      anchors: liveRef.current.anchors,
+      kind,
+      lap,
+      isRestart,
+      label,
+      frameAt,
+      nowWallMs,
+      nowPerfMs: performance.now(),
+      pipelineBiasMs: pipelineBiasMsRef.current,
+      tracker: offsetTrackerRef.current,
+      setDelayMs: (ms) => applyOffsetToTarget(liveRef.current.target, ms, () => nowWallMs),
+    });
+    setStatus(status);
+  }, []);
+
   // The reading applies whether it's a lap flip or the genuine first-ever
   // lock at lap 1 -- both are "flip" kind for the offset tracker; lights-out
   // is the separate pixel path below.
   const applyLapReading = useCallback(
     (lap: number, frameAt: number) => {
-      // One wall-clock read shared with `applyOffsetToTarget`'s `now` below
-      // -- both must use the exact same `nowWallMs` (see that function's
-      // doc comment), not two separate `Date.now()` calls a few lines apart.
-      const nowWallMs = Date.now();
-      const status = applyReading({
-        anchors: liveRef.current.anchors,
-        kind: "flip",
-        lap,
-        isRestart: false,
-        label: `Lap ${lap}`,
-        frameAt,
-        nowWallMs,
-        nowPerfMs: performance.now(),
-        pipelineBiasMs: pipelineBiasMsRef.current,
-        tracker: offsetTrackerRef.current,
-        setDelayMs: (ms) => applyOffsetToTarget(liveRef.current.target, ms, () => nowWallMs),
-      });
-      setStatus(status);
+      applyObservedReading("flip", lap, false, `Lap ${lap}`, frameAt);
     },
-    [],
+    [applyObservedReading],
   );
 
   const handleReading = useCallback(
@@ -378,26 +385,13 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
     }
   }, [handleReading, pendingCanvas, recognizeCanvas]);
 
-  const handleLightsOut = useCallback((frameAt: number) => {
-    const isRestart = lightsGateRef.current.isRestart();
-    const label = lightsLabel(isRestart);
-    // Same shared-`nowWallMs` requirement as `applyLapReading` above.
-    const nowWallMs = Date.now();
-    const status = applyReading({
-      anchors: liveRef.current.anchors,
-      kind: "lights",
-      lap: 0,
-      isRestart,
-      label,
-      frameAt,
-      nowWallMs,
-      nowPerfMs: performance.now(),
-      pipelineBiasMs: pipelineBiasMsRef.current,
-      tracker: offsetTrackerRef.current,
-      setDelayMs: (ms) => applyOffsetToTarget(liveRef.current.target, ms, () => nowWallMs),
-    });
-    setStatus(status);
-  }, []);
+  const handleLightsOut = useCallback(
+    (frameAt: number) => {
+      const isRestart = lightsGateRef.current.isRestart();
+      applyObservedReading("lights", 0, isRestart, lightsLabel(isRestart), frameAt);
+    },
+    [applyObservedReading],
+  );
 
   // Sampling starts as soon as capture is ready -- the whole-frame lights
   // watch needs no box (at race start there IS no lap counter on screen
@@ -518,19 +512,20 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
       // assigns to those shared refs.
       let ownStream: MediaStream | null = null;
       let ownWorker: OcrWorker | null = null;
+      // Re-checked after every await below: a Stop mid-setup (stoppedRef) or
+      // a Stop-then-Start that let a second chain start (gen mismatch) must
+      // not let this chain go on to show "running" with capture/OCR the
+      // user already asked to stop, or clobber the newer chain's
+      // stream/worker.
+      const isStale = () => gen !== startGenRef.current || stoppedRef.current;
       try {
         const tesseract = await loadTesseractImpl();
-        // Re-checked after every await below: a Stop mid-setup (stoppedRef)
-        // or a Stop-then-Start that let a second chain start (gen mismatch)
-        // must not let this chain go on to show "running" with capture/OCR
-        // the user already asked to stop, or clobber the newer chain's
-        // stream/worker.
-        if (gen !== startGenRef.current || stoppedRef.current) return;
+        if (isStale()) return;
         setStatus("Pick the window playing the broadcast");
 
         const stream = await captureDisplayMediaImpl();
         ownStream = stream;
-        if (gen !== startGenRef.current || stoppedRef.current) {
+        if (isStale()) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
@@ -539,7 +534,7 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
         video.srcObject = stream;
 
         await video.play();
-        if (gen !== startGenRef.current || stoppedRef.current) {
+        if (isStale()) {
           // This chain's own stream -- NOT streamRef.current, which by now
           // may already hold a newer chain's stream (and video.srcObject
           // already shows it); never touched here.
@@ -551,7 +546,7 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
         if (!worker) {
           worker = await createOcrWorkerImpl(tesseract);
           ownWorker = worker;
-          if (gen !== startGenRef.current || stoppedRef.current) {
+          if (isStale()) {
             // Likewise: this chain's own freshly-created worker and stream,
             // never workerRef.current/streamRef.current/video.srcObject.
             void worker.terminate().catch(() => {});
