@@ -1,4 +1,5 @@
-// No head polling -- the live store's push stream carries the events
+// Issue #97 PR1, reworked per the owner's decision 2026-09-09 (issue #114):
+// no head polling -- the live store's push stream carries the events
 // applied each tick, and this hook backfills once per join then keeps
 // itself current from the stream alone.
 import type { RaceEvent, RaceState } from "@formula-time/domain";
@@ -16,8 +17,8 @@ import { useLiveStore } from "./store.ts";
 import { PAGE_LIMIT, RETRY_BACKOFF_MS, useSessionTimeline } from "./timeline.ts";
 import type { LivePush } from "./types.ts";
 
-// These regression tests need to observe (and, for one test, briefly
-// pause) `appendEvents` calls on the shared `Timeline` -- so
+// Review round 2 regression tests need to observe (and, for one test,
+// briefly pause) `appendEvents` calls on the shared `Timeline` -- so
 // `appendEvents` is mocked here, but wired by default to delegate to the
 // real implementation (captured via `vi.hoisted`, since `vi.mock`'s
 // factory is itself hoisted above ordinary top-level variables) so every
