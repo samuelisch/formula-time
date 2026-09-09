@@ -5,7 +5,7 @@
 // lights-out is lap 1's anchor; restarts come from "SESSION STARTED"
 // race-control events across the whole fold, mirroring `live/anchors.ts`'s
 // `deriveAnchors` but over every event rather than a rolling 100-row window.
-import { useMemo, useRef } from "react";
+import { useMemo, useState } from "react";
 
 import type { Anchors } from "../live/anchors.ts";
 import type { FoldedRace } from "../replay/foldRace.ts";
@@ -53,16 +53,23 @@ export function useReplayTimeTarget(playback: ReplayPlayback, folded: FoldedRace
   // reference by the same amount every frame, so their difference never
   // moves except at the instant of a seek, where it steps by exactly how
   // far that seek actually moved the (clamped) position -- no separate
-  // wall-clock tracking needed, just an accumulator per fold. Keyed by the
-  // fold itself (a `WeakMap`, entries GC'd once a fold is no longer
-  // referenced) rather than one counter reset on fold change, so there is
-  // no "previous fold" comparison to make during render.
-  const offsets = useRef(new WeakMap<FoldedRace, number>());
+  // wall-clock tracking needed, just an accumulator reset to 0 whenever
+  // `folded` changes identity (a revisit to a cached fold -- TanStack
+  // Query's `staleTime: Infinity` can hand back the same `FoldedRace`
+  // object -- must not resurface a stale offset). React's sanctioned
+  // "adjust state during render" pattern: comparing state to the current
+  // prop and calling `setState` during render, instead of reading a ref
+  // during render.
+  const [offset, setOffset] = useState<{ fold: FoldedRace | null; ms: number }>({ fold: folded, ms: 0 });
+  if (offset.fold !== folded) {
+    setOffset({ fold: folded, ms: 0 });
+  }
+  const offsetMs = offset.fold === folded ? offset.ms : 0;
 
   return useMemo<TimeTarget>(() => {
     function addOffset(deltaMs: number): void {
       if (folded === null) return;
-      offsets.current.set(folded, (offsets.current.get(folded) ?? 0) + deltaMs);
+      setOffset((prev) => ({ fold: folded, ms: (prev.fold === folded ? prev.ms : 0) + deltaMs }));
     }
 
     return {
@@ -95,7 +102,7 @@ export function useReplayTimeTarget(playback: ReplayPlayback, folded: FoldedRace
       // shortfall to warn about the way live has.
       notice: () => null,
 
-      syncOffsetMs: () => (folded === null ? null : (offsets.current.get(folded) ?? 0)),
+      syncOffsetMs: () => (folded === null ? null : offsetMs),
     };
-  }, [folded, playback, anchors]);
+  }, [folded, playback, anchors, offsetMs]);
 }

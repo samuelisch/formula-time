@@ -1,5 +1,5 @@
 import type { RaceEvent } from "@formula-time/domain";
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { FoldedRace, LapMarker } from "../replay/foldRace.ts";
@@ -156,17 +156,18 @@ describe("useReplayTimeTarget", () => {
 
     it("steps by exactly how far seekTo/nudge moved the (clamped) position", () => {
       const playback = fakePlayback({ sourceMs: 10_000, startSourceMs: 0, endSourceMs: 90_000 });
-      const { result } = renderHook(() => useReplayTimeTarget(playback, folded()));
+      const race = folded(); // one stable reference across re-renders, same as the fold-change tests below
+      const { result } = renderHook(() => useReplayTimeTarget(playback, race));
 
-      result.current.seekTo(25_000); // +15_000
+      act(() => result.current.seekTo(25_000)); // +15_000
       expect(result.current.syncOffsetMs?.()).toBe(15_000);
 
       playback.sourceMs = 25_000; // simulate the seek having landed
-      result.current.nudge(-5_000); // +(-5_000)
+      act(() => result.current.nudge(-5_000)); // +(-5_000)
       expect(result.current.syncOffsetMs?.()).toBe(10_000);
 
       playback.sourceMs = 20_000;
-      result.current.seekTo(200_000); // clamped to endSourceMs (90_000): +70_000, not +180_000
+      act(() => result.current.seekTo(200_000)); // clamped to endSourceMs (90_000): +70_000, not +180_000
       expect(result.current.syncOffsetMs?.()).toBe(80_000);
     });
 
@@ -189,11 +190,30 @@ describe("useReplayTimeTarget", () => {
       const { result, rerender } = renderHook(({ f }: { f: FoldedRace | null }) => useReplayTimeTarget(playback, f), {
         initialProps: { f: raceOne },
       });
-      result.current.seekTo(30_000);
+      act(() => result.current.seekTo(30_000));
       expect(result.current.syncOffsetMs?.()).toBe(20_000);
 
       const raceTwo = folded({ firstSourceMs: 500, lastSourceMs: 5_000, lapMarkers: [] });
       rerender({ f: raceTwo });
+      expect(result.current.syncOffsetMs?.()).toBe(0);
+    });
+
+    it("resets to 0 on a revisit to the same fold object (e.g. a cached TanStack Query result)", () => {
+      const playback = fakePlayback({ sourceMs: 10_000, startSourceMs: 0, endSourceMs: 90_000 });
+      const raceOne = folded();
+      const raceTwo = folded({ firstSourceMs: 500, lastSourceMs: 5_000, lapMarkers: [] });
+      const { result, rerender } = renderHook(({ f }: { f: FoldedRace | null }) => useReplayTimeTarget(playback, f), {
+        initialProps: { f: raceOne },
+      });
+
+      act(() => result.current.seekTo(30_000));
+      expect(result.current.syncOffsetMs?.()).toBe(20_000);
+
+      rerender({ f: raceTwo });
+      expect(result.current.syncOffsetMs?.()).toBe(0);
+
+      // Revisit raceOne -- same object reference as before, not a new fold.
+      rerender({ f: raceOne });
       expect(result.current.syncOffsetMs?.()).toBe(0);
     });
   });
