@@ -49,22 +49,25 @@ export function useReplayPlayback(folded: FoldedRace | null): ReplayPlayback {
   const [sourceMs, setSourceMs] = useState(startSourceMs);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // A new race (or a re-fold) gets a fresh clock at its own bounds, derived
-  // straight from `folded` so it stays the same instance across renders of
-  // the same fold. `initialWallMs: 0` is a harmless placeholder -- `play()`
-  // and `seek()` always re-baseline it before any `tick()` reads it.
-  const clock = useMemo<PlaybackClock | null>(
-    () => (folded === null ? null : createPlaybackClock({ startSourceMs, endSourceMs, initialWallMs: 0 })),
-    [folded, startSourceMs, endSourceMs],
-  );
+  function freshClock(): PlaybackClock | null {
+    // `initialWallMs: 0` is a harmless placeholder -- `play()` and `seek()`
+    // always re-baseline it before any `tick()` reads it.
+    return folded === null ? null : createPlaybackClock({ startSourceMs, endSourceMs, initialWallMs: 0 });
+  }
 
-  // sourceMs/isPlaying reset to match a new clock. Adjusted during render
-  // rather than in an effect (React's "adjusting state when a prop
-  // changes" pattern) so there is no extra committed render with a stale
-  // clock; `prevFolded` is the "previous props" this compares against.
+  // A new race (or a re-fold) gets a fresh clock at its own bounds, and
+  // sourceMs/isPlaying reset to match it. `clock` is state, not a `useMemo`,
+  // so its identity is a guaranteed React contract rather than a caching
+  // optimisation React is free to discard and recompute. All three are
+  // adjusted during render rather than in an effect (React's "adjusting
+  // state when a prop changes" pattern) so there is no extra committed
+  // render with a stale clock; `prevFolded` is the "previous props" this
+  // compares against.
+  const [clock, setClock] = useState<PlaybackClock | null>(freshClock);
   const [prevFolded, setPrevFolded] = useState(folded);
   if (prevFolded !== folded) {
     setPrevFolded(folded);
+    setClock(freshClock());
     setSourceMs(startSourceMs);
     setIsPlaying(false);
   }
