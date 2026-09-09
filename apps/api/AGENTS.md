@@ -23,8 +23,14 @@ One process holding:
 - **The events-by-race read route** — `GET /api/races/:session_key/events`
   (`routes/races.ts`) pages the `events` log by `seq` for any session, live
   included, reusing the projector's own select (`projector/event-source.ts`).
-- **The fan-out** — one `JSON.stringify` per push, gzip once per push,
-  identical bytes to every socket. A vote never triggers a push.
+- **The fan-out** — one `JSON.stringify` + one gzip for the full `state`
+  push, unconditionally, every push (joins of either format and `GET
+  /api/live/snapshot` need it on demand regardless of legacy-socket
+  count); a delta socket (`?format=delta`, ADR-0013) additionally gets a
+  hand-written JSON Patch `delta` each tick — one more serialize+gzip pass,
+  built only while a delta socket is attached — keyframed back to `state`
+  every 200th push. Identical bytes to every socket of the same format. A
+  vote never triggers a push.
 - **The SSE route handler** — live: attach the socket to the fan-out.
   Finished: redirect to the export. It never touches state.
 - **The exporter** — session finished and not yet exported: write the
