@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyAnchors, type Anchors } from "../live/anchors.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
-import { TimeTargetProvider, type TimeTarget } from "../transport/TimeTarget.ts";
+import { TimeTargetProvider, type TimeTarget, type TimeTargetProviderProps } from "../transport/TimeTarget.ts";
 import { useLiveTimeTarget } from "../transport/useLiveTimeTarget.ts";
 import type { OcrWorker, TesseractModule } from "./capture.ts";
 import { createOffsetTracker } from "./core.ts";
@@ -42,7 +42,8 @@ function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>>
 // targets directly instead, to cover the routing this issue adds.
 function LiveWrapper({ children }: { children: ReactNode }) {
   const target = useLiveTimeTarget();
-  return createElement(TimeTargetProvider, { value: target, children });
+  const props: TimeTargetProviderProps = { value: target, children };
+  return createElement(TimeTargetProvider, props);
 }
 
 function fakeTrack(): MediaStreamTrack {
