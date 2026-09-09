@@ -385,6 +385,25 @@ describe("emitTaggedDriverRows", () => {
     expect(queue.size).toBe(0);
   });
 
+  test("a row naming a session isKnownSession rejects is dropped and counted unknownSession; groups carry the written payloads per session", () => {
+    const queue = new EventQueue<QueueItem>();
+    const result = emitTaggedDriverRows(
+      new LiveNormalizer(),
+      queue,
+      [
+        { session_key: 1, driver_number: 1 },
+        { session_key: 2, driver_number: 2 },
+      ],
+      1,
+      (key) => key === 1,
+    );
+    expect(result.unknownSession).toBe(1);
+    expect(result.foreign).toBe(0);
+    expect(result.newRows).toBe(1);
+    expect(result.groups.map((g) => g.sessionKey)).toEqual([1]);
+    expect(queue.drain(10).map((i) => i.sessionKey)).toEqual([1n]);
+  });
+
   test("expectedSessionKey null (the Friday meeting-wide fetch) counts nothing as foreign", () => {
     const normalizer = new LiveNormalizer();
     const queue = new EventQueue<QueueItem>();
@@ -442,13 +461,19 @@ describe("RestLane: fetched entry list at session selection (issue #39)", () => 
     expect(after?.endpoint).not.toBe("drivers");
   });
 
-  test("a row naming another session at selection is still written, tagged to the session it names, and counted foreign", async () => {
+  test("a row naming another known session at selection is still written, tagged to the session it names, and counted foreign", async () => {
+    const OTHER: RawRecord = {
+      ...SESSION,
+      session_key: 99999,
+      date_start: "2026-09-13T13:00:00+00:00",
+      date_end: "2026-09-13T15:00:00+00:00",
+    };
     const driversResponse = [
       { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" },
       { session_key: 99999, meeting_key: 1293, driver_number: 2, full_name: "Foreign Row" },
     ];
     const fetcher = async (url: string): Promise<unknown> => {
-      if (url.includes("/sessions?")) return [SESSION];
+      if (url.includes("/sessions?")) return [SESSION, OTHER]; // both upserted, so both are known
       if (url.includes("/drivers?session_key=")) return driversResponse;
       return [];
     };
@@ -460,6 +485,50 @@ describe("RestLane: fetched entry list at session selection (issue #39)", () => 
     const items = queue.drain(1000).filter((i) => i.endpoint === "drivers");
     expect(items).toHaveLength(2);
     expect(new Set(items.map((i) => i.sessionKey))).toEqual(new Set([11361n, 99999n]));
+  });
+
+  test("a row naming a session that is not in the sessions table is dropped, never queued (events.session_key is a FK)", async () => {
+    const driversResponse = [
+      { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" },
+      { session_key: 99999, meeting_key: 1293, driver_number: 2, full_name: "Unknown Session Row" },
+    ];
+    const fetcher = async (url: string): Promise<unknown> => {
+      if (url.includes("/sessions?")) return [SESSION]; // 99999 is never upserted
+      if (url.includes("/drivers?session_key=")) return driversResponse;
+      return [];
+    };
+    const queue = new EventQueue<QueueItem>();
+    const logs: string[] = [];
+    const lane = new RestLane(queue, { fetcher, now: () => START, onLog: (l) => logs.push(l) });
+
+    await lane.discoverOnce();
+
+    const items = queue.drain(1000).filter((i) => i.endpoint === "drivers");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ sessionKey: 11361n });
+    expect(logs.some((l) => l.includes("unknown_session=1"))).toBe(true);
+  });
+
+  test("fetched entry-list rows reach onNewRows (the jsonl recorder) once per session_key, same as the fallback", async () => {
+    const driversResponse = [
+      { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" },
+      { session_key: 11361, meeting_key: 1293, driver_number: 4, full_name: "Lando NORRIS 2" },
+    ];
+    const fetcher = async (url: string): Promise<unknown> => {
+      if (url.includes("/sessions?")) return [SESSION];
+      if (url.includes("/drivers?session_key=")) return driversResponse;
+      return [];
+    };
+    const onNewRows = vi.fn(async () => {});
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START, onNewRows, onLog: () => {} });
+
+    await lane.discoverOnce();
+
+    const driverCalls = onNewRows.mock.calls.filter((c) => c[1] === "drivers");
+    expect(driverCalls).toHaveLength(1);
+    expect(driverCalls[0]?.[0]).toBe(11361);
+    expect(driverCalls[0]?.[2]).toHaveLength(2);
   });
 });
 
@@ -516,6 +585,64 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
     now += 60 * 60_000;
     await lane.discoverOnce();
     expect(calls.filter((u) => u.includes("meeting_key=1293"))).toHaveLength(2);
+  });
+
+  test("fetched rows reach onNewRows (the jsonl recorder), tagged to the session they name", async () => {
+    const fetcher = async (url: string): Promise<unknown> => {
+      if (url.includes("/sessions?")) return [FP1, RACE];
+      if (url.includes("/drivers?meeting_key=1293")) {
+        return [{ session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" }];
+      }
+      return [];
+    };
+    const onNewRows = vi.fn(async () => {});
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, {
+      fetcher,
+      now: () => Date.parse("2026-09-04T11:31:00Z"),
+      onNewRows,
+      onLog: () => {},
+    });
+
+    await lane.discoverOnce(); // FP1 goes live too: its static fallback (11360) is recorded separately
+
+    const raceCalls = onNewRows.mock.calls.filter((c) => c[1] === "drivers" && c[0] === 11361);
+    expect(raceCalls).toHaveLength(1);
+    expect(raceCalls[0]?.[2]).toHaveLength(1);
+  });
+
+  test("a race session whose sessions upsert failed this tick does not count as known: no fetch until it lands", async () => {
+    let raceFails = true;
+    const calls: string[] = [];
+    const fetcher = async (url: string): Promise<unknown> => {
+      calls.push(url);
+      if (url.includes("/sessions?")) return [FP1, RACE];
+      if (url.includes("/drivers?meeting_key=1293")) {
+        return [{ session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" }];
+      }
+      return [];
+    };
+    const onSession = vi.fn(async (row: RawRecord) => {
+      if (raceFails && row["session_type"] === "Race") throw new Error("db down");
+    });
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, {
+      fetcher,
+      now: () => Date.parse("2026-09-04T11:31:00Z"),
+      onSession,
+      onLog: () => {},
+    });
+
+    const raceRows = () => queue.drain(1000).filter((i) => i.endpoint === "drivers" && i.sessionKey === 11361n);
+
+    await lane.discoverOnce(); // RACE's upsert failed: it is not "in the sessions table" yet
+    expect(calls.some((u) => u.includes("meeting_key="))).toBe(false);
+    expect(raceRows()).toHaveLength(0); // FP1's own static fallback (11360) is fine; nothing for 11361
+
+    raceFails = false;
+    await lane.discoverOnce(); // now it is: the Friday fetch fires and its row is queued
+    expect(calls.filter((u) => u.includes("meeting_key=1293"))).toHaveLength(1);
+    expect(raceRows()).toHaveLength(1);
   });
 
   test("no race session known yet -> never fires", async () => {

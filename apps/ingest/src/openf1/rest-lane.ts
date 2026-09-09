@@ -111,7 +111,11 @@ export interface EmitTaggedRowsResult {
   malformed: number;
   /** Rows whose OWN `session_key` differs from `expectedSessionKey` — still written, tagged to the session they name (issue #39 brief: "a row naming another session is still written, tagged to that session, and counted as `foreign`"). `null` `expectedSessionKey` (the Friday meeting-wide fetch has no single session to compare against) counts nothing as foreign. */
   foreign: number;
+  /** Rows naming a `session_key` that is not in the `sessions` table (per `isKnownSession`): dropped, never queued. `events.session_key` is a real FK, and one such row would fail the writer's whole batch and requeue it forever. */
+  unknownSession: number;
   payloads: RawRecord[];
+  /** The written payloads per session_key, so a caller can feed the jsonl recorder once per session. */
+  groups: Array<{ sessionKey: number; payloads: RawRecord[] }>;
 }
 
 /**
@@ -126,21 +130,30 @@ export interface EmitTaggedRowsResult {
  * stay identical to every other endpoint. A row with no numeric
  * `session_key` of its own can't be tagged or written; it's counted as
  * malformed, same meaning `emitRows`/`LiveNormalizer.normalize` give that
- * word elsewhere.
+ * word elsewhere. A row naming a session that `isKnownSession` rejects (not
+ * in the `sessions` table) is dropped and counted `unknownSession`: the FK
+ * on `events.session_key` would fail the writer's whole batch, and the
+ * writer requeues a failed batch at the front forever.
  */
 export function emitTaggedDriverRows(
   normalizer: LiveNormalizer,
   queue: EventQueue<QueueItem>,
   rows: RawRecord[],
   expectedSessionKey: number | null,
+  isKnownSession: (sessionKey: number) => boolean = () => true,
 ): EmitTaggedRowsResult {
   const byKey = new Map<number, RawRecord[]>();
   let foreign = 0;
   let malformed = 0;
+  let unknownSession = 0;
   for (const row of rows) {
     const key = Number(row["session_key"]);
     if (!Number.isFinite(key)) {
       malformed += 1;
+      continue;
+    }
+    if (!isKnownSession(key)) {
+      unknownSession += 1;
       continue;
     }
     if (expectedSessionKey !== null && key !== expectedSessionKey) foreign += 1;
@@ -151,13 +164,15 @@ export function emitTaggedDriverRows(
 
   let newRows = 0;
   const payloads: RawRecord[] = [];
+  const groups: EmitTaggedRowsResult["groups"] = [];
   for (const [key, groupRows] of byKey) {
     const result = emitRows(normalizer, queue, "drivers", key, groupRows);
     newRows += result.newRows;
     malformed += result.malformed;
     payloads.push(...result.payloads);
+    if (result.payloads.length > 0) groups.push({ sessionKey: key, payloads: result.payloads });
   }
-  return { newRows, malformed, foreign, payloads };
+  return { newRows, malformed, foreign, unknownSession, payloads, groups };
 }
 
 export interface RestLaneOptions {
@@ -228,6 +243,11 @@ export class RestLane {
   // just the one currently selected, and discoverOnce() stops running once a
   // session is live, so pollOnce() reuses this snapshot instead of refetching.
   private lastSessions: RawRecord[] = [];
+  // Every session_key whose `sessions` upsert has succeeded at least once
+  // (this process). A drivers row tagged to any other key must not be
+  // queued: `events.session_key` is a FK, one such row fails the writer's
+  // whole batch, and the writer requeues that batch at the front forever.
+  private readonly knownSessionKeys = new Set<number>();
 
   private running = false;
   private timer: NodeJS.Timeout | null = null;
@@ -284,7 +304,6 @@ export class RestLane {
     }
     if (!Array.isArray(sessions)) return { sessionCount: 0, live: this.sessionKey !== null };
     const rows = sessions as RawRecord[];
-    this.lastSessions = rows;
 
     // Tracks which rows' onSession (the sessions upsert) succeeded THIS
     // tick, so ensureLiveSession() never selects a session whose row failed
@@ -295,6 +314,8 @@ export class RestLane {
       try {
         await this.onSession?.(row, nowMs);
         upserted.add(row);
+        const key = Number(row["session_key"]);
+        if (Number.isFinite(key)) this.knownSessionKeys.add(key);
       } catch (error) {
         // One malformed row (bad session_key, bad date) must not throw out
         // of this loop and starve ensureLiveSession()/the Friday entry-list
@@ -306,11 +327,17 @@ export class RestLane {
 
     await this.ensureLiveSession(rows, nowMs, upserted);
 
+    // Only rows whose upsert succeeded: Friday's condition is "the race
+    // session is in the sessions table", and a drivers row tagged to a
+    // session that is not would poison the writer's batch (FK).
+    const known = rows.filter((row) => upserted.has(row));
+    this.lastSessions = known;
+
     // Behaviour 2 (Friday): checked on every discovery tick, same "on
     // discovery of a meeting" wording as the brief — this is the idle (60s)
     // loop's own extra fetch, not competing with the rotation budget (there
     // is no rotation while idle).
-    await this.checkFridayFetch(rows, nowMs);
+    await this.checkFridayFetch(known, nowMs);
 
     return { sessionCount: rows.length, live: this.sessionKey !== null };
   }
@@ -392,10 +419,10 @@ export class RestLane {
     }
 
     if (rows.length > 0) {
-      const result = emitTaggedDriverRows(this.normalizer, this.queue, rows, key);
+      const result = await this.emitAndRecordDrivers(rows, key);
       this.entryListSatisfied = true;
       this.log(
-        `entry list: fetched session_key=${key} rows=${rows.length} new=${result.newRows} foreign=${result.foreign}`,
+        `entry list: fetched session_key=${key} rows=${rows.length} new=${result.newRows} foreign=${result.foreign} unknown_session=${result.unknownSession}`,
       );
       return true;
     }
@@ -442,9 +469,9 @@ export class RestLane {
     }
 
     if (rows.length > 0) {
-      const result = emitTaggedDriverRows(this.normalizer, this.queue, rows, key);
+      const result = await this.emitAndRecordDrivers(rows, key);
       this.log(
-        `entry list: pre-race refresh session_key=${key} rows=${rows.length} new=${result.newRows} foreign=${result.foreign}`,
+        `entry list: pre-race refresh session_key=${key} rows=${rows.length} new=${result.newRows} foreign=${result.foreign} unknown_session=${result.unknownSession}`,
       );
     } else {
       this.log(`entry list: pre-race refresh session_key=${key} returned 0 rows`);
@@ -505,10 +532,10 @@ export class RestLane {
     }
 
     if (rows.length > 0) {
-      const result = emitTaggedDriverRows(this.normalizer, this.queue, rows, null);
+      const result = await this.emitAndRecordDrivers(rows, null);
       this.fridayMeetings.set(meetingKey, { satisfied: true, nextRetryAt: nowMs });
       this.log(
-        `entry list: friday fetch meeting_key=${meetingKey} rows=${rows.length} new=${result.newRows} foreign=${result.foreign}`,
+        `entry list: friday fetch meeting_key=${meetingKey} rows=${rows.length} new=${result.newRows} foreign=${result.foreign} unknown_session=${result.unknownSession}`,
       );
     } else {
       this.fridayMeetings.set(meetingKey, { satisfied: false, nextRetryAt: nowMs + 30 * 60_000 });
@@ -578,6 +605,22 @@ export class RestLane {
       await this.onNewRows?.(sessionKey, endpoint, result.payloads);
     }
     return { newRows: result.newRows, malformed: result.malformed };
+  }
+
+  /**
+   * `emitTaggedDriverRows` plus the jsonl recorder: `onNewRows` once per
+   * session_key group that wrote something, so a real fetched entry list is
+   * recorded exactly like the static fallback and every rotation poll. Rows
+   * naming a session not yet upserted are dropped (see `knownSessionKeys`).
+   */
+  private async emitAndRecordDrivers(rows: RawRecord[], expectedSessionKey: number | null): Promise<EmitTaggedRowsResult> {
+    const result = emitTaggedDriverRows(this.normalizer, this.queue, rows, expectedSessionKey, (key) =>
+      this.knownSessionKeys.has(key),
+    );
+    for (const group of result.groups) {
+      await this.onNewRows?.(group.sessionKey, "drivers", group.payloads);
+    }
+    return result;
   }
 
   /** Production loop: discovery while idle, rotation while a session is live. */
