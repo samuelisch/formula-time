@@ -75,6 +75,7 @@ Load only what the task needs. Nothing below is loaded by default.
 | Recording a decision | New numbered file in `docs/decisions-adr/`; the ADR-guard hook refuses edits to accepted ones. |
 | Running the stack, rehearsing a race | Project skills under `.claude/skills/` once the scaffold exists; until then the POC's `CLAUDE.md` commands. |
 | Finishing a branch | `superpowers:finishing-a-development-branch`. |
+| Acting as a role | `.claude/agents/planner.md` plans and decides; `.claude/agents/implementor-<api|ingest|web|infra>.md` take labelled issues and fan out subagents. |
 
 ## How work is tracked
 
