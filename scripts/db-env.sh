@@ -31,7 +31,15 @@ sha256_hex() {
   fi
 }
 
-toplevel="$(git rev-parse --show-toplevel)"
+# git is absent in the Docker image; fall back to the working directory so
+# this script never fails a deploy that reaches it. Without git (the Docker
+# image) the hash is of the working directory; Railway and CI set
+# DATABASE_URL themselves, so the derived port is unused there.
+if command -v git >/dev/null 2>&1; then
+  toplevel="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+else
+  toplevel="$(pwd)"
+fi
 digest8="$(printf '%s' "$toplevel" | sha256_hex | cut -c1-8)"
 
 compose_project_name="${COMPOSE_PROJECT_NAME:-ft-$digest8}"
