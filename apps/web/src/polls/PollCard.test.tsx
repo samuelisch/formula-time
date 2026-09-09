@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { makePoll } from "./pollFixtures.ts";
@@ -15,24 +15,47 @@ function renderCard(poll: ReturnType<typeof makePoll>) {
   );
 }
 
+/** The Collapsible's trigger is the only button rendered outside its body. */
+function expand(): void {
+  fireEvent.click(screen.getByRole("button", { name: /./ }));
+}
+
 describe("PollCard", () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
+  it("defaults open when the poll is open, and shows the status pill, question, and lock lap collapsed", () => {
+    renderCard(makePoll({ status: "open", question: "Who wins the race?", locks_at_lap: 10, total_votes: 3 }));
+
+    expect(screen.getByText("OPEN")).toBeInTheDocument();
+    expect(screen.getByText("Who wins the race?")).toBeInTheDocument();
+    expect(screen.getByText("locks at lap 10 · 3 votes")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Verstappen/ })).toBeVisible();
+  });
+
+  it("defaults collapsed when the poll is not open, showing the status word instead of the lock lap", () => {
+    renderCard(makePoll({ status: "locked", total_votes: 5 }));
+
+    expect(screen.getByText("locked · 5 votes")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Verstappen/ })).not.toBeInTheDocument();
+  });
+
   it("enables voting when the poll is open", () => {
     renderCard(makePoll({ status: "open" }));
 
-    for (const button of screen.getAllByRole("button")) {
-      expect(button).toBeEnabled();
+    for (const option of ["Verstappen", "Hamilton"]) {
+      expect(screen.getByRole("button", { name: new RegExp(option) })).toBeEnabled();
     }
   });
 
-  it("disables voting when the poll is locked", () => {
+  it("disables voting when the poll is locked, once expanded", () => {
     renderCard(makePoll({ status: "locked" }));
 
-    for (const button of screen.getAllByRole("button")) {
-      expect(button).toBeDisabled();
+    expand();
+
+    for (const option of ["Verstappen", "Hamilton"]) {
+      expect(screen.getByRole("button", { name: new RegExp(option) })).toBeDisabled();
     }
   });
 
@@ -41,6 +64,7 @@ describe("PollCard", () => {
     rememberVote("poll-1", "opt-a");
 
     renderCard(poll);
+    expand();
 
     expect(screen.getByText("✓ You called it")).toBeInTheDocument();
   });
@@ -50,6 +74,7 @@ describe("PollCard", () => {
     rememberVote("poll-1", "opt-a");
 
     renderCard(poll);
+    expand();
 
     expect(screen.getByText("✗ Not this time")).toBeInTheDocument();
   });
@@ -58,6 +83,7 @@ describe("PollCard", () => {
     const poll = makePoll({ poll_id: "poll-1", status: "resolved", winning_option_ids: ["opt-a"] });
 
     renderCard(poll);
+    expand();
 
     expect(screen.queryByText("✓ You called it")).not.toBeInTheDocument();
     expect(screen.queryByText("✗ Not this time")).not.toBeInTheDocument();
