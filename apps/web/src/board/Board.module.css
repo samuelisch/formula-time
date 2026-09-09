@@ -1,10 +1,21 @@
+/* One grid for the whole board (issue #90 fix round 1): below ~860px, a
+   single column in DOM order (toolbar, side, cards, table) -- the side slot
+   is a full-width card directly under the toolbar, per the issue's
+   acceptance criterion. The wide breakpoint below only reassigns grid
+   areas; it never reorders the DOM, so `side` stays a single element in the
+   tree and reading/tab order is unaffected by which layout is active. */
 .board {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-areas:
+    "toolbar"
+    "side"
+    "cards"
+    "table";
   gap: 1rem;
 }
 
 .toolbar {
+  grid-area: toolbar;
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -15,42 +26,34 @@
   font-variant-numeric: tabular-nums;
 }
 
+.side {
+  grid-area: side;
+}
+
+.side:empty {
+  display: none;
+}
+
 .grid {
+  grid-area: cards;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
   gap: 1rem;
 }
 
-/* The table and the side slot (driver panel): a right-hand column on wide
-   screens, stacked full-width below the breakpoint below. `min-width: 0` on
-   the table column stops the table's own min-content width from pushing the
-   side column off-screen. */
-.tableRow {
-  display: flex;
-  align-items: flex-start;
-  gap: 1rem;
-}
-
-.tableColumn {
-  flex: 1;
+.table {
+  grid-area: table;
+  /* Stops the table's own min-content width from pushing the side column
+     off-screen once it sits next to `table` in the wide layout below. */
   min-width: 0;
 }
 
-.sideColumn {
-  flex: 0 0 20rem;
-}
-
-.sideColumn:empty {
-  display: none;
-}
-
-@media (max-width: 860px) {
-  .tableRow {
-    flex-direction: column;
-  }
-
-  .sideColumn {
-    flex-basis: auto;
-    width: 100%;
+@media (min-width: 861px) {
+  .board {
+    grid-template-columns: 1fr 20rem;
+    grid-template-areas:
+      "toolbar toolbar"
+      "cards   cards"
+      "table   side";
   }
 }
