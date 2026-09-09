@@ -6,11 +6,11 @@
 // nothing when no driver is selected or the selection is not in the current
 // push (e.g. a stale `?driver=` after a session change).
 import { useEffect } from "react";
-import type { RawRecord } from "@formula-time/domain";
 
 import { Card } from "../components/Card.tsx";
-import { lapTime, number, text } from "../lib/format.ts";
+import { lapTime, number, pitStopText, text } from "../lib/format.ts";
 import styles from "./DriverPanel.module.css";
+import { TeamDot } from "./TeamDot.tsx";
 import { useBoardDriver, useBoardSessionMeta } from "./useBoardState.ts";
 import { useDriverSelection } from "./useDriverSelection.ts";
 
@@ -30,10 +30,6 @@ function pitOutText(isPitOutLap: boolean | null): string {
 // "s" suffix has to be conditional on there being a number to suffix.
 function secondsText(value: number | null): string {
   return value === null ? "—" : `${number(value, 3)}s`;
-}
-
-function pitStopLine(pit: RawRecord): string {
-  return `L${text(pit["lap_number"])} · ${number(pit["pit_duration"], 1)}s`;
 }
 
 export function DriverPanel() {
@@ -64,7 +60,7 @@ export function DriverPanel() {
         </div>
       </div>
       <div className={styles.team}>
-        <span className={styles.teamDot} style={{ background: `#${text(driver.team_colour, "888")}` }} aria-hidden="true" />
+        <TeamDot teamColour={driver.team_colour} />
         {text(driver.team_name)}
       </div>
       <dl className={styles.stats}>
@@ -105,7 +101,7 @@ export function DriverPanel() {
         ) : (
           <ul className={styles.pitList}>
             {pitStopsNewestFirst.map((pit, index) => (
-              <li key={text(pit["event_id"], String(index))}>{pitStopLine(pit)}</li>
+              <li key={text(pit["event_id"], String(index))}>{pitStopText(pit)}</li>
             ))}
           </ul>
         )}
