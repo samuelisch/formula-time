@@ -1,7 +1,7 @@
-// The viewer's own picks, per-viewer and never in the shared payload (issue
-// #51 decision). Keyed by `poll_id` alone (`poll-vote-{poll_id}`) rather
-// than `poll-vote-{session_key}-{poll_id}` (fix round 3): poll ids already
-// embed the session key (`${sessionKey}:winner` / `${sessionKey}:podium`,
+// The viewer's own picks, per-viewer and never in the shared payload.
+// Keyed by `poll_id` alone (`poll-vote-{poll_id}`) rather than
+// `poll-vote-{session_key}-{poll_id}`: poll ids already embed the session
+// key (`${sessionKey}:winner` / `${sessionKey}:podium`,
 // apps/api/src/polls/poll-module.ts), so they never repeat across sessions
 // and the session segment was redundant. It was also actively wrong: a vote
 // cast during the /polls page's initial-fill window (before the first SSE
@@ -9,7 +9,7 @@
 // `poll-vote-unknown-{poll_id}`; once the push landed and the real session
 // key was known, `myVote` looked under a different key and silently lost
 // the pick. Keying by poll_id alone makes that race impossible.
-export function voteKey(pollId: string): string {
+function voteKey(pollId: string): string {
   return `poll-vote-${pollId}`;
 }
 

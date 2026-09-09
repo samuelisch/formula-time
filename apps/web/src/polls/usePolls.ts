@@ -1,5 +1,5 @@
-// Displayed polls (issue #51 decision): polls render from the displayed
-// push, never the live edge, so a delayed viewer sees tallies and statuses
+// Displayed polls: polls render from the displayed push, never the live
+// edge, so a delayed viewer sees tallies and statuses
 // as of their own moment -- the spoiler rule without a gating transform.
 //
 // The push comes through the board seam (`useBoardPush()`,

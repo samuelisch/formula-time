@@ -1,27 +1,27 @@
-// The transport bar's position slider (issue #81 PR 2): a native range
-// input with lap ticks drawn as a track overlay, a snap "resistance" near
-// each tick, and a tooltip showing the current lap above the thumb. Shared
-// by both `TimeTarget` implementations -- `TransportBar` builds `ticks` from
+// The transport bar's position slider: a native range input with lap ticks
+// drawn as a track overlay, a snap "resistance" near each tick, and a
+// tooltip showing the current lap above the thumb. Shared by both
+// `TimeTarget` implementations -- `TransportBar` builds `ticks` from
 // `target.anchors().laps` and passes it the same way for live and replay.
 // The snap/label math lives in `sliderMath.ts`, unit tested on its own.
 //
-// Snap only applies to a pointer drag (fix round 1, PR #106): the native
-// `step` (100ms) also fires a `change` event on every arrow-key press, and
-// snapping unconditionally there could pull a keyboard step onto a tick
-// that is not on the 100ms grid, making the control appear stuck. A
+// Snap only applies to a pointer drag: the native `step` (100ms) also fires
+// a `change` event on every arrow-key press, and snapping unconditionally
+// there could pull a keyboard step onto a tick that is not on the 100ms
+// grid, making the control appear stuck. A
 // `pointerdown`/`pointerup`/`pointercancel`/`onLostPointerCapture`/`onBlur`
 // set on the input tracks whether the current `change` came from a drag
 // (the last two clear it if a drag is interrupted -- e.g. focus moves away
 // mid-drag -- so it cannot leave a later keyboard step snapping); keyboard
 // and programmatic changes pass the raw stepped value straight through.
 //
-// `ticks` (rendered tick marks) and `allTicks` (fix round 2, PR #106) are
-// deliberately separate: `TransportBar` filters `ticks` to `range()` so a
-// tick never renders past the slider's own bounds, but the current-lap
-// tooltip must still find the viewer's actual lap even when that lap's own
-// anchor sits before `range.startMs` (live's rolling buffer can open
-// mid-lap) -- `allTicks` is the unfiltered list for that lookup only,
-// defaulting to `ticks` when the caller has nothing more complete to give.
+// `ticks` (rendered tick marks) and `allTicks` are deliberately separate:
+// `TransportBar` filters `ticks` to `range()` so a tick never renders past
+// the slider's own bounds, but the current-lap tooltip must still find the
+// viewer's actual lap even when that lap's own anchor sits before
+// `range.startMs` (live's rolling buffer can open mid-lap) -- `allTicks` is
+// the unfiltered list for that lookup only, defaulting to `ticks` when the
+// caller has nothing more complete to give.
 import { useState, type ChangeEvent } from "react";
 
 import { currentLap, percent, snapTarget, type TickMark } from "./sliderMath.ts";

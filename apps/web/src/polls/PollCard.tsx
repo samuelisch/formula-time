@@ -4,8 +4,8 @@
 // locked, resolved, void) and the app's own useVote/useMutation flow rather
 // than a bare fetch.
 //
-// Collapsed inside a Collapsible (issue #80): the summary is the status
-// pill, question, and lock/vote-count line; the option rows, vote buttons,
+// Collapsed inside a Collapsible: the summary is the status pill, question,
+// and lock/vote-count line; the option rows, vote buttons,
 // and verdict live in the expanded body. Open polls default open (they need
 // a vote), every other status defaults collapsed. PollList and PollModal
 // both render this unchanged -- the collapse behaviour comes for free.

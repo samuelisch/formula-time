@@ -1,20 +1,20 @@
-// The incremental fold shared by the replay path (`foldRace.ts`, issue #57)
-// and the live path (`apps/web/src/live/timeline.ts`, issue #97 PR1): a
-// `Timeline` is a running fold over an event log -- keyframes, lap markers,
-// and the first/last source times seen -- built either in one shot
-// (`foldRace`: create then `appendEvents` with the whole file) or across
-// many `appendEvents` calls as pages arrive from `GET
-// /api/races/:session_key/events` while a session is still live.
+// The incremental fold shared by the replay path (`foldRace.ts`) and the
+// live path (`apps/web/src/live/timeline.ts`): a `Timeline` is a running
+// fold over an event log -- keyframes, lap markers, and the first/last
+// source times seen -- built either in one shot (`foldRace`: create then
+// `appendEvents` with the whole file) or across many `appendEvents` calls
+// as pages arrive from `GET /api/races/:session_key/events` while a
+// session is still live.
 //
 // Design: a keyframe is taken every `KEYFRAME_EVENT_INTERVAL` events or
-// every `KEYFRAME_SOURCE_TIME_MS` of source time, whichever comes first
-// (issue #57). Scrubbing to a target source time (`foldAt`) finds the
-// nearest keyframe at or before that time and replays only the events
-// after it, so a scrub never re-folds the whole timeline.
+// every `KEYFRAME_SOURCE_TIME_MS` of source time, whichever comes first.
+// Scrubbing to a target source time (`foldAt`) finds the nearest keyframe
+// at or before that time and replays only the events after it, so a scrub
+// never re-folds the whole timeline.
 //
-// A ~28k-event race must not block the UI thread noticeably (issue #57).
-// Chosen strategy: chunked yields with `setTimeout(0)`, not a Web Worker --
-// the whole point of folding in the browser is to reuse `RaceStateReducer`
+// A ~28k-event race must not block the UI thread noticeably. Chosen
+// strategy: chunked yields with `setTimeout(0)`, not a Web Worker -- the
+// whole point of folding in the browser is to reuse `RaceStateReducer`
 // unchanged (ADR-0009 §5 "must stay identical to the server's"); a worker
 // would need events serialised across `postMessage` and a second Vite
 // worker entry/tsconfig, for a fold that (chunked) never blocks a frame for
@@ -22,26 +22,25 @@
 // milliseconds. `foldAt` (the scrub path) stays synchronous: it only ever
 // replays up to one keyframe interval's worth of events.
 //
-// Dedup (issue #57 review round 1): `RaceStateReducer`'s own duplicate-event
-// detection (`seenEventIds`) is private reducer state, not part of
-// `RaceState` -- it is not in a keyframe's snapshot. `appendEvents` dedupes
-// by `event_id` against every event already in the timeline (first
-// occurrence, in `seq` order, wins) before applying anything, so no
-// duplicate ever reaches a reducer -- a scrub that rebuilds a reducer from
-// a keyframe snapshot never re-applies one, matching a single continuous
-// fold.
+// Dedup: `RaceStateReducer`'s own duplicate-event detection
+// (`seenEventIds`) is private reducer state, not part of `RaceState` -- it
+// is not in a keyframe's snapshot. `appendEvents` dedupes by `event_id`
+// against every event already in the timeline (first occurrence, in `seq`
+// order, wins) before applying anything, so no duplicate ever reaches a
+// reducer -- a scrub that rebuilds a reducer from a keyframe snapshot never
+// re-applies one, matching a single continuous fold.
 //
-// Null-source truncation rule (issue #57 review round 1): "the state at
-// `targetSourceMs`" applies events in `seq` order up to, but not including,
-// the first event whose `source_time` is non-null and exceeds the target;
-// every null-source event before that boundary applies, none after it
-// does. `truncationBoundary` computes that index; `foldAt` and (in
+// Null-source truncation rule: "the state at `targetSourceMs`" applies
+// events in `seq` order up to, but not including, the first event whose
+// `source_time` is non-null and exceeds the target; every null-source
+// event before that boundary applies, none after it does.
+// `truncationBoundary` computes that index; `foldAt` and (in
 // `foldRace.test.ts`) the full-fold-truncated reference both call it, so
 // the two can never disagree about where the cut falls.
 //
-// Reconstructing the live fold position (issue #97 PR1): `appendEvents`
-// does not keep a persistent `RaceStateReducer` across calls -- doing so
-// would make `Timeline` carry hidden, unclonable state, and the live path
+// Reconstructing the live fold position: `appendEvents` does not keep a
+// persistent `RaceStateReducer` across calls -- doing so would make
+// `Timeline` carry hidden, unclonable state, and the live path
 // (`live/timeline.ts`) hands a `Timeline` to React state after every page.
 // Instead each call rebuilds the reducer from the *last* keyframe already
 // recorded and replays the (bounded, at most one keyframe interval's

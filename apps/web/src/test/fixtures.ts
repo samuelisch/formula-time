@@ -1,5 +1,5 @@
-// Shared test fixtures for board components (issue #48) and later slices
-// that render the same push shape (polls, alignment, replay).
+// Shared test fixtures for board components and other slices that render
+// the same push shape (polls, alignment, replay).
 import type { DriverState, RaceState } from "@formula-time/domain";
 
 import type { LivePush } from "../live/types.ts";

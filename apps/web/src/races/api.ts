@@ -1,11 +1,10 @@
 // The historical-race routes (ADR-0009 §4): `GET /api/races` and
-// `GET /api/races/:session_key`, verbatim from the seam contract pasted
-// into issue #57. `RaceIndexEntry` is exactly the index route's response
-// shape (apps/api/src/routes/races.ts `RaceIndexEntry`) -- never copy it
-// elsewhere, import from here. `fetchRaceEventsPage` (issue #96/#97) is
-// the paged event-log route, used by both a finished session's replay and
-// a live session's browser-side timeline
-// (`apps/web/src/live/timeline.ts`).
+// `GET /api/races/:session_key`, verbatim from the seam contract.
+// `RaceIndexEntry` is exactly the index route's response shape
+// (apps/api/src/routes/races.ts `RaceIndexEntry`) -- never copy it
+// elsewhere, import from here. `fetchRaceEventsPage` is the paged
+// event-log route, used by both a finished session's replay and a live
+// session's browser-side timeline (`apps/web/src/live/timeline.ts`).
 import type { RaceEvent, RawRecord } from "@formula-time/domain";
 
 import { apiFetch } from "../api.ts";
@@ -52,9 +51,9 @@ export async function fetchRaceFile(sessionKey: number): Promise<RaceFile> {
 }
 
 /**
- * `GET /api/races/:session_key/polls` (issue #80/#79). `PollPublic[]`, `[]`
- * when the race has no polls -- unlike `fetchRaceFile` this never 404s for
- * "no polls", so a non-2xx here is a real failure.
+ * `GET /api/races/:session_key/polls`. `PollPublic[]`, `[]` when the race
+ * has no polls -- unlike `fetchRaceFile` this never 404s for "no polls",
+ * so a non-2xx here is a real failure.
  */
 export async function fetchRacePolls(sessionKey: string): Promise<PollPublic[]> {
   const response = await apiFetch(`/api/races/${sessionKey}/polls`);
@@ -67,7 +66,7 @@ export async function fetchRacePolls(sessionKey: string): Promise<PollPublic[]> 
 export type SessionStatus = "upcoming" | "live" | "finished";
 
 /** The response shape of `GET /api/races/:session_key/events`, verbatim
- * from `apps/api/src/routes/races.ts` (issue #96/PR #102). `next_seq` is
+ * from `apps/api/src/routes/races.ts`. `next_seq` is
  * `null` only when `events` is empty (nothing past `since_seq` yet);
  * otherwise it is the last returned row's `seq`, the next page's
  * `since_seq`. A page shorter than the requested `limit` is the head of
