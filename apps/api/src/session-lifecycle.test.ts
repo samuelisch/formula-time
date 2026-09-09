@@ -238,7 +238,7 @@ describe("createSessionLifecycle", () => {
       }
     });
 
-    test("the pushed payload carries events (the applied RaceEvent rows) and seq; no rebuilt flag on a normal tick (issue #114)", async () => {
+    test("the pushed payload carries events: [] on the catch-up tick, then the newly applied rows on a later tick; no rebuilt flag on an ordinary tick (issue #114, review round 1)", async () => {
       vi.useFakeTimers();
       const polls = fakePollHooks();
       const pushed: unknown[] = [];
@@ -248,7 +248,7 @@ describe("createSessionLifecycle", () => {
         }),
         size: () => 0,
       };
-      const rows = [driverRow(1, 1)];
+      const rows: EventRow[] = [];
       const source = new FakeSource(rows);
 
       const lifecycle = createSessionLifecycle({
@@ -263,10 +263,16 @@ describe("createSessionLifecycle", () => {
       projectors.push({ stop: () => lifecycle.stop() });
 
       await lifecycle.check();
-      await vi.advanceTimersByTimeAsync(0); // first tick
+      await vi.advanceTimersByTimeAsync(0); // first (catch-up) tick: nothing in the log yet, still publishes once
 
       expect(pushed).toHaveLength(1);
-      const payload = pushed[0] as { events: unknown; seq: string; rebuilt?: boolean };
+      expect((pushed[0] as { events: unknown }).events).toEqual([]);
+
+      rows.push(driverRow(1, 1));
+      await vi.advanceTimersByTimeAsync(250); // second tick, picks up the new row
+
+      expect(pushed).toHaveLength(2);
+      const payload = pushed[1] as { events: unknown; seq: string; rebuilt?: boolean };
       expect(payload.events).toEqual([
         { event_id: "event-1", endpoint: "drivers", source_time: null, payload: { driver_number: 1 } },
       ]);

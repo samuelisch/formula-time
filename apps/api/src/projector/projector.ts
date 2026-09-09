@@ -36,12 +36,17 @@ export interface ProjectorOptions {
 }
 
 // Issue #114: `events` is the `RaceEvent` rows this tick applied, in seq
-// order -- `[]` on a tick that applied nothing new (or the startup tick).
-// `rebuilt` is true only on the tick where the late-commit detector's
-// rebuild lands (runDetector's success path): the fold is correct but the
-// rows it re-folded are not "new events" to append to a client's timeline,
-// so it publishes `events: [], rebuilt: true` and the client must discard
-// its timeline and backfill from the paged log route instead.
+// order. `[]` on a tick that applied nothing new, AND on any tick that
+// first reaches caught-up (a brand new projector, or a restart's re-fold
+// from cursor 0): that tick's "applied rows" are a historical backlog, not
+// new events for a client's timeline -- a client already gets that history
+// from its own paged backfill (review round 1: publishing the backlog here
+// broke the wire contract's explicit "[] on the join snapshot"). `rebuilt`
+// is true only on the tick where the late-commit detector's rebuild lands
+// (runDetector's success path): structurally the same situation as the
+// catch-up tick -- a correct re-fold whose rows are not new events -- so it
+// too publishes `events: []`, plus `rebuilt: true` so a client that already
+// has a timeline knows to discard it and backfill again.
 export type ProjectorSubscriber = (
   state: RaceState,
   cursor: bigint,
@@ -209,7 +214,16 @@ export class RaceStateProjector {
       }
 
       if (totalApplied > 0 || justCaughtUp) {
-        this.publish(appliedThisTick.map(toRaceEvent));
+        // Issue #114, review round 1: the tick that first reaches caught-up
+        // (a brand new projector, or a restart's re-fold from cursor 0)
+        // read the entire historical backlog in `appliedThisTick`, not rows
+        // a client should see as newly arrived -- a client already gets
+        // that history from its own paged backfill (the wire contract's
+        // "the join snapshot: the state is the fold, the events are
+        // already in the log the client backfills"). Structurally the same
+        // situation as the rebuild path below: a full re-fold publishes
+        // `events: []`, never the backlog it re-folded.
+        this.publish(justCaughtUp ? [] : appliedThisTick.map(toRaceEvent));
       }
     } catch (err) {
       this.log("projector tick failed", {

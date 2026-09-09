@@ -102,7 +102,13 @@ describe("RaceStateProjector", () => {
     expect(source.readAfterCalls[0]?.sessionKey).toBe(SESSION.sessionKey);
   });
 
-  test("subscriber receives exactly the rows applied that tick, as RaceEvent, in seq order (issue #114)", async () => {
+  test("the first (just-caught-up) tick publishes events: [] even though it applied a historical backlog (issue #114, review round 1)", async () => {
+    // A brand new projector's first tick re-folds cursor 0's entire
+    // backlog -- structurally the same as a rebuild (HLD §7 "Fold"), not
+    // new events for a client's timeline: a client already gets this
+    // history from its own paged backfill (the wire contract's "the join
+    // snapshot: the state is the fold, the events are already in the log
+    // the client backfills").
     const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3)];
     const source = new FakeSource(rows, rows.map((r) => r.eventId));
     const projector = tracked(
@@ -117,12 +123,33 @@ describe("RaceStateProjector", () => {
 
     expect(seen).toHaveLength(1);
     expect(seen[0]?.rebuilt).toBe(false);
-    expect(seen[0]?.events.map((e) => e.event_id)).toEqual(["event-1", "event-2", "event-3"]);
-    expect(seen[0]?.events[0]).toEqual({
-      event_id: "event-1",
+    expect(seen[0]?.events).toEqual([]);
+    expect(projector.snapshot().drivers["3"]).toBeDefined(); // the state itself still reflects the whole fold
+  });
+
+  test("a tick after catch-up publishes exactly the newly applied rows, as RaceEvent, in seq order (issue #114)", async () => {
+    const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3)];
+    const source = new FakeSource(rows, [rows[0] as EventRow].map((r) => r.eventId)); // only row 1 visible at first
+    const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 20, log: noopLog }));
+
+    const seen: RaceEvent[][] = [];
+    projector.subscribe((_state, _cursor, events) => seen.push(events));
+
+    projector.start();
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(1));
+    expect(seen[0]).toEqual([]); // the catch-up tick
+
+    source.reveal("event-2");
+    source.reveal("event-3");
+
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(2));
+    const later = seen[seen.length - 1] as RaceEvent[];
+    expect(later.map((e) => e.event_id)).toEqual(["event-2", "event-3"]);
+    expect(later[0]).toEqual({
+      event_id: "event-2",
       endpoint: "drivers",
       source_time: null,
-      payload: { driver_number: 1 },
+      payload: { driver_number: 2 },
     });
   });
 
@@ -223,7 +250,10 @@ describe("RaceStateProjector", () => {
     await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(1));
     expect(projector.snapshot().drivers["3"]).toBeUndefined();
     expect(seen[0]?.rebuilt).toBe(false);
-    expect(seen[0]?.events.map((e) => e.event_id)).toEqual(["event-1", "event-2", "event-4", "event-5"]);
+    // Tick 1 is also the projector's first-ever (just-caught-up) tick, so
+    // its backlog (rows 1, 2, 4, 5) is not published as `events` -- issue
+    // #114, review round 1.
+    expect(seen[0]?.events).toEqual([]);
 
     // "c" commits late: it becomes visible, e.g. because a second writer
     // connection landed it out of order (never happens with the

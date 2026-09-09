@@ -76,7 +76,7 @@ test("folds real rows from Postgres, sits idle with no subscriber call, and rebu
       }),
     );
   }
-  const highestSeq = created[created.length - 1]?.seq;
+  let highestSeq = created[created.length - 1]?.seq;
   expect(highestSeq).toBeDefined();
 
   const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
@@ -109,20 +109,36 @@ test("folds real rows from Postgres, sits idle with no subscriber call, and rebu
     expect(projector.status().cursor).toBe(highestSeq);
     expect(calls).toBe(1);
 
-    // Issue #114: the push carries the RaceEvent rows this tick applied,
-    // read from the real Postgres rows, in seq order.
-    expect(seenEvents[0]?.map((e) => e.event_id)).toEqual(["driver-1", "driver-2", "driver-3"]);
-    expect(seenEvents[0]?.[0]).toEqual({
-      event_id: "driver-1",
-      endpoint: "drivers",
-      source_time: null,
-      payload: { driver_number: 1 },
-    });
+    // Issue #114, review round 1: the first tick is also the catch-up tick
+    // -- it re-folds the whole backlog from cursor 0, which is not "new
+    // events" for a client's timeline (a client already gets this history
+    // from its own paged backfill), so it publishes `events: []` even
+    // though rows were applied.
+    expect(seenEvents[0]).toEqual([]);
     expect(seenRebuilt[0]).toBe(false);
 
     // A second tick with no new rows: no subscriber call.
     await sleep(150);
     expect(calls).toBe(1);
+
+    // A genuinely new row, after catch-up: this tick's push carries exactly
+    // it, read from the real Postgres row, as `events` -- the normal case
+    // the catch-up tick above is not.
+    const driver4 = await db.event.create({
+      data: {
+        eventId: "driver-4",
+        sessionKey: SESSION_KEY,
+        endpoint: "drivers",
+        payload: { driver_number: 4 },
+      },
+      select: { seq: true },
+    });
+    highestSeq = driver4.seq;
+    await vi_waitFor(() => calls >= 2);
+    expect(seenEvents[1]).toEqual([
+      { event_id: "driver-4", endpoint: "drivers", source_time: null, payload: { driver_number: 4 } },
+    ]);
+    expect(seenRebuilt[1]).toBe(false);
 
     // The late row: explicit seq below the cursor, reusing the freed gap.
     await db.event.create({
@@ -146,7 +162,7 @@ test("folds real rows from Postgres, sits idle with no subscriber call, and rebu
     expect(seenRebuilt[seenRebuilt.length - 1]).toBe(true);
   } finally {
     projector.stop();
-    await db.event.deleteMany({ where: { sessionKey: SESSION_KEY, eventId: "driver-late" } });
+    await db.event.deleteMany({ where: { sessionKey: SESSION_KEY, eventId: { in: ["driver-late", "driver-4"] } } });
   }
 });
 

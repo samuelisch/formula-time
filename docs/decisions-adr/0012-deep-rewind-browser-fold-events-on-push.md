@@ -8,7 +8,10 @@
   server-side interim session; browser fold is the target" — the browser
   fold is now the build, no server-side interim session is built in this
   app) and §4 (seam contracts: the push shape gains `events`; the paged
-  event log route from issue #102 is the join read)
+  event log route from issue #102 is the join read); ADR-0011 (Decision
+  point 1's delta payload shape, frozen verbatim as `{ type: "delta", seq,
+  base_seq, sent_at, session_key, patch, polls }`, gains `events` and,
+  conditionally, `rebuilt` — point 4 below)
 
 ## Context
 
@@ -28,16 +31,21 @@ already governs the projector's own cursor.
    gains `events`: the `RaceEvent` rows (`event_id`, `endpoint`,
    `source_time`, `payload` — exactly the export/paging shape, no `seq`
    field) applied by the projector in the tick that produced this push, in
-   seq order; `[]` when the tick applied nothing new (including the join
-   snapshot itself — the state is the fold, the events are already in the
-   log a client backfills separately). `seq` stays the projector cursor
-   after applying them, as today.
-2. **Rebuild.** The late-commit detector's rebuild (HLD §7 "Fold": never
-   patch in place, always re-fold) pushes `events: []` with `rebuilt: true`
-   — a rebuild re-folds rows already accounted for (plus the late one), not
-   new events for a client's timeline to append. A client that sees
-   `rebuilt: true` must discard its timeline and backfill again from the
-   paged log route.
+   seq order; `[]` when the tick applied nothing new. `seq` stays the
+   projector cursor after applying them, as today.
+2. **Fold resets (catch-up and rebuild) never publish a backlog as
+   `events`.** Two ticks re-fold rows the projector has already accounted
+   for, rather than genuinely new ones arriving live: the tick where a
+   projector first reaches caught-up (a brand new projector, or a restart's
+   re-fold from cursor 0 — this *is* "the join snapshot": the state it
+   produces is the fold, and the rows behind it are already in the log a
+   client backfills separately, so publishing them again as `events` would
+   contradict that), and the late-commit detector's rebuild (HLD §7 "Fold":
+   never patch in place, always re-fold). Both publish `events: []`; the
+   rebuild additionally sets `rebuilt: true` (the catch-up tick does not,
+   since no client yet has a timeline to invalidate) so a client that
+   already holds one discards it and backfills again from the paged log
+   route.
 3. **Client reconstruction (issue #102, the paged read).** A client
    backfills `GET /api/races/:key/events` pages from 0 until a short page,
    then appends the `events` of every push whose events it has not seen,
@@ -62,8 +70,11 @@ already governs the projector's own cursor.
   live" row) is not built in this app; the browser fold replaces it, as
   ADR-0001 §3 named as the eventual target.
 - A tick applies a handful of rows (OpenF1 batches roughly every 4 s), so
-  this adds a few KB per push — measured in the PR that introduced this
-  ADR.
+  this adds a few KB per push at real, 1x cadence. Measured against a 20x
+  replay (`.claude/skills/rehearse-race`, 30 s sample, 46 pushes): median
+  frame size rose from 58,861 to 89,391 bytes (uncompressed JSON) with a
+  median 100 events per push — a 20x-compressed worst case (real cadence
+  batches far fewer rows per 250 ms tick), reported in full in the PR.
 
 ## References
 
