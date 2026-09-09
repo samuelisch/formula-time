@@ -10,6 +10,15 @@ import type { RaceEvent, RawRecord } from "@formula-time/domain";
 import { apiFetch } from "../api.ts";
 import type { PollPublic } from "../live/types.ts";
 
+/** `GET path`; throws with `errorLabel` (default `path`) on any non-2xx status, else the parsed JSON body. */
+async function fetchJson<T>(path: string, errorLabel: string = path): Promise<T> {
+  const response = await apiFetch(path);
+  if (!response.ok) {
+    throw new Error(`GET ${errorLabel} failed: ${response.status}`);
+  }
+  return (await response.json()) as T;
+}
+
 export interface RaceIndexEntry {
   session_key: number;
   name: string;
@@ -22,11 +31,7 @@ export interface RaceIndexEntry {
 
 /** `GET /api/races`, sorted by `date_start` descending (server-side, as served). */
 export async function fetchRaceIndex(): Promise<RaceIndexEntry[]> {
-  const response = await apiFetch("/api/races");
-  if (!response.ok) {
-    throw new Error(`GET /api/races failed: ${response.status}`);
-  }
-  return (await response.json()) as RaceIndexEntry[];
+  return fetchJson<RaceIndexEntry[]>("/api/races");
 }
 
 /** The file body, verbatim from ADR-0009 §4 (`apps/api/src/export/exporter.ts` `ExportDoc`). */
@@ -43,11 +48,7 @@ export interface RaceFile {
  * on a 404 (no export for this session) or any other non-2xx status.
  */
 export async function fetchRaceFile(sessionKey: number): Promise<RaceFile> {
-  const response = await apiFetch(`/api/races/${sessionKey}`);
-  if (!response.ok) {
-    throw new Error(`GET /api/races/${sessionKey} failed: ${response.status}`);
-  }
-  return (await response.json()) as RaceFile;
+  return fetchJson<RaceFile>(`/api/races/${sessionKey}`);
 }
 
 /**
@@ -56,11 +57,7 @@ export async function fetchRaceFile(sessionKey: number): Promise<RaceFile> {
  * so a non-2xx here is a real failure.
  */
 export async function fetchRacePolls(sessionKey: string): Promise<PollPublic[]> {
-  const response = await apiFetch(`/api/races/${sessionKey}/polls`);
-  if (!response.ok) {
-    throw new Error(`GET /api/races/${sessionKey}/polls failed: ${response.status}`);
-  }
-  return (await response.json()) as PollPublic[];
+  return fetchJson<PollPublic[]>(`/api/races/${sessionKey}/polls`);
 }
 
 export type SessionStatus = "upcoming" | "live" | "finished";
@@ -88,9 +85,6 @@ export async function fetchRaceEventsPage(
   sinceSeq: number,
   limit: number,
 ): Promise<RaceEventsPage> {
-  const response = await apiFetch(`/api/races/${sessionKey}/events?since_seq=${sinceSeq}&limit=${limit}`);
-  if (!response.ok) {
-    throw new Error(`GET /api/races/${sessionKey}/events failed: ${response.status}`);
-  }
-  return (await response.json()) as RaceEventsPage;
+  const path = `/api/races/${sessionKey}/events`;
+  return fetchJson<RaceEventsPage>(`${path}?since_seq=${sinceSeq}&limit=${limit}`, path);
 }
