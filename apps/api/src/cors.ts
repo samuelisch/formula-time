@@ -36,3 +36,31 @@ export async function registerCors(app: FastifyInstance, allowed: string[]): Pro
 export function replyHeaders(reply: FastifyReply): OutgoingHttpHeaders {
   return reply.getHeaders() as OutgoingHttpHeaders;
 }
+
+function isLocalhostOrigin(origin: string): boolean {
+  try {
+    return new URL(origin).hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * POST /api/vote's own origin check (ADR-0015). The viewer cookie moved to
+ * `SameSite=None` for the split origins, which removes the CSRF guard
+ * `Lax` gave for free, so the vote route checks `Origin` against this same
+ * allowlist instead. A same-origin POST always carries an `Origin` header
+ * (unlike GET), so a same-origin production request still passes so long
+ * as the allowlist includes the site's own origin.
+ *
+ * An empty allowlist means dev (`CORS_ORIGIN` unset): accept a request
+ * with no `Origin` header (same-origin) or a `localhost` origin, so the
+ * Vite proxy keeps working. A non-empty allowlist requires the header and
+ * membership in it; nothing else passes.
+ */
+export function originAllowed(origin: string | undefined, allowed: string[]): boolean {
+  if (allowed.length === 0) {
+    return origin === undefined || isLocalhostOrigin(origin);
+  }
+  return origin !== undefined && allowed.includes(origin);
+}
