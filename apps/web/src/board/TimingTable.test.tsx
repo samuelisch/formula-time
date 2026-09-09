@@ -107,4 +107,25 @@ describe("TimingTable position cues", () => {
     rerender(tree(pushWithPosition(2)));
     expect(screen.queryByText(/^[▲▼]/)).not.toBeInTheDocument();
   });
+
+  // Fix round 1 (issue #91 review): the issue asks for the arrow/number cue
+  // "plus a subtle row highlight on the change" -- a second, row-level
+  // signal, not only the small cell.
+  it("adds a row-highlight class on a position change", () => {
+    const { rerender } = renderWith(pushWithPosition(3));
+    rerender(tree(pushWithPosition(1)));
+    const row = screen.getByText("VER").closest("tr")!;
+    expect(row.className).toMatch(/rowGain/);
+  });
+
+  it("adds no row-highlight class for a driver whose position never changed", () => {
+    // A fresh render (not a rerender after a real change), so there is
+    // nothing in useBoardPositionDeltas()'s baseline for this to compare
+    // against yet -- unlike a same-position rerender right after a real
+    // gain/loss, whose cue is still within its 8s window and correctly
+    // still highlighted.
+    renderWith(pushWithPosition(2));
+    const row = screen.getByText("VER").closest("tr")!;
+    expect(row.className).not.toMatch(/rowGain|rowLoss/);
+  });
 });
