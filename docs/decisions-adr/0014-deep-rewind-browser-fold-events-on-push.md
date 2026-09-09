@@ -1,4 +1,4 @@
-# ADR-0012 — Deep rewind is a browser fold: state pushes carry the events applied that tick
+# ADR-0014 — Deep rewind is a browser fold: state pushes carry the events applied that tick
 
 - **Status:** Proposed (accepted when this PR merges)
 - **Date:** 2026-09-09
@@ -8,7 +8,7 @@
   server-side interim session; browser fold is the target" — the browser
   fold is now the build, no server-side interim session is built in this
   app) and §4 (seam contracts: the push shape gains `events`; the paged
-  event log route from issue #102 is the join read); ADR-0011 (Decision
+  event log route from issue #102 is the join read); ADR-0013 (Decision
   point 1's delta payload shape, frozen verbatim as `{ type: "delta", seq,
   base_seq, sent_at, session_key, patch, polls }`, gains `events` and,
   conditionally, `rebuilt` — point 4 below)
@@ -51,11 +51,15 @@ already governs the projector's own cursor.
    then appends the `events` of every push whose events it has not seen,
    deduped by `event_id`. The overlap between the last backfilled page and
    the first pushes received while backfilling is expected and harmless.
-4. **Both wire formats carry it.** PR #109's delta frame is not a
-   pass-through of the pushed payload — it is built field-by-field from the
-   previous and current `RaceState`. `events`/`rebuilt` are threaded through
-   it exactly like `polls` already is, so a delta-format socket sees
-   `events` on every push, same as a legacy `state`-format socket.
+4. **Both wire formats carry it.** ADR-0013's delta frame is built
+   field-by-field from the previous and current `RaceState`, never a
+   pass-through of the pushed payload — so the fields that shape froze
+   (`{ type: "delta", seq, base_seq, sent_at, session_key, patch, polls }`)
+   are exactly the fields it is built from, and `events`/`rebuilt` must be
+   added there the same way, not inherited for free. `events`/`rebuilt` are
+   threaded through it exactly like `polls` already is, so a delta-format
+   socket sees `events` on every push, same as a legacy `state`-format
+   socket.
 
 ## Consequences
 
@@ -81,7 +85,7 @@ already governs the projector's own cursor.
 - ADR-0001 §2 (invariant 2: Postgres touched per event and per join, never
   per viewer per tick), §3 (the "Deep rewind on live" row this amends), §4
   (seam contracts, build order).
-- ADR-0011 (delta pushes: the two wire formats this ADR's point 4 threads
+- ADR-0013 (delta pushes: the two wire formats this ADR's point 4 threads
   `events`/`rebuilt` through).
 - Issue #97 (the superseded head-poll design), issue #102 (the paged event
   log route this ADR's client reconstruction depends on), issue #114 (this
