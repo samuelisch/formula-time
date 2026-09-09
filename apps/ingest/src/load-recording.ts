@@ -207,6 +207,27 @@ export async function writeSessionThroughLoader(
     return { skipped: true, drainResult: noEvents };
   }
 
+  // Round-3 review fix (issue #39, owner ruling): the two checks above only
+  // refuse a session already `live`. ADR-0010 §1, quoted verbatim: "The
+  // single-writer guarantee holds per `session_key`: at most one process
+  // writes rows for a given session. The live `ingest` service owns every
+  // session inside its live window; the loader owns only sessions whose
+  // window has closed." A window that hasn't closed yet also covers
+  // `upcoming` (not live YET, but the live service will start owning that
+  // SAME session_key once its window opens) — the checks above let an
+  // `upcoming` session through unrefused, and issue #39's Friday/pre-race
+  // `drivers` fetches are the first thing that made that reachable in
+  // practice: they write rows for a session while it is still `upcoming`,
+  // which the live service could then race against this loader/fetch-race
+  // run for the same session_key. `fields.status` is "live" only when
+  // ADR-0010 already refused above, so by this point it is "upcoming" or
+  // "finished" — refuse whenever it isn't "finished" (the window hasn't
+  // closed).
+  if (fields.status !== "finished") {
+    log(`load: refused ${sessionKey}: window not closed; the live ingest service owns it`);
+    return { skipped: true, drainResult: noEvents };
+  }
+
   // Issue #71 / ADR-0009 §2: the api's exporter runs on its own 5s tick and
   // exports any `sessions` row with `status = 'finished'` that has no
   // `exports` row yet (HLD §7, quoted: "**Export** = once, when `status =
