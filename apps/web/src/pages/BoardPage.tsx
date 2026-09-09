@@ -13,23 +13,19 @@ import { TransportBar } from "../transport/TransportBar.tsx";
 import { useLiveTimeTarget } from "../transport/useLiveTimeTarget.ts";
 import styles from "./BoardPage.module.css";
 
-// The `/live` route: the pure `Board` (board/Board.tsx) plus everything that
-// is live-only -- the finished/upcoming session banner, polls, and the
-// alignment control. `ReplayPage` mounts `Board` on its own, so none of this
-// can leak onto a replay (issue #57 fix round 5): the banner would read the
-// replay's own session, which is always finished (the exporter only exports
-// finished sessions), and the transport bar's live `TimeTarget` acts on the
-// live store's push buffer, which a replay does not use.
+// The `/live` route: the pure `Board` (board/Board.tsx) plus everything
+// that is live-only -- the finished/upcoming session banner, polls, and the
+// alignment control. `ReplayPage` mounts `Board` on its own, so none of
+// this leaks onto a replay: the banner would read the replay's own
+// session, which is always finished (the exporter only exports finished
+// sessions), and the transport bar's live `TimeTarget` acts on the live
+// store's push buffer, which a replay does not use.
 //
-// `DelayControl` and `AlignPanel` were mounted in `Shell` (under the header,
-// on every route) until issue #57 fix round 5 moved them into the board's
-// toolbar; issue #81 then deleted `DelayControl` and folded its behavior
-// into the shared `TransportBar`, driven by `useLiveTimeTarget()` through
-// the `TimeTarget` seam. Issue #67 routed `AlignPanel` (via `useAligner`)
-// through the same seam instead of the live store directly, so it can also
-// mount on a replay (`ReplayPage.tsx`) -- one `TimeTargetProvider` now wraps
-// the whole `Board`, not just `TransportBar`, so both slots read the same
-// target.
+// `TransportBar` is driven by `useLiveTimeTarget()` through the
+// `TimeTarget` seam rather than the live store directly, so `AlignPanel`
+// (via `useAligner`) is routed through the same seam and can also mount on
+// a replay (`ReplayPage.tsx`) -- one `TimeTargetProvider` wraps the whole
+// `Board`, not just `TransportBar`, so both slots read the same target.
 export function BoardPage() {
   const polls = usePolls();
   const status = useBoardSessionStatus();

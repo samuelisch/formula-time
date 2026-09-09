@@ -1,8 +1,9 @@
-// The chooser: the landing page (`/`). Owner ask on issue #57 -- a "Live
-// now" card when the live store holds a session (linking to `/live`), then
-// the historical list from `GET /api/races` (newest first as served), each
-// row linking to its replay at `/races/:session_key`.
+// The chooser: the landing page (`/`) -- a "Live now" card when the live
+// store holds a session (linking to `/live`), then the historical list from
+// `GET /api/races` (newest first as served), each row linking to its
+// replay at `/races/:session_key`.
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { Link } from "react-router";
 
 import { Card } from "../components/Card.tsx";
@@ -24,26 +25,34 @@ export function RacesPage() {
   });
   const data = racesQuery.data;
 
+  function heroCard(): ReactNode {
+    if (status === "live" && liveSession !== null) {
+      return (
+        <Link to="/live" className={styles.liveCard}>
+          <span className={styles.liveBadge}>Live now</span>
+          <span className={styles.liveDetails}>
+            {stringField(liveSession, "country") ?? "—"} · {stringField(liveSession, "name") ?? "—"} ·{" "}
+            {date(stringField(liveSession, "date_start"))} · {text(liveTotalLaps)} laps
+          </span>
+        </Link>
+      );
+    }
+
+    if (status === "upcoming" && liveSession !== null) {
+      return (
+        <Link to="/live" className={styles.nextCard}>
+          Next race · {stringField(liveSession, "country") ?? "—"} · {stringField(liveSession, "name") ?? "—"} ·{" "}
+          {date(stringField(liveSession, "date_start"))}
+        </Link>
+      );
+    }
+
+    return <p className={styles.quiet}>No live session right now</p>;
+  }
+
   return (
     <div className={styles.races}>
-      <Card>
-        {status === "live" && liveSession !== null ? (
-          <Link to="/live" className={styles.liveCard}>
-            <span className={styles.liveBadge}>Live now</span>
-            <span className={styles.liveDetails}>
-              {stringField(liveSession, "country") ?? "—"} · {stringField(liveSession, "name") ?? "—"} ·{" "}
-              {date(stringField(liveSession, "date_start"))} · {text(liveTotalLaps)} laps
-            </span>
-          </Link>
-        ) : status === "upcoming" && liveSession !== null ? (
-          <Link to="/live" className={styles.nextCard}>
-            Next race · {stringField(liveSession, "country") ?? "—"} · {stringField(liveSession, "name") ?? "—"} ·{" "}
-            {date(stringField(liveSession, "date_start"))}
-          </Link>
-        ) : (
-          <p className={styles.quiet}>No live session right now</p>
-        )}
-      </Card>
+      <Card>{heroCard()}</Card>
 
       <section>
         <h2 className={styles.heading}>Past races</h2>
