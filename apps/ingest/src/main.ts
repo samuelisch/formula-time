@@ -1,13 +1,14 @@
 // Ingest service: the ONLY process that talks to OpenF1 (ADR-0001 §1).
-// Wires auth -> rest lane -> queue -> writer (issue deliverable 5). MQTT lane
-// is T6, not here (apps/ingest/AGENTS.md: "Two lanes always on" is the target
-// shape; this task builds the REST lane, the safety net, first).
+// Wires auth -> rest lane -> queue -> writer (issue deliverable 5), and (issue
+// #25 / T6) the MQTT lane onto the SAME queue: "Two lanes always on, no
+// failover logic" (apps/ingest/AGENTS.md).
 
 import { createDb } from "@formula-time/db";
 
 import { credentialsFromEnv, createOpenF1Fetcher, OpenF1Auth } from "./openf1/auth.js";
 import { loadConfig } from "./config.js";
 import { createFileFetcher } from "./openf1/file-fetcher.js";
+import { MqttLane } from "./openf1/mqtt-lane.js";
 import { JsonlRecorder } from "./openf1/recorder.js";
 import { RestLane } from "./openf1/rest-lane.js";
 import type { Fetcher, QueueItem, RawRecord } from "./openf1/types.js";
@@ -28,6 +29,11 @@ const writer = new EventWriter(db, queue);
 const recorder = new JsonlRecorder(config.liveLogDir);
 
 let fetcher: Fetcher;
+// Set only on the `api` path — the MQTT lane needs the SAME auth instance
+// the REST lane's fetcher uses (issue #25: "get it from the same auth.ts
+// token source the REST lane uses") and the login as its MQTT username.
+let mqttAuth: OpenF1Auth | null = null;
+let openf1Login: string | null = null;
 if (config.liveSource === "api") {
   const creds = credentialsFromEnv();
   if (!creds) {
@@ -37,6 +43,8 @@ if (config.liveSource === "api") {
   }
   const auth = new OpenF1Auth(creds);
   fetcher = createOpenF1Fetcher(auth);
+  mqttAuth = auth;
+  openf1Login = creds?.login ?? null;
 } else {
   console.log(`ingest: LIVE_SOURCE=${config.liveSource} — replaying a recording instead of OpenF1.`);
   fetcher = createFileFetcher(config.liveSource);
@@ -70,22 +78,47 @@ const restLane = new RestLane(queue, {
   onLog: (line) => console.log(line),
 });
 
+// The MQTT lane (issue #25 / T6): only against the real OpenF1 broker
+// (`LIVE_SOURCE=api` — a file replay has no broker to connect to), only with
+// credentials to authenticate as (mqttAuth/openf1Login are set together on
+// the `api` path above), and only when MQTT_ENABLED says so (default `true`
+// when OPENF1_LOGIN is set, else `false` — the free tier has no MQTT).
+const mqttLane =
+  config.mqttEnabled && mqttAuth && openf1Login
+    ? new MqttLane(queue, {
+        auth: mqttAuth,
+        username: openf1Login,
+        // "the shared LiveNormalizer with the CURRENT session key from the
+        // REST lane's selection" (issue #25) — REST is the authority on
+        // which session is live.
+        getNormalizer: () => restLane.getNormalizer(),
+        getSessionKey: () => restLane.status().sessionKey,
+        onLog: (line) => console.log(line),
+      })
+    : null;
+if (config.mqttEnabled && !mqttLane) {
+  console.log("ingest: MQTT_ENABLED but no OpenF1 credentials/live source; MQTT lane not started.");
+}
+
 restLane.start();
+mqttLane?.start();
 writer.run();
-console.log("ingest: started (REST lane + writer running; discovering a session)");
+console.log(
+  `ingest: started (REST lane${mqttLane ? " + MQTT lane" : ""} + writer running; discovering a session)`,
+);
 
 let shuttingDown = false;
 process.on("SIGTERM", () => {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log("ingest: SIGTERM received, draining queue");
-  // Wait for any in-flight poll to finish enqueueing before draining the
-  // writer — otherwise a tick already awaiting the network lands its rows
-  // on the queue after the writer has already drained and the process has
-  // exited (the SIGTERM race: restLane.stop() alone only stops scheduling
-  // future ticks, it doesn't wait for the current one).
-  void restLane
-    .stop()
+  // Wait for any in-flight poll to finish enqueueing (REST) and the MQTT
+  // client to end before draining the writer — otherwise a lane still
+  // enqueueing lands rows on the queue after the writer has already drained
+  // and the process has exited (the SIGTERM race: `stop()` on either lane
+  // alone only stops scheduling future work, it doesn't wait for what's
+  // already in flight).
+  void Promise.all([restLane.stop(), mqttLane ? mqttLane.stop() : Promise.resolve()])
     .then(() => writer.stop())
     .then((totals) => {
       console.log(`ingest: drained (inserted=${totals.inserted} skipped=${totals.skipped}); exiting`);

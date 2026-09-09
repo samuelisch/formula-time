@@ -73,7 +73,8 @@ in `.claude/skills/load-race/SKILL.md`.
   package.
 - Config is read from the platform secret store only, never from files in
   the image: `DATABASE_URL`, `OPENF1_LOGIN`, `OPENF1_PASSWORD`, `PORT`,
-  `LIVE_SOURCE`.
+  `LIVE_SOURCE`, `MQTT_ENABLED` (default `true` when `OPENF1_LOGIN` is set,
+  else `false` — the free tier has no MQTT).
 - Vocabulary, defined once for the whole repo: *fold* — reduce over the
   event log into RaceState; ingest appends to that log but never folds
   it. *projector*/*authority* — the class name and the role it plays

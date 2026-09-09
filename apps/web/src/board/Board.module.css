@@ -6,8 +6,19 @@
 
 .toolbar {
   display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.row1 {
+  display: flex;
   align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.row2 {
+  width: 100%;
 }
 
 .clock {

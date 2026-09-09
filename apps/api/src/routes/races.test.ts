@@ -74,7 +74,7 @@ function makeFakeExporter(dir: string, gz: Buffer) {
   } satisfies Exporter & { calls: Array<{ sessionKey: bigint; exportedAt: Date }> };
 }
 
-function buildApp(db: ReturnType<typeof makeFakeDb>, exporter: Exporter, dir: string) {
+function buildApp(db: unknown, exporter: Exporter, dir: string) {
   const app = Fastify();
   app.register(racesRoutes, {
     prefix: "/api",
@@ -83,6 +83,39 @@ function buildApp(db: ReturnType<typeof makeFakeDb>, exporter: Exporter, dir: st
     dir,
   });
   return app;
+}
+
+interface FakeEventRow {
+  seq: bigint;
+  eventId: string;
+  endpoint: string;
+  sourceTime: Date | null;
+  payload: unknown;
+}
+
+interface FakeEventsDbOptions {
+  session?: { status: "upcoming" | "live" | "finished" } | null;
+  events?: FakeEventRow[];
+}
+
+// Mirrors prismaEventSource's query (apps/api/src/projector/event-source.ts):
+// filter to seq > afterSeq, sort ascending, take the page.
+function makeFakeEventsDb(opts: FakeEventsDbOptions) {
+  const events = opts.events ?? [];
+  const session = opts.session === undefined ? null : opts.session;
+  return {
+    session: {
+      findUnique: vi.fn(async () => session),
+    },
+    event: {
+      findMany: vi.fn(async ({ where, take }: { where: { sessionKey: bigint; seq: { gt: bigint } }; take: number }) => {
+        return events
+          .filter((row) => row.seq > where.seq.gt)
+          .sort((a, b) => (a.seq < b.seq ? -1 : a.seq > b.seq ? 1 : 0))
+          .slice(0, take);
+      }),
+    },
+  };
 }
 
 let dir: string;
@@ -229,5 +262,172 @@ describe("GET /api/races/:session_key", () => {
 
     const onDisk = await readFile(join(dir, "11361.json.gz"));
     expect(onDisk).toEqual(gz);
+  });
+});
+
+describe("GET /api/races/:session_key/events", () => {
+  function makeEvents(count: number, startSeq = 1n): FakeEventRow[] {
+    const rows: FakeEventRow[] = [];
+    for (let i = 0; i < count; i++) {
+      const seq = startSeq + BigInt(i);
+      rows.push({
+        seq,
+        eventId: `evt-${seq.toString()}`,
+        endpoint: "car_data",
+        sourceTime: new Date(Date.UTC(2026, 8, 8, 12, 0, i)),
+        payload: { n: i },
+      });
+    }
+    return rows;
+  }
+
+  test("400 for a non-integer session_key", async () => {
+    const db = makeFakeEventsDb({ session: { status: "live" } });
+    const app = buildApp(db, makeFakeExporter("/tmp", gz), "/tmp");
+
+    const res = await app.inject({ url: "/api/races/abc/events" });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: expect.any(String) });
+  });
+
+  test("400 for a non-integer since_seq", async () => {
+    const db = makeFakeEventsDb({ session: { status: "live" } });
+    const app = buildApp(db, makeFakeExporter("/tmp", gz), "/tmp");
+
+    const res = await app.inject({ url: "/api/races/11361/events?since_seq=abc" });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: expect.any(String) });
+  });
+
+  test("400 for a negative since_seq", async () => {
+    const db = makeFakeEventsDb({ session: { status: "live" } });
+    const app = buildApp(db, makeFakeExporter("/tmp", gz), "/tmp");
+
+    const res = await app.inject({ url: "/api/races/11361/events?since_seq=-1" });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: expect.any(String) });
+  });
+
+  test("400 for a limit of 0", async () => {
+    const db = makeFakeEventsDb({ session: { status: "live" } });
+    const app = buildApp(db, makeFakeExporter("/tmp", gz), "/tmp");
+
+    const res = await app.inject({ url: "/api/races/11361/events?limit=0" });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: expect.any(String) });
+  });
+
+  test("400 for a limit above the maximum of 5000", async () => {
+    const db = makeFakeEventsDb({ session: { status: "live" } });
+    const app = buildApp(db, makeFakeExporter("/tmp", gz), "/tmp");
+
+    const res = await app.inject({ url: "/api/races/11361/events?limit=5001" });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: expect.any(String) });
+  });
+
+  test("400 for a non-integer limit", async () => {
+    const db = makeFakeEventsDb({ session: { status: "live" } });
+    const app = buildApp(db, makeFakeExporter("/tmp", gz), "/tmp");
+
+    const res = await app.inject({ url: "/api/races/11361/events?limit=abc" });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: expect.any(String) });
+  });
+
+  test("404 when the session does not exist", async () => {
+    const db = makeFakeEventsDb({ session: null });
+    const app = buildApp(db, makeFakeExporter("/tmp", gz), "/tmp");
+
+    const res = await app.inject({ url: "/api/races/11361/events" });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: expect.any(String) });
+  });
+
+  test("a short page (fewer rows than limit): shape, RaceEvent fields only, next_seq, no-store", async () => {
+    const events = makeEvents(3);
+    const db = makeFakeEventsDb({ session: { status: "live" }, events });
+    const app = buildApp(db, makeFakeExporter("/tmp", gz), "/tmp");
+
+    const res = await app.inject({ url: "/api/races/11361/events?limit=5000" });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.session_key).toBe("11361");
+    expect(body.status).toBe("live");
+    expect(body.next_seq).toBe(3);
+    expect(body.events).toEqual([
+      { event_id: "evt-1", endpoint: "car_data", source_time: events[0]!.sourceTime!.toISOString(), payload: { n: 0 } },
+      { event_id: "evt-2", endpoint: "car_data", source_time: events[1]!.sourceTime!.toISOString(), payload: { n: 1 } },
+      { event_id: "evt-3", endpoint: "car_data", source_time: events[2]!.sourceTime!.toISOString(), payload: { n: 2 } },
+    ]);
+    // Byte-for-byte the RaceEvent shape -- no `seq` field leaks through.
+    for (const event of body.events) {
+      expect(Object.keys(event).sort()).toEqual(["endpoint", "event_id", "payload", "source_time"]);
+    }
+    expect(res.headers["cache-control"]).toBe("no-store");
+  });
+
+  test("a full page (events.length === limit): next_seq is the last row's seq, immutable cache header", async () => {
+    const events = makeEvents(5);
+    const db = makeFakeEventsDb({ session: { status: "finished" }, events });
+    const app = buildApp(db, makeFakeExporter("/tmp", gz), "/tmp");
+
+    const res = await app.inject({ url: "/api/races/11361/events?limit=3" });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.events).toHaveLength(3);
+    expect(body.next_seq).toBe(3);
+    expect(res.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+  });
+
+  test("paging with since_seq: only rows with seq > since_seq come back, in ascending order", async () => {
+    const events = makeEvents(5);
+    const db = makeFakeEventsDb({ session: { status: "live" }, events });
+    const app = buildApp(db, makeFakeExporter("/tmp", gz), "/tmp");
+
+    const res = await app.inject({ url: "/api/races/11361/events?since_seq=2&limit=5000" });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.events.map((e: { event_id: string }) => e.event_id)).toEqual(["evt-3", "evt-4", "evt-5"]);
+    expect(body.next_seq).toBe(5);
+  });
+
+  test("no rows past since_seq: empty events, next_seq null, no-store", async () => {
+    const events = makeEvents(3);
+    const db = makeFakeEventsDb({ session: { status: "live" }, events });
+    const app = buildApp(db, makeFakeExporter("/tmp", gz), "/tmp");
+
+    const res = await app.inject({ url: "/api/races/11361/events?since_seq=3" });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.events).toEqual([]);
+    expect(body.next_seq).toBeNull();
+    expect(res.headers["cache-control"]).toBe("no-store");
+  });
+
+  test("default since_seq is 0 and default limit is 5000", async () => {
+    const events = makeEvents(2);
+    const db = makeFakeEventsDb({ session: { status: "upcoming" }, events });
+    const app = buildApp(db, makeFakeExporter("/tmp", gz), "/tmp");
+
+    const res = await app.inject({ url: "/api/races/11361/events" });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.events).toHaveLength(2);
+    expect(db.event.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { sessionKey: 11361n, seq: { gt: 0n } }, take: 5000 }),
+    );
   });
 });

@@ -20,10 +20,13 @@ One process holding:
   (`polls/poll-read.ts`) reads `polls`/`votes` straight from Postgres for
   any race, live or historical; it never touches the poll module's
   in-memory state.
+- **The events-by-race read route** — `GET /api/races/:session_key/events`
+  (`routes/races.ts`) pages the `events` log by `seq` for any session, live
+  included, reusing the projector's own select (`projector/event-source.ts`).
 - **The fan-out** — one `JSON.stringify` + one gzip for the full `state`
   push, unconditionally, every push (joins of either format and `GET
   /api/live/snapshot` need it on demand regardless of legacy-socket
-  count); a delta socket (`?format=delta`, ADR-0011) additionally gets a
+  count); a delta socket (`?format=delta`, ADR-0013) additionally gets a
   hand-written JSON Patch `delta` each tick — one more serialize+gzip pass,
   built only while a delta socket is attached — keyframed back to `state`
   every 200th push. Identical bytes to every socket of the same format. A

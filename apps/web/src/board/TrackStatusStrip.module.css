@@ -1,0 +1,30 @@
+.strip {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.red {
+  background: var(--flag-red);
+  color: #fff;
+}
+
+.safetyCar,
+.vsc {
+  background: var(--flag-amber);
+  color: #241a00;
+}
+
+.yellow {
+  background: var(--flag-yellow);
+  color: #241a00;
+}
+
+.chequered {
+  color: #111;
+  background-image: repeating-linear-gradient(45deg, #1a1a1a 0 10px, #e8e8e8 10px 20px);
+}

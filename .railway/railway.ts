@@ -56,7 +56,12 @@ export default defineRailway(() => {
     build: { builder: "DOCKERFILE" },
     start: "node apps/ingest/dist/main.js",
     deploy: { restartPolicyType: "ALWAYS" },
-    env: secrets,
+    // MQTT_ENABLED (issue #25 / ADR-0012): config.ts's default already
+    // covers the free-tier (no OPENF1_LOGIN) case without this var set;
+    // preserved here only so an operator override (e.g. MQTT_ENABLED=false
+    // for an incident, with credentials still set — ADR-0012) has a slot in
+    // the one committed IaC file instead of only in the dashboard.
+    env: { ...secrets, MQTT_ENABLED: preserve() },
   });
 
   // The project name is the join key `railway config plan`/`apply` matches

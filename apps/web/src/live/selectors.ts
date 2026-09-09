@@ -17,6 +17,11 @@ export function useCatchingUp(): boolean {
   return useLiveStore((state) => state.catchingUp);
 }
 
+/** True once at least one `status` SSE frame has landed -- see `LiveStore.statusReceived`. */
+export function useStatusReceived(): boolean {
+  return useLiveStore((state) => state.statusReceived);
+}
+
 export function useDisplayed() {
   return useLiveStore((state) => state.displayed);
 }

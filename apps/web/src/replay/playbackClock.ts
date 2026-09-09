@@ -1,6 +1,7 @@
 // The replay playback clock (issue #57): a pure, React-free state machine on
 // the `source_time` axis so it is trivially unit-testable (no timers, no
-// `requestAnimationFrame`).
+// `requestAnimationFrame`). 1x only (issue #81 removed the 5x/20x speed
+// multiplier: data plays at the rate it was recorded).
 //
 // Contract (fix round 3 -- the wiring only calls `tick` while playing, never
 // while paused or idle, so this clock cannot rely on `tick` alone to keep
@@ -8,14 +9,11 @@
 // *while playing*; `play()` and `seek()` each re-baseline the wall clock to
 // `nowMs` (default `performance.now()`) themselves. Without this, the first
 // `tick` after any idle gap (mount-to-play, a pause, or a seek while paused)
-// would compute `speed * <the whole idle gap>` and jump `sourceMs` forward
-// in one frame -- the bug this round fixes. The caller supplies wall time so
-// tests can drive it deterministically.
-export type PlaybackSpeed = 1 | 5 | 20;
-
+// would jump `sourceMs` forward by the whole idle gap in one frame -- the
+// bug this round fixes. The caller supplies wall time so tests can drive it
+// deterministically.
 export interface PlaybackClock {
   isPlaying(): boolean;
-  speed(): PlaybackSpeed;
   sourceMs(): number;
   /**
    * Resumes playback from the current position and re-baselines the wall
@@ -26,7 +24,6 @@ export interface PlaybackClock {
   play(nowMs?: number): void;
   /** Freezes the current position; a later `tick` no longer advances it. */
   pause(): void;
-  setSpeed(speed: PlaybackSpeed): void;
   /**
    * Jumps directly to `targetSourceMs`, clamped to `[startSourceMs, endSourceMs]`,
    * and re-baselines the wall clock to `nowMs` (default `performance.now()`)
@@ -35,8 +32,8 @@ export interface PlaybackClock {
    */
   seek(targetSourceMs: number, nowMs?: number): void;
   /**
-   * Advances the clock by `speed * (nowWallMs - <wall time of the last
-   * play/seek/tick>)` while playing, clamped to the bounds; a no-op on the
+   * Advances the clock 1:1 by `nowWallMs - <wall time of the last
+   * play/seek/tick>` while playing, clamped to the bounds; a no-op on the
    * position while paused (but still records `nowWallMs`, harmless if ever
    * called while paused). Call only while playing -- `play`/`seek` are what
    * keep the baseline fresh across a pause, not this. Returns the (possibly
@@ -59,13 +56,11 @@ function clamp(value: number, min: number, max: number): number {
 export function createPlaybackClock(opts: PlaybackClockOptions): PlaybackClock {
   const { startSourceMs, endSourceMs } = opts;
   let playing = false;
-  let speed: PlaybackSpeed = 1;
   let sourceMs = startSourceMs;
   let lastWallMs = opts.initialWallMs;
 
   return {
     isPlaying: () => playing,
-    speed: () => speed,
     sourceMs: () => sourceMs,
 
     play(nowMs: number = performance.now()): void {
@@ -77,10 +72,6 @@ export function createPlaybackClock(opts: PlaybackClockOptions): PlaybackClock {
       playing = false;
     },
 
-    setSpeed(next: PlaybackSpeed): void {
-      speed = next;
-    },
-
     seek(targetSourceMs: number, nowMs: number = performance.now()): void {
       sourceMs = clamp(targetSourceMs, startSourceMs, endSourceMs);
       lastWallMs = nowMs;
@@ -89,7 +80,7 @@ export function createPlaybackClock(opts: PlaybackClockOptions): PlaybackClock {
     tick(nowWallMs: number): number {
       if (playing) {
         const elapsedMs = nowWallMs - lastWallMs;
-        sourceMs = clamp(sourceMs + elapsedMs * speed, startSourceMs, endSourceMs);
+        sourceMs = clamp(sourceMs + elapsedMs, startSourceMs, endSourceMs);
         if (sourceMs >= endSourceMs) playing = false;
       }
       lastWallMs = nowWallMs;

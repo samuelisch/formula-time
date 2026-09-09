@@ -180,6 +180,18 @@ export class RestLane {
   }
 
   /**
+   * The REST lane's current normalizer instance (T6, MQTT lane): "each
+   * message -> ... -> the shared LiveNormalizer with the CURRENT session key
+   * from the REST lane's selection" (issue #25) — REST is the authority on
+   * which session is live, so MQTT rides the SAME normalizer instance rather
+   * than keeping its own dedup state, and it's swapped out from under the
+   * caller exactly when REST's is: on `ensureLiveSession`'s new-session reset.
+   */
+  public getNormalizer(): LiveNormalizer {
+    return this.normalizer;
+  }
+
+  /**
    * `sessions?year=<current>` (issue: "every 60 s until a session is inside
    * its ±30 min window"). Upserts every session it sees, and selects the
    * live session (if any) for the rotation.

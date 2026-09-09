@@ -8,10 +8,12 @@
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
     "load": "node dist/load-recording.js",
+    "fetch-race": "node dist/fetch-race.js",
     "sim": "tsx src/sim/main.ts"
   },
   "dependencies": {
     "@formula-time/db": "workspace:*",
-    "@formula-time/domain": "workspace:*"
+    "@formula-time/domain": "workspace:*",
+    "mqtt": "5.15.2"
   }
 }

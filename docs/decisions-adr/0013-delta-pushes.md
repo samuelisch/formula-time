@@ -1,4 +1,4 @@
-# ADR-0011 — Delta pushes: snapshot on join, deltas in steady state, gap means snapshot
+# ADR-0013 — Delta pushes: snapshot on join, deltas in steady state, gap means snapshot
 
 - **Status:** Accepted
 - **Date:** 2026-09-09

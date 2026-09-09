@@ -21,20 +21,16 @@ Start Postgres:
 pnpm db:up
 ```
 
-Point every local process at the compose database (no pooler locally):
-
-```
-export DATABASE_URL=postgres://formula:formula@localhost:5433/formula_time DATABASE_DIRECT_URL=$DATABASE_URL
-```
-
-Apply migrations:
+Apply migrations (this already targets the right port for your worktree —
+`pnpm db:migrate:deploy` runs through `scripts/with-db-env.sh`):
 
 ```
 pnpm db:migrate:deploy
 ```
 
 Terminal 1 — drip a recording as if it were live, 20x speed, starting near
-the green light:
+the green light. The simulator never touches the database, so no export is
+needed here:
 
 ```
 pnpm sim --recording live-logs/11361 --speed 20 --start race
@@ -46,15 +42,22 @@ working directory (same as `LIVE_SOURCE`/`LIVE_LOG_DIR` today), so
 `apps/ingest` — put a recording at `apps/ingest/live-logs/11361`.
 
 Terminal 2 — ingest, pointed at the simulator's output directory instead of
-OpenF1:
+OpenF1. Point it at this worktree's compose database first (no pooler
+locally; `scripts/db-env.sh` picks the right port for this worktree, so this
+is safe to copy-paste into any worktree's terminal):
 
 ```
+eval "$(scripts/db-env.sh)"
+export DATABASE_URL=postgres://formula:formula@localhost:${DB_PORT}/formula_time DATABASE_DIRECT_URL=$DATABASE_URL
 LIVE_SOURCE=./live-logs/sim pnpm dev:ingest
 ```
 
-Terminal 3 — the api:
+Terminal 3 — the api, same database export (a new terminal, so it needs its
+own):
 
 ```
+eval "$(scripts/db-env.sh)"
+export DATABASE_URL=postgres://formula:formula@localhost:${DB_PORT}/formula_time DATABASE_DIRECT_URL=$DATABASE_URL
 pnpm dev:api
 ```
 
