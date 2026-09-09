@@ -6,28 +6,26 @@
 // historical push under a `BoardSourceProvider` exactly as it renders the
 // live feed (ADR-0009 §5).
 //
-// Layout (issue #90, fix round 1): `side` sits in DOM order right after the
-// toolbar -- above the cards and the table -- because that is also its
-// *visual* position below the ~860px breakpoint (Board.module.css): a
-// full-width card directly under the (whole, two-row) toolbar, per the
-// issue's acceptance criterion. Above the breakpoint, `grid-template-areas`
-// repositions `side` next to the table in a final row without moving it in
-// the DOM, so reading/tab order stays "toolbar, side, cards, table" at
-// every width; only the *visual* arrangement changes. This is a single
-// `grid` on `.board`, not two copies of `side` -- there is exactly one
-// `side` slot in the tree at any width.
+// Layout: `side` sits in DOM order right after the toolbar -- above the
+// cards and the table -- because that is also its *visual* position below
+// the ~860px breakpoint (Board.module.css): a full-width card directly
+// under the (whole, two-row) toolbar. Above the breakpoint,
+// `grid-template-areas` repositions `side` next to the table in a final row
+// without moving it in the DOM, so reading/tab order stays "toolbar, side,
+// cards, table" at every width; only the *visual* arrangement changes. This
+// is a single `grid` on `.board`, not two copies of `side` -- there is
+// exactly one `side` slot in the tree at any width.
 //
-// The split from `pages/BoardPage.tsx` is by composition, not a flag (issue
-// #57 fix round 5): the live route's own furniture -- the finished/upcoming
-// banner, polls, and align controls -- all read the *live* session and
-// belong to `BoardPage`, which wraps this. `ReplayPage` mounts this directly
-// with the transport bar in the `transport` slot, so a replay can never pick
-// up a live-only control by accident.
+// The split from `pages/BoardPage.tsx` is by composition, not a flag: the
+// live route's own furniture -- the finished/upcoming banner, polls, and
+// align controls -- all read the *live* session and belong to `BoardPage`,
+// which wraps this. `ReplayPage` mounts this directly with the transport
+// bar in the `transport` slot, so a replay can never pick up a live-only
+// control by accident.
 //
-// The toolbar's two-row split (issue #81) replaced a single row where the
-// delay control used to float mid-row beside the lap counter: row 1 is
-// short controls that stay put; row 2 is the shared `TransportBar`, which
-// needs the full width for its slider.
+// The toolbar is split into two rows because the shared `TransportBar`
+// (row 2) needs the full width for its slider; row 1 holds the short
+// controls that stay put beside the lap counter.
 import type { ReactNode } from "react";
 
 import { clock } from "../lib/format.ts";
@@ -45,7 +43,7 @@ export interface BoardProps {
   controls?: ReactNode;
   /** Row 2, full width: the shared `TransportBar` (live delay or replay playback). */
   transport?: ReactNode;
-  /** A caller-supplied control: the driver detail panel (issue #90). A full-width card directly under the toolbar below the ~860px breakpoint; a right-hand column beside the table above it (Board.module.css). */
+  /** A caller-supplied control: the driver detail panel. A full-width card directly under the toolbar below the ~860px breakpoint; a right-hand column beside the table above it (Board.module.css). */
   side?: ReactNode;
 }
 

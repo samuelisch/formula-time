@@ -1,8 +1,8 @@
-// Reusable `useQuery` state gate (issue #94): distinguishes "loading" and
-// "could not load" (with a Retry button calling `refetch()`) from the
-// success case, which renders `children` -- an empty *successful* result is
-// the caller's concern (its own empty-state copy inside `children`), not
-// this component's. Used by PollsPage (the historical-race polls fetch) and
+// Reusable `useQuery` state gate: distinguishes "loading" and "could not
+// load" (with a Retry button calling `refetch()`) from the success case,
+// which renders `children` -- an empty *successful* result is the caller's
+// concern (its own empty-state copy inside `children`), not this
+// component's. Used by PollsPage (the historical-race polls fetch) and
 // RacesPage (the races index), so both distinguish a failed fetch from a
 // genuinely empty list instead of showing the same "nothing here" text.
 import type { ReactNode } from "react";

@@ -1,7 +1,7 @@
 // The driver panel's selection lives in the URL (`?driver=<number>`), not in
 // component state, so it survives reload and deep links on both `/live` and
-// `/races/:session_key` (issue #90). `DriverRow` and `DriverPanel` share this
-// hook rather than each parsing `useSearchParams()` themselves.
+// `/races/:session_key`. `DriverRow` and `DriverPanel` share this hook
+// rather than each parsing `useSearchParams()` themselves.
 import { useCallback } from "react";
 import { useSearchParams } from "react-router";
 

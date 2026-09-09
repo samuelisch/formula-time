@@ -1,9 +1,9 @@
 // A full-width coloured band above the board's toolbar, present only when
-// the track is not green (issue #92). Reads `race_control.active_flags`,
-// `.safety_car`, `.current_flag`, and `isChequered(state)` through the
-// board seam (`useBoardState.ts`), so the same strip renders for the live
-// feed and for a folded replay push, and never leaks a result a delayed
-// viewer's own lap has not reached yet.
+// the track is not green. Reads `race_control.active_flags`, `.safety_car`,
+// `.current_flag`, and `isChequered(state)` through the board seam
+// (`useBoardState.ts`), so the same strip renders for the live feed and for
+// a folded replay push, and never leaks a result a delayed viewer's own lap
+// has not reached yet.
 import { isChequered } from "@formula-time/domain";
 import type { RaceState } from "@formula-time/domain";
 
@@ -23,7 +23,7 @@ function formatScope(key: string): string {
   return key.replace(":", " ");
 }
 
-// Priority order, one strip only (issue #92, verbatim):
+// Priority order, one strip only:
 // RED FLAG > SAFETY CAR > VIRTUAL SAFETY CAR > CHEQUERED FLAG > YELLOW · sectors {list} > nothing.
 function computeStrip(raceControl: RaceState["race_control"], chequered: boolean): Strip | null {
   const flags = raceControl.active_flags;

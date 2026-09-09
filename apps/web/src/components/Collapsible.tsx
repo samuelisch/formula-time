@@ -4,6 +4,7 @@
 // instead -- PollCard uses the uncontrolled form, keyed by poll status.
 import { useId, useState, type ReactNode } from "react";
 
+import { cx } from "../lib/classNames.ts";
 import styles from "./Collapsible.module.css";
 
 export interface CollapsibleProps {
@@ -28,7 +29,7 @@ export function Collapsible({ summary, children, defaultOpen = false, open, onTo
   }
 
   return (
-    <div className={className === undefined ? styles.collapsible : `${styles.collapsible} ${className}`}>
+    <div className={cx(styles.collapsible, className)}>
       <button type="button" className={styles.trigger} aria-expanded={isOpen} aria-controls={contentId} onClick={toggle}>
         {summary}
       </button>

@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { DriverState } from "@formula-time/domain";
 
+import { cx } from "../lib/classNames.ts";
 import { number, pitStopText, text } from "../lib/format.ts";
 import { useBoardDriver } from "./useBoardState.ts";
 import { TeamDot } from "./TeamDot.tsx";
@@ -10,18 +11,25 @@ function tyreText(tyre: DriverState["tyre"]): string {
   return tyre.compound === null ? "—" : `${tyre.compound} · age ${text(tyre.age)}`;
 }
 
-// ▲2 (green, a gain) or ▼1 (red, a loss); empty for 0 or unknown (issue #91).
+/** ▲2 (a gain) or ▼1 (a loss); empty for 0 or unknown. */
 function cueText(delta: number): string {
   if (delta > 0) return `▲ ${delta}`;
   if (delta < 0) return `▼ ${Math.abs(delta)}`;
   return "";
 }
 
+/** `gainClass` for a positive delta, `lossClass` for a negative one, undefined for 0. */
+function deltaClass(delta: number, gainClass: string | undefined, lossClass: string | undefined): string | undefined {
+  if (delta > 0) return gainClass;
+  if (delta < 0) return lossClass;
+  return undefined;
+}
+
 export interface DriverRowProps {
   number: number;
-  /** Places gained (positive) or lost (negative) since the previous push, from useBoardPositionDeltas(); 0 or absent renders no cue (issue #91). */
+  /** Places gained (positive) or lost (negative) since the previous push, from useBoardPositionDeltas(); 0 or absent renders no cue. */
   delta?: number;
-  /** Whether this driver is the one selected for the detail panel (issue #90). */
+  /** Whether this driver is the one selected for the detail panel. */
   selected: boolean;
   /** Toggles this driver's selection; called with `number`. Passed down from a single `useDriverSelection()` call in `TimingTable` -- see the memoisation note below. */
   onSelect: (driverNumber: number) => void;
@@ -35,23 +43,18 @@ export interface DriverRowProps {
 // calling `useSearchParams()` directly would re-render all of them on any
 // selection change (the URL/location context notifies every subscriber, not
 // just the row whose own `selected` value changed), defeating the point of
-// this memoisation for that case. With `selected` as a plain boolean prop,
-// only the previously-selected and newly-selected rows actually change props
-// and re-render (issue #90 fix round 1). `delta` is likewise a plain number
-// prop (not read from a hook here), so the same shallow comparison also
-// skips a row whose cue did not change (issue #91).
+// this memoisation for that case. `delta` is likewise a plain number prop
+// (not read from a hook here), so the same shallow comparison also skips a
+// row whose cue did not change; it also drives a subtle row highlight (not
+// just the small cue cell), fading with the arrow since both come from the
+// same `delta`.
 export const DriverRow = memo(function DriverRow({ number: driverNumber, delta = 0, selected, onSelect }: DriverRowProps) {
   const driver = useBoardDriver(driverNumber);
   if (driver === null) return null;
 
-  const cueClass = delta > 0 ? styles.cueGain : delta < 0 ? styles.cueLoss : undefined;
-  // Fix round 1 (issue #91 review): the issue asks for the arrow/number cue
-  // "plus a subtle row highlight on the change" -- a second signal on the
-  // row itself, not just the small cell. Driven by the same `delta` (0 once
-  // useBoardPositionDeltas() expires the cue), so the highlight fades with
-  // the arrow, not on its own timer.
-  const rowChangeClass = delta > 0 ? styles.rowGain : delta < 0 ? styles.rowLoss : undefined;
-  const rowClassName = [styles.row, selected ? styles.selected : null, rowChangeClass].filter(Boolean).join(" ");
+  const cueClass = deltaClass(delta, styles.cueGain, styles.cueLoss);
+  const rowChangeClass = deltaClass(delta, styles.rowGain, styles.rowLoss);
+  const rowClassName = cx(styles.row, selected && styles.selected, rowChangeClass);
 
   return (
     <tr className={rowClassName} onClick={() => onSelect(driverNumber)} aria-selected={selected}>
