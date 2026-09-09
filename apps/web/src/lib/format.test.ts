@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clock, lapTime, number, text } from "./format.ts";
+import { clock, lapTime, number, pitStopText, text } from "./format.ts";
 
 describe("text", () => {
   it("falls back on null, undefined, and empty string", () => {
@@ -51,6 +51,16 @@ describe("lapTime", () => {
     expect(lapTime(61.005)).toBe("1:01.005");
     expect(lapTime(60)).toBe("1:00.000");
     expect(lapTime(125.5)).toBe("2:05.500");
+  });
+});
+
+describe("pitStopText", () => {
+  it("renders the em dash for no pit stop", () => {
+    expect(pitStopText(null)).toBe("—");
+  });
+
+  it("formats lap and duration from a pit-stop record", () => {
+    expect(pitStopText({ lap_number: 7, pit_duration: 2.4 })).toBe("L7 · 2.4s");
   });
 });
 

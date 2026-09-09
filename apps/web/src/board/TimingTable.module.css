@@ -54,14 +54,6 @@
   color: var(--color-muted);
 }
 
-.teamDot {
-  display: inline-block;
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 999px;
-  margin-right: 0.4rem;
-}
-
 .empty {
   text-align: center;
   color: var(--color-muted);

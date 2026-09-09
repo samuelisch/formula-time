@@ -37,6 +37,11 @@ export function lapTime(value: unknown): string {
   return `${minutes}:${seconds.toFixed(3).padStart(6, "0")}`;
 }
 
+/** `L<lap> · <duration>s`, or "—" for no pit stop. Shared by the timing table's "last pit" column (DriverRow.tsx) and the driver panel's pit-stop history (DriverPanel.tsx) -- issue #90 review round 2: no copy-paste between files. */
+export function pitStopText(pit: RawRecord | null): string {
+  return pit === null ? "—" : `L${text(pit["lap_number"])} · ${number(pit["pit_duration"], 1)}s`;
+}
+
 /** `HH:MM:SS UTC` from an ISO source time, or "—" when absent/unparseable. */
 export function clock(iso: string | null | undefined): string {
   if (iso === null || iso === undefined) return "—";

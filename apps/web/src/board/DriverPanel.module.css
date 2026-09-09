@@ -21,14 +21,6 @@
   margin-bottom: 0.75rem;
 }
 
-.teamDot {
-  display: inline-block;
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 999px;
-  margin-right: 0.4rem;
-}
-
 .stats {
   display: grid;
   grid-template-columns: auto 1fr;

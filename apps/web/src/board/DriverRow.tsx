@@ -1,16 +1,13 @@
 import { memo } from "react";
-import type { DriverState, RawRecord } from "@formula-time/domain";
+import type { DriverState } from "@formula-time/domain";
 
-import { number, text } from "../lib/format.ts";
+import { number, pitStopText, text } from "../lib/format.ts";
 import { useBoardDriver } from "./useBoardState.ts";
+import { TeamDot } from "./TeamDot.tsx";
 import styles from "./TimingTable.module.css";
 
 function tyreText(tyre: DriverState["tyre"]): string {
   return tyre.compound === null ? "—" : `${tyre.compound} · age ${text(tyre.age)}`;
-}
-
-function pitText(pit: RawRecord | null): string {
-  return pit === null ? "—" : `L${text(pit["lap_number"])} · ${number(pit["pit_duration"], 1)}s`;
 }
 
 export interface DriverRowProps {
@@ -49,13 +46,13 @@ export const DriverRow = memo(function DriverRow({ number: driverNumber, selecte
         <span className={styles.muted}>{text(driver.full_name)}</span>
       </td>
       <td>
-        <span className={styles.teamDot} style={{ background: `#${text(driver.team_colour, "888")}` }} aria-hidden="true" />
+        <TeamDot teamColour={driver.team_colour} />
         {text(driver.team_name)}
       </td>
       <td>{number(driver.gap_to_leader, 3)}s</td>
       <td>{number(driver.interval, 3)}s</td>
       <td>{tyreText(driver.tyre)}</td>
-      <td>{pitText(driver.latest_pit_stop)}</td>
+      <td>{pitStopText(driver.latest_pit_stop)}</td>
     </tr>
   );
 });
