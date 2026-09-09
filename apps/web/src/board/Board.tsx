@@ -23,6 +23,7 @@ import styles from "./Board.module.css";
 import { LapCounter } from "./LapCounter.tsx";
 import { RaceControlCard } from "./RaceControlCard.tsx";
 import { TimingTable } from "./TimingTable.tsx";
+import { TrackStatusStrip } from "./TrackStatusStrip.tsx";
 import { useBoardPush } from "./useBoardState.ts";
 import { WeatherCard } from "./WeatherCard.tsx";
 
@@ -39,6 +40,7 @@ export function Board({ controls, transport }: BoardProps = {}) {
 
   return (
     <div className={styles.board}>
+      <TrackStatusStrip />
       <div className={styles.toolbar}>
         <div className={styles.row1}>
           <LapCounter />

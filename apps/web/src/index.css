@@ -9,6 +9,11 @@
   --color-accent: #e10600;
   --color-green: #66d18f;
 
+  /* Track-status colours (issue #92): red flag, safety car / VSC, yellow sectors. */
+  --flag-red: #e10600;
+  --flag-amber: #ffb400;
+  --flag-yellow: #ffe600;
+
   color-scheme: dark;
   font: 16px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
 }
