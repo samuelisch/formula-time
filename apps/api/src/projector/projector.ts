@@ -9,7 +9,13 @@
 // fire. When it does, the fold is thrown away and rebuilt from cursor 0 --
 // never patched in place (HLD §7 "Fold").
 import type { Session } from "@formula-time/db";
-import { createInitialState, RaceStateReducer, type RaceState, type RawRecord } from "@formula-time/domain";
+import {
+  createInitialState,
+  RaceStateReducer,
+  type RaceEvent,
+  type RaceState,
+  type RawRecord,
+} from "@formula-time/domain";
 
 import { toRaceEvent, type EventRow, type EventSource } from "./event-source.js";
 
@@ -29,7 +35,24 @@ export interface ProjectorOptions {
   log: ProjectorLog;
 }
 
-export type ProjectorSubscriber = (state: RaceState, cursor: bigint) => void;
+// Issue #114: `events` is the `RaceEvent` rows this tick applied, in seq
+// order. `[]` on a tick that applied nothing new, AND on any tick that
+// first reaches caught-up (a brand new projector, or a restart's re-fold
+// from cursor 0): that tick's "applied rows" are a historical backlog, not
+// new events for a client's timeline -- a client already gets that history
+// from its own paged backfill (review round 1: publishing the backlog here
+// broke the wire contract's explicit "[] on the join snapshot"). `rebuilt`
+// is true only on the tick where the late-commit detector's rebuild lands
+// (runDetector's success path): structurally the same situation as the
+// catch-up tick -- a correct re-fold whose rows are not new events -- so it
+// too publishes `events: []`, plus `rebuilt: true` so a client that already
+// has a timeline knows to discard it and backfill again.
+export type ProjectorSubscriber = (
+  state: RaceState,
+  cursor: bigint,
+  events: RaceEvent[],
+  rebuilt: boolean,
+) => void;
 
 const DEFAULT_TICK_MS = 250;
 const DEFAULT_BATCH_LIMIT = 5000;
@@ -167,6 +190,7 @@ export class RaceStateProjector {
 
       let totalApplied = 0;
       let rows: EventRow[];
+      const appliedThisTick: EventRow[] = [];
       do {
         rows = await this.source.readAfter(this.session.sessionKey, this.cursor, this.batchLimit);
         if (this.stopped || generation !== this.generation) {
@@ -174,6 +198,7 @@ export class RaceStateProjector {
         }
         for (const row of rows) {
           this.applyRow(row);
+          appliedThisTick.push(row);
           totalApplied += 1;
         }
       } while (rows.length === this.batchLimit);
@@ -189,7 +214,16 @@ export class RaceStateProjector {
       }
 
       if (totalApplied > 0 || justCaughtUp) {
-        this.publish();
+        // Issue #114, review round 1: the tick that first reaches caught-up
+        // (a brand new projector, or a restart's re-fold from cursor 0)
+        // read the entire historical backlog in `appliedThisTick`, not rows
+        // a client should see as newly arrived -- a client already gets
+        // that history from its own paged backfill (the wire contract's
+        // "the join snapshot: the state is the fold, the events are
+        // already in the log the client backfills"). Structurally the same
+        // situation as the rebuild path below: a full re-fold publishes
+        // `events: []`, never the backlog it re-folded.
+        this.publish(justCaughtUp ? [] : appliedThisTick.map(toRaceEvent));
       }
     } catch (err) {
       this.log("projector tick failed", {
@@ -208,10 +242,10 @@ export class RaceStateProjector {
     this.cursor = row.seq;
   }
 
-  private publish(): void {
+  private publish(events: RaceEvent[], rebuilt = false): void {
     const state = this.reducer.snapshot();
     for (const fn of this.subscribers) {
-      fn(state, this.cursor);
+      fn(state, this.cursor, events, rebuilt);
     }
   }
 
@@ -266,6 +300,10 @@ export class RaceStateProjector {
     this.reducer = localReducer;
     this.cursor = localCursor;
     this.appliedIds = localAppliedIds;
-    this.publish();
+    // Issue #114: a rebuild re-folds rows already accounted for (plus the
+    // late one) -- not new events for a client's timeline to append. Push
+    // `events: [], rebuilt: true` so the client discards its timeline and
+    // backfills from the paged log route instead of trying to reconcile it.
+    this.publish([], true);
   }
 }

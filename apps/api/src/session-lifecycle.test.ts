@@ -238,6 +238,48 @@ describe("createSessionLifecycle", () => {
       }
     });
 
+    test("the pushed payload carries events: [] on the catch-up tick, then the newly applied rows on a later tick; no rebuilt flag on an ordinary tick (issue #114, review round 1)", async () => {
+      vi.useFakeTimers();
+      const polls = fakePollHooks();
+      const pushed: unknown[] = [];
+      const pusher: Pusher = {
+        push: vi.fn(async (payload: object) => {
+          pushed.push(payload);
+        }),
+        size: () => 0,
+      };
+      const rows: EventRow[] = [];
+      const source = new FakeSource(rows);
+
+      const lifecycle = createSessionLifecycle({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        db: {} as any,
+        source,
+        pusher,
+        pickSession: vi.fn(async () => session()),
+        polls,
+        log: noopLog,
+      });
+      projectors.push({ stop: () => lifecycle.stop() });
+
+      await lifecycle.check();
+      await vi.advanceTimersByTimeAsync(0); // first (catch-up) tick: nothing in the log yet, still publishes once
+
+      expect(pushed).toHaveLength(1);
+      expect((pushed[0] as { events: unknown }).events).toEqual([]);
+
+      rows.push(driverRow(1, 1));
+      await vi.advanceTimersByTimeAsync(250); // second tick, picks up the new row
+
+      expect(pushed).toHaveLength(2);
+      const payload = pushed[1] as { events: unknown; seq: string; rebuilt?: boolean };
+      expect(payload.events).toEqual([
+        { event_id: "event-1", endpoint: "drivers", source_time: null, payload: { driver_number: 1 } },
+      ]);
+      expect(payload.seq).toBe("1");
+      expect(payload.rebuilt).toBeUndefined();
+    });
+
     test("the push waits for onState()'s fold and carries the post-fold polls", async () => {
       vi.useFakeTimers();
       const polls = fakePollHooks();

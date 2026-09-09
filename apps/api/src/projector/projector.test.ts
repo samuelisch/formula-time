@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { Session } from "@formula-time/db";
+import type { RaceEvent } from "@formula-time/domain";
 
 import type { EventRow, EventSource } from "./event-source.js";
 import { RaceStateProjector } from "./projector.js";
@@ -101,6 +102,73 @@ describe("RaceStateProjector", () => {
     expect(source.readAfterCalls[0]?.sessionKey).toBe(SESSION.sessionKey);
   });
 
+  test("the first (just-caught-up) tick publishes events: [] even though it applied a historical backlog (issue #114, review round 1)", async () => {
+    // A brand new projector's first tick re-folds cursor 0's entire
+    // backlog -- structurally the same as a rebuild (HLD §7 "Fold"), not
+    // new events for a client's timeline: a client already gets this
+    // history from its own paged backfill (the wire contract's "the join
+    // snapshot: the state is the fold, the events are already in the log
+    // the client backfills").
+    const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3)];
+    const source = new FakeSource(rows, rows.map((r) => r.eventId));
+    const projector = tracked(
+      new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }),
+    );
+
+    const seen: Array<{ events: RaceEvent[]; rebuilt: boolean }> = [];
+    projector.subscribe((_state, _cursor, events, rebuilt) => seen.push({ events, rebuilt }));
+
+    projector.start();
+    await vi.waitFor(() => expect(projector.status().caughtUp).toBe(true));
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.rebuilt).toBe(false);
+    expect(seen[0]?.events).toEqual([]);
+    expect(projector.snapshot().drivers["3"]).toBeDefined(); // the state itself still reflects the whole fold
+  });
+
+  test("a tick after catch-up publishes exactly the newly applied rows, as RaceEvent, in seq order (issue #114)", async () => {
+    const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3)];
+    const source = new FakeSource(rows, [rows[0] as EventRow].map((r) => r.eventId)); // only row 1 visible at first
+    const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 20, log: noopLog }));
+
+    const seen: RaceEvent[][] = [];
+    projector.subscribe((_state, _cursor, events) => seen.push(events));
+
+    projector.start();
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(1));
+    expect(seen[0]).toEqual([]); // the catch-up tick
+
+    source.reveal("event-2");
+    source.reveal("event-3");
+
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(2));
+    const later = seen[seen.length - 1] as RaceEvent[];
+    expect(later.map((e) => e.event_id)).toEqual(["event-2", "event-3"]);
+    expect(later[0]).toEqual({
+      event_id: "event-2",
+      endpoint: "drivers",
+      source_time: null,
+      payload: { driver_number: 2 },
+    });
+  });
+
+  test("a tick that applies nothing new publishes events: [] (issue #114)", async () => {
+    const rows = [driverRow(1, 1)];
+    const source = new FakeSource(rows, []); // nothing visible yet -- startup tick catches up with no rows
+    const projector = tracked(
+      new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }),
+    );
+    const seen: RaceEvent[][] = [];
+    projector.subscribe((_state, _cursor, events) => seen.push(events));
+
+    projector.start();
+    await vi.waitFor(() => expect(projector.status().caughtUp).toBe(true));
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual([]);
+  });
+
   test("a full batch triggers an immediate second read before any subscriber call", async () => {
     const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3)];
     const source = new FakeSource(rows, rows.map((r) => r.eventId));
@@ -171,9 +239,9 @@ describe("RaceStateProjector", () => {
       }),
     );
 
-    const seen: Array<{ cursor: bigint; driverCount: number }> = [];
-    projector.subscribe((state, cursor) =>
-      seen.push({ cursor, driverCount: Object.keys(state.drivers).length }),
+    const seen: Array<{ cursor: bigint; driverCount: number; events: RaceEvent[]; rebuilt: boolean }> = [];
+    projector.subscribe((state, cursor, events, rebuilt) =>
+      seen.push({ cursor, driverCount: Object.keys(state.drivers).length, events, rebuilt }),
     );
 
     projector.start();
@@ -181,6 +249,11 @@ describe("RaceStateProjector", () => {
     // then the normal fold applies rows 1, 2, 4, 5 (3 stays hidden).
     await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(1));
     expect(projector.snapshot().drivers["3"]).toBeUndefined();
+    expect(seen[0]?.rebuilt).toBe(false);
+    // Tick 1 is also the projector's first-ever (just-caught-up) tick, so
+    // its backlog (rows 1, 2, 4, 5) is not published as `events` -- issue
+    // #114, review round 1.
+    expect(seen[0]?.events).toEqual([]);
 
     // "c" commits late: it becomes visible, e.g. because a second writer
     // connection landed it out of order (never happens with the
@@ -197,6 +270,11 @@ describe("RaceStateProjector", () => {
     expect(projector.snapshot().drivers["3"]).toBeDefined();
     expect(projector.status().cursor).toBe(5n);
     expect(source.readWindowCalls[0]?.sessionKey).toBe(SESSION.sessionKey);
+    // A rebuild discards the client's event timeline -- issue #114: the
+    // rebuild pushes `events: []` and `rebuilt: true` rather than the rows
+    // it re-folded, since a rebuild is a fold correction, not new events.
+    expect(seen[1]?.events).toEqual([]);
+    expect(seen[1]?.rebuilt).toBe(true);
   });
 
   test("runDetector: a rejected re-fold read keeps serving the previous state and retries next pass", async () => {
@@ -231,9 +309,9 @@ describe("RaceStateProjector", () => {
         }),
       );
 
-      const seen: Array<{ cursor: bigint; driverCount: number }> = [];
-      projector.subscribe((state, cursor) =>
-        seen.push({ cursor, driverCount: Object.keys(state.drivers).length }),
+      const seen: Array<{ cursor: bigint; driverCount: number; rebuilt: boolean }> = [];
+      projector.subscribe((state, cursor, _events, rebuilt) =>
+        seen.push({ cursor, driverCount: Object.keys(state.drivers).length, rebuilt }),
       );
 
       projector.start();
@@ -264,6 +342,7 @@ describe("RaceStateProjector", () => {
       await vi.advanceTimersByTimeAsync(10);
       expect(seen).toHaveLength(2);
       expect(seen[1]?.driverCount).toBe(5);
+      expect(seen[1]?.rebuilt).toBe(true);
       expect(projector.snapshot().drivers["3"]).toBeDefined();
       expect(projector.status().cursor).toBe(5n);
     } finally {

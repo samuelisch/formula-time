@@ -30,7 +30,11 @@ One process holding:
   hand-written JSON Patch `delta` each tick — one more serialize+gzip pass,
   built only while a delta socket is attached — keyframed back to `state`
   every 200th push. Identical bytes to every socket of the same format. A
-  vote never triggers a push.
+  vote never triggers a push. Every push, `state` or `delta` alike, also
+  carries `events` (the `RaceEvent` rows the projector applied that tick,
+  `[]` on a catch-up or rebuild tick) and, only on a rebuild's push,
+  `rebuilt: true` (ADR-0014) — a client folds them into its own deep-rewind
+  timeline; the fan-out itself does not interpret either field.
 - **The SSE route handler** — live: attach the socket to the fan-out.
   Finished: redirect to the export. It never touches state.
 - **The exporter** — session finished and not yet exported: write the
