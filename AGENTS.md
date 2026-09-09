@@ -86,7 +86,7 @@ agent may pick up. Every issue also carries exactly one service label:
 .railway, .github, scripts, docker-compose, .claude), `ingest`
 (apps/ingest). An implementer picks only `ready` issues with its
 own service label, oldest first, and respects "blocked by":
-`gh issue list --label ready --label <service>`. An issue body is self-contained: goal, the relevant seam
+`gh issue list --label ready --label <service> --search "sort:created-asc"`. An issue body is self-contained: goal, the relevant seam
 contracts pasted verbatim (ADR-0001 §4), files it may touch, acceptance
 criteria as commands, and "blocked by #N". Facts the deliverable must
 state are quoted in the body; a paraphrase of a quoted fact is a review
