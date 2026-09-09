@@ -23,6 +23,17 @@
 // while a previous `runOnce` is still awaiting returns immediately, the
 // same "never more than one pass of work in flight" shape as the
 // projector's own tick (ADR-0001 §2 invariant 2).
+//
+// Precondition on top of ADR-0009 §2's "export once when finished" (refines
+// it, does not contradict it -- §2 never says every finished session has
+// timing data): "A finished session is exported only when it has at least
+// one event whose endpoint is not `drivers` (that is, timing data to
+// replay). A session with no timing events is skipped, logged once per
+// process as `export skipped <key>: no timing events`, and re-checked on
+// later ticks so a late load still exports it." A practice/qualifying
+// session whose only ingest activity was the `drivers` endpoint (or none at
+// all) has nothing for the browser fold to replay, so it never gets an
+// `exports` row and never shows up in `GET /api/races`.
 import { createWriteStream } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
@@ -42,7 +53,9 @@ export interface ExporterOptions {
 }
 
 export interface Exporter {
-  /** One pass: every `finished` session with no `exports` row gets exported. */
+  /** One pass: every `finished` session with no `exports` row and at least
+   * one non-`drivers` event gets exported; one with no timing events is
+   * skipped and re-checked on a later pass. */
   runOnce(): Promise<void>;
   /** Write `<dir>/<sessionKey>.json.gz` with `exportedAt` embedded as
    * `exported_at`. Does not touch the `exports` row -- callers that create
@@ -138,6 +151,10 @@ export function createExporter(opts: ExporterOptions): Exporter {
   const { db, dir, log } = opts;
   let timer: ReturnType<typeof setInterval> | null = null;
   let inFlight = false;
+  // "logged once per process" -- a skip that stays a skip must not spam the
+  // log on every 5s tick; a session that gains timing data is exported on
+  // the tick it does, so there is nothing to clear this for.
+  const loggedSkips = new Set<string>();
 
   async function exportSession(sessionKey: bigint, exportedAt: Date): Promise<void> {
     const session = await db.session.findUniqueOrThrow({ where: { sessionKey } });
@@ -159,6 +176,22 @@ export function createExporter(opts: ExporterOptions): Exporter {
       select: { sessionKey: true },
     });
     for (const { sessionKey } of candidates) {
+      // One cheap query per candidate: does this session have any event
+      // that is not `drivers`? A finished session with none is skipped --
+      // no `exports` row is created, so the next tick re-checks it.
+      const timingEvent = await db.event.findFirst({
+        where: { sessionKey, endpoint: { not: "drivers" } },
+        select: { seq: true },
+      });
+      if (timingEvent === null) {
+        const key = sessionKey.toString();
+        if (!loggedSkips.has(key)) {
+          loggedSkips.add(key);
+          log(`export skipped ${key}: no timing events`);
+        }
+        continue;
+      }
+
       // Computed once: embedded in the file, stored in the row, and later
       // used by the etag (ADR-0009 §2) -- they cannot diverge.
       const exportedAt = new Date();
