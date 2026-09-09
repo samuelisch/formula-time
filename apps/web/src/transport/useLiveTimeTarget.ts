@@ -1,7 +1,7 @@
 // The live `TimeTarget`: wraps the live store's delay (`useDelay`), its
 // displayed push (`useDisplayed`), and its jump anchors (`useAnchors`) --
-// the same seam `DelayControl` used before this issue folded it into the
-// shared `TransportBar`. `playback()` is always null: live has no
+// the same seam the deleted `DelayControl` used before it was folded into
+// the shared `TransportBar`. `playback()` is always null: live has no
 // play/pause concept, only a delay.
 import { useMemo } from "react";
 
@@ -28,10 +28,10 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
     () => ({
       displayedAt: () => displayedAtMs,
 
-      // No upper clamp to spanMs (fix round 1 on PR #110): an over-long
-      // delay is exactly what the store's own `bufferShort` is for -- it
-      // falls back to the oldest buffered entry and `notice()` surfaces the
-      // warning (pre-#67 behaviour: `setDelayMs` only ever floored at 0).
+      // No upper clamp to spanMs: an over-long delay is exactly what the
+      // store's own `bufferShort` is for -- it falls back to the oldest
+      // buffered entry and `notice()` surfaces the warning (`setDelayMs`
+      // only ever floors at 0).
       seekTo: (atMs: number) => {
         setDelayMs(Math.max(0, now() - atMs));
       },
@@ -55,10 +55,10 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
       // deleted `DelayControl` showed.
       notice: () => (bufferShort ? BUFFER_SHORT_NOTICE : null),
 
-      // Fix round 1 on PR #110: the current delay, in ms -- the same
-      // reading the position label already showed for live (`range().endMs
-      // − displayedAt()`), just exposed through the seam so `syncOffsetMs`
-      // is non-optional on both implementations.
+      // The current delay, in ms -- the same reading the position label
+      // already shows for live (`range().endMs − displayedAt()`), just
+      // exposed through the seam so `syncOffsetMs` is non-optional on both
+      // implementations.
       syncOffsetMs: () => delayMs,
     }),
     [displayedAtMs, delayMs, spanMs, bufferShort, anchors, setDelayMs, now],

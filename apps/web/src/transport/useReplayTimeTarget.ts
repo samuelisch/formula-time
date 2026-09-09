@@ -1,11 +1,10 @@
 // The replay `TimeTarget`: wraps `useReplayPlayback`'s clock and derives
 // jump anchors from the folded race rather than from pushes accumulated
-// since connecting (issue #81). Lap N's anchor is `FoldedRace.lapMarkers`
-// (already "the first source time the leader reached this lap" -- see
-// `foldRace.ts`); lights-out is lap 1's anchor; restarts come from
-// "SESSION STARTED" race-control events across the whole fold, mirroring
-// `live/anchors.ts`'s `deriveAnchors` but over every event rather than a
-// rolling 100-row window.
+// since connecting. Lap N's anchor is `FoldedRace.lapMarkers` (already "the
+// first source time the leader reached this lap" -- see `foldRace.ts`);
+// lights-out is lap 1's anchor; restarts come from "SESSION STARTED"
+// race-control events across the whole fold, mirroring `live/anchors.ts`'s
+// `deriveAnchors` but over every event rather than a rolling 100-row window.
 import { useMemo, useRef } from "react";
 
 import type { Anchors } from "../live/anchors.ts";
@@ -48,34 +47,36 @@ export function deriveReplayAnchors(folded: FoldedRace): Anchors {
 export function useReplayTimeTarget(playback: ReplayPlayback, folded: FoldedRace | null): TimeTarget {
   const anchors = useMemo<Anchors>(() => (folded === null ? EMPTY_ANCHORS : deriveReplayAnchors(folded)), [folded]);
 
-  // Un-nudged sync offset (issue #67): the net effect of every `seekTo`/
-  // `nudge` call on this fold, in ms. Ticking while playing advances the
-  // real position (`playback.sourceMs`) and an "un-nudged, played straight
-  // through" reference by the same amount every frame, so their difference
-  // never moves except at the instant of a seek, where it steps by exactly
-  // how far that seek actually moved the (clamped) position -- no separate
-  // wall-clock tracking needed, just an accumulator updated in `seekTo`/
-  // `nudge` below. Reset to 0 whenever the fold changes (a different race).
-  const offsetRef = useRef(0);
-  const foldedForOffsetRef = useRef<FoldedRace | null>(null);
-  if (foldedForOffsetRef.current !== folded) {
-    foldedForOffsetRef.current = folded;
-    offsetRef.current = 0;
-  }
+  // Un-nudged sync offset: the net effect of every `seekTo`/`nudge` call on
+  // a fold, in ms. Ticking while playing advances the real position
+  // (`playback.sourceMs`) and an "un-nudged, played straight through"
+  // reference by the same amount every frame, so their difference never
+  // moves except at the instant of a seek, where it steps by exactly how
+  // far that seek actually moved the (clamped) position -- no separate
+  // wall-clock tracking needed, just an accumulator per fold. Keyed by the
+  // fold itself (a `WeakMap`, entries GC'd once a fold is no longer
+  // referenced) rather than one counter reset on fold change, so there is
+  // no "previous fold" comparison to make during render.
+  const offsets = useRef(new WeakMap<FoldedRace, number>());
 
-  return useMemo<TimeTarget>(
-    () => ({
+  return useMemo<TimeTarget>(() => {
+    function addOffset(deltaMs: number): void {
+      if (folded === null) return;
+      offsets.current.set(folded, (offsets.current.get(folded) ?? 0) + deltaMs);
+    }
+
+    return {
       displayedAt: () => (folded === null ? null : playback.sourceMs),
 
       seekTo: (atMs: number) => {
         const clamped = clamp(atMs, playback.startSourceMs, playback.endSourceMs);
-        offsetRef.current += clamped - playback.sourceMs;
+        addOffset(clamped - playback.sourceMs);
         playback.seek(atMs);
       },
 
       nudge: (deltaMs: number) => {
         const clamped = clamp(playback.sourceMs + deltaMs, playback.startSourceMs, playback.endSourceMs);
-        offsetRef.current += clamped - playback.sourceMs;
+        addOffset(clamped - playback.sourceMs);
         playback.seek(playback.sourceMs + deltaMs);
       },
 
@@ -94,8 +95,7 @@ export function useReplayTimeTarget(playback: ReplayPlayback, folded: FoldedRace
       // shortfall to warn about the way live has.
       notice: () => null,
 
-      syncOffsetMs: () => (folded === null ? null : offsetRef.current),
-    }),
-    [folded, playback, anchors],
-  );
+      syncOffsetMs: () => (folded === null ? null : (offsets.current.get(folded) ?? 0)),
+    };
+  }, [folded, playback, anchors]);
 }
