@@ -238,6 +238,42 @@ describe("createSessionLifecycle", () => {
       }
     });
 
+    test("the pushed payload carries events (the applied RaceEvent rows) and seq; no rebuilt flag on a normal tick (issue #114)", async () => {
+      vi.useFakeTimers();
+      const polls = fakePollHooks();
+      const pushed: unknown[] = [];
+      const pusher: Pusher = {
+        push: vi.fn(async (payload: object) => {
+          pushed.push(payload);
+        }),
+        size: () => 0,
+      };
+      const rows = [driverRow(1, 1)];
+      const source = new FakeSource(rows);
+
+      const lifecycle = createSessionLifecycle({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        db: {} as any,
+        source,
+        pusher,
+        pickSession: vi.fn(async () => session()),
+        polls,
+        log: noopLog,
+      });
+      projectors.push({ stop: () => lifecycle.stop() });
+
+      await lifecycle.check();
+      await vi.advanceTimersByTimeAsync(0); // first tick
+
+      expect(pushed).toHaveLength(1);
+      const payload = pushed[0] as { events: unknown; seq: string; rebuilt?: boolean };
+      expect(payload.events).toEqual([
+        { event_id: "event-1", endpoint: "drivers", source_time: null, payload: { driver_number: 1 } },
+      ]);
+      expect(payload.seq).toBe("1");
+      expect(payload.rebuilt).toBeUndefined();
+    });
+
     test("the push waits for onState()'s fold and carries the post-fold polls", async () => {
       vi.useFakeTimers();
       const polls = fakePollHooks();

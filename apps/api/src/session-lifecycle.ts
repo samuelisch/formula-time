@@ -85,14 +85,21 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
   }
 
   function wireProjector(p: RaceStateProjector, forSession: Session): void {
-    p.subscribe((state, cursor) => {
+    p.subscribe((state, cursor, events, rebuilt) => {
       // The poll module folds from the same authority state before the one
       // serialize: a push must never carry a stale lock. onState() only
       // schedules the fold, so the push waits for it. Folds are a FIFO
       // chain and this continuation is registered before the next tick can
       // queue its own, so push N always sees exactly fold N.
-      void opts.polls.onState(state).then(() =>
-        opts.pusher.push({
+      void opts.polls.onState(state).then(() => {
+        // Issue #114: `events` is the RaceEvent rows the projector applied
+        // this tick, in seq order (`[]` when none) -- a client folds them
+        // into its own deep-rewind timeline rather than the api building
+        // one server-side. `rebuilt` rides along only when the late-commit
+        // detector's rebuild produced this push (the client must then
+        // discard its timeline and backfill again), so it is omitted --
+        // rather than sent as `false` -- on every ordinary tick.
+        const payload: Record<string, unknown> = {
           type: "state",
           seq: cursor.toString(),
           sent_at: Date.now(),
@@ -100,8 +107,13 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
           total_laps: forSession.totalLaps,
           state,
           polls: opts.polls.publicPolls(),
-        }),
-      );
+          events,
+        };
+        if (rebuilt) {
+          payload.rebuilt = true;
+        }
+        return opts.pusher.push(payload);
+      });
     });
     p.start();
   }
