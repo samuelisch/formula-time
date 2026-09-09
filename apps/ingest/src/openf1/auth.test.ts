@@ -3,10 +3,14 @@ import { describe, expect, test, vi } from "vitest";
 import { OpenF1Auth, createOpenF1Fetcher, credentialsFromEnv } from "./auth.js";
 import type { FetchLike } from "./auth.js";
 
-function tokenResponse(accessToken: string, expiresIn = 3600): Response {
+function tokenResponse(accessToken: string, expiresIn: number | string = 3600): Response {
   return new Response(JSON.stringify({ access_token: accessToken, expires_in: expiresIn }), {
     status: 200,
   });
+}
+
+function tokenResponseNoExpiry(accessToken: string): Response {
+  return new Response(JSON.stringify({ access_token: accessToken }), { status: 200 });
 }
 
 describe("credentialsFromEnv", () => {
@@ -54,6 +58,62 @@ describe("OpenF1Auth", () => {
     now += 3600 * 1000 - 2 * 60 * 1000 + 1; // one ms inside the 2-minute refresh margin
     expect(await auth.getToken()).toBe("token-2");
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test("expires_in as numeric string -> expiry in that many seconds", async () => {
+    const fetchImpl = vi.fn<FetchLike>().mockImplementation(() =>
+      Promise.resolve(tokenResponse("token-1", "3600")),
+    );
+    let now = 0;
+    const auth = new OpenF1Auth({ login: "l", password: "p" }, { fetchImpl, now: () => now });
+
+    expect(await auth.getToken()).toBe("token-1");
+    now += 3600 * 1000 - 2 * 60 * 1000 - 1; // one ms inside fresh, still before refresh margin
+    expect(await auth.getToken()).toBe("token-1");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    now += 2; // now inside the 2-minute refresh margin
+    await auth.getToken();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test("expires_in as a number -> same expiry as the numeric string", async () => {
+    const fetchImpl = vi.fn<FetchLike>().mockImplementation(() =>
+      Promise.resolve(tokenResponse("token-1", 3600)),
+    );
+    let now = 0;
+    const auth = new OpenF1Auth({ login: "l", password: "p" }, { fetchImpl, now: () => now });
+
+    expect(await auth.getToken()).toBe("token-1");
+    now += 3600 * 1000 - 2 * 60 * 1000 + 1; // inside the 2-minute refresh margin
+    await auth.getToken();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test("expires_in missing -> falls back to 3600s and logs once", async () => {
+    const fetchImpl = vi.fn<FetchLike>().mockImplementation(() =>
+      Promise.resolve(tokenResponseNoExpiry("token-1")),
+    );
+    let now = 0;
+    const auth = new OpenF1Auth({ login: "l", password: "p" }, { fetchImpl, now: () => now });
+    const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(await auth.getToken()).toBe("token-1");
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]?.[0]).toMatch(/expires_in missing or invalid/);
+    now += 3600 * 1000 - 2 * 60 * 1000 + 1; // inside the 2-minute refresh margin of the 3600s fallback
+    await auth.getToken();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    warnSpy.mockRestore();
+  });
+
+  test("non-string access_token -> still rejected as unexpected shape", async () => {
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(
+      new Response(JSON.stringify({ access_token: 12345, expires_in: "3600" }), { status: 200 }),
+    );
+    const auth = new OpenF1Auth({ login: "l", password: "p" }, { fetchImpl });
+
+    await expect(auth.getToken()).rejects.toThrow(/unexpected response shape/);
   });
 
   test("invalidate() forces the next getToken() to refresh", async () => {

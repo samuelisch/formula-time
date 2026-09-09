@@ -26,16 +26,28 @@ export type FetchLike = typeof fetch;
 
 interface TokenResponse {
   access_token: string;
-  expires_in: number;
+  expires_in: unknown;
 }
 
 function isTokenResponse(value: unknown): value is TokenResponse {
   return (
     typeof value === "object" &&
     value !== null &&
-    typeof (value as RawRecord)["access_token"] === "string" &&
-    typeof (value as RawRecord)["expires_in"] === "number"
+    typeof (value as RawRecord)["access_token"] === "string"
   );
+}
+
+// Fact, measured 2026-09-09 from inside the ingest container against the
+// real endpoint (POST https://api.openf1.org/token, form-encoded
+// username/password): status 200, content-type: application/json, body
+// shape {"expires_in":"3600","access_token":"<912 chars>","token_type":
+// "bearer"}. expires_in is a STRING. Parse leniently and fall back to
+// 3600s when it's missing or not a finite positive number.
+function parseExpiresInSeconds(value: unknown): number {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  console.error(`token: expires_in missing or invalid (${String(value)}), assuming 3600 s`);
+  return 3600;
 }
 
 /**
@@ -81,7 +93,7 @@ export class OpenF1Auth {
       throw new Error("OpenF1 token endpoint: unexpected response shape");
     }
     this.token = data.access_token;
-    this.expiresAt = this.now() + data.expires_in * 1000;
+    this.expiresAt = this.now() + parseExpiresInSeconds(data.expires_in) * 1000;
     return this.token;
   }
 }
