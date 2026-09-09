@@ -34,7 +34,6 @@ import {
 } from "./core.ts";
 import {
   applyReading,
-  chooseTarget,
   createLapVerdictPolicy,
   createLightsGate,
   formatStartFailure,
@@ -51,43 +50,35 @@ const PREVIEW_WIDTH = 480;
 
 /**
  * Routes one anchored observation's computed offset through the
- * `TimeTarget` seam instead of a raw `setDelayMs` (issue #67; does not
- * touch `core.ts`/`policy.ts` -- `ms` is exactly what `applyReading` used
- * to pass straight to `setDelayMs`, always `Math.max(0, offsetMs)`).
+ * `TimeTarget` seam instead of a raw `setDelayMs` (issue #67, fix round 1;
+ * does not touch `core.ts`/`policy.ts` -- `ms` is exactly what
+ * `applyReading` used to pass straight to `setDelayMs`, always
+ * `Math.max(0, offsetMs)`, and `offsetMs` is `OffsetTracker.offsetMs()`
+ * (`core.ts`): `observedWall − anchorSourceMs`. That is a constant mapping
+ * between the viewer's wall clock and the data's source-time axis --
+ * true whether the anchor is seconds old (live) or days old (a replay
+ * recording) -- so the position to show is always `sourceMs = nowWallMs −
+ * offsetMs`, on both platforms. One branch, no anchor needed here.
  *
- * Live: reproduces the pre-#67 behaviour exactly. A live `TimeTarget`'s
- * `seekTo(atMs)` resolves to `setDelayMs(now() − atMs)` (clamped), so
- * asking it to seek to `ms` behind "now" -- `target.range().endMs`, which
- * *is* `now()` for a live target, or the injected `now()` before a range is
- * known -- lands on `setDelayMs(ms)`, unchanged.
+ * `now` must be the SAME wall clock `observedWall` itself was computed
+ * from (the caller closes over one `nowWallMs = Date.now()` for both), not
+ * a fresh `Date.now()` call here -- otherwise the two calls' sub-ms drift
+ * leaks into the position.
  *
- * Replay: there is no "now" to be behind; instead this seeks to the anchor
- * the reading was taken against plus `ms` as the lead, and keeps playing.
- * `anchorIso` is the same anchor `applyReading` itself resolves via
- * `chooseTarget` -- passed in here because `applyReading`'s `setDelayMs`
- * callback only ever receives the final `ms`, never the anchor it was
- * computed against. A null anchor is a no-op on the seek (mirrors the "no
- * anchor yet" status `applyReading` already returned), but playback still
- * resumes.
+ * Live: `seekTo(atMs)` resolves to `setDelayMs(now() − atMs)` (floored at
+ * 0), so seeking to `now() − ms` sets the delay to exactly `ms` -- the
+ * pre-#67 behaviour, unchanged.
+ *
+ * Replay: seeks the playback clock to `nowWallMs − offsetMs`, which lands
+ * at the anchor's own source time (plus whatever small residual `now`
+ * differs from `observedWall`) -- not `anchorMs + ms`, which is wrong
+ * end to end for a historic anchor (`ms` is then days, not a lead) and
+ * clamps to the end of the recording. Playback always resumes, never
+ * pauses.
  */
-export function applyOffsetToTarget(
-  target: TimeTarget,
-  anchorIso: string | null,
-  ms: number,
-  now: () => number = Date.now,
-): void {
-  const playback = target.playback();
-  if (playback === null) {
-    const range = target.range();
-    const endMs = range === null ? now() : range.endMs;
-    target.seekTo(endMs - ms);
-    return;
-  }
-  if (anchorIso !== null) {
-    const anchorMs = Date.parse(anchorIso);
-    if (Number.isFinite(anchorMs)) target.seekTo(anchorMs + ms);
-  }
-  playback.play();
+export function applyOffsetToTarget(target: TimeTarget, ms: number, now: () => number = Date.now): void {
+  target.seekTo(now() - ms);
+  target.playback()?.play();
 }
 
 export type AlignerPhase = "idle" | "starting" | "running";
@@ -319,10 +310,10 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   // lights-out is the separate pixel path below).
   const applyLapReading = useCallback(
     (lap: number, frameAt: number) => {
-      // Resolved once here (not just inside `applyReading`, which never
-      // hands its own resolution back out) so `applyOffsetToTarget` has the
-      // anchor to seek a replay target to -- see its doc comment.
-      const anchorIso = chooseTarget(liveRef.current.anchors, "flip", lap, false);
+      // One wall-clock read shared with `applyOffsetToTarget`'s `now` below
+      // -- both must use the exact same `nowWallMs` (see that function's
+      // doc comment), not two separate `Date.now()` calls a few lines apart.
+      const nowWallMs = Date.now();
       const status = applyReading({
         anchors: liveRef.current.anchors,
         kind: "flip",
@@ -330,11 +321,11 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
         isRestart: false,
         label: `Lap ${lap}`,
         frameAt,
-        nowWallMs: Date.now(),
+        nowWallMs,
         nowPerfMs: performance.now(),
         pipelineBiasMs: pipelineBiasMsRef.current,
         tracker: offsetTrackerRef.current,
-        setDelayMs: (ms) => applyOffsetToTarget(liveRef.current.target, anchorIso, ms),
+        setDelayMs: (ms) => applyOffsetToTarget(liveRef.current.target, ms, () => nowWallMs),
       });
       setStatus(status);
     },
@@ -388,7 +379,8 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
   const handleLightsOut = useCallback((frameAt: number) => {
     const isRestart = lightsGateRef.current.isRestart();
     const label = lightsLabel(isRestart);
-    const anchorIso = chooseTarget(liveRef.current.anchors, "lights", 0, isRestart);
+    // Same shared-`nowWallMs` requirement as `applyLapReading` above.
+    const nowWallMs = Date.now();
     const status = applyReading({
       anchors: liveRef.current.anchors,
       kind: "lights",
@@ -396,11 +388,11 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
       isRestart,
       label,
       frameAt,
-      nowWallMs: Date.now(),
+      nowWallMs,
       nowPerfMs: performance.now(),
       pipelineBiasMs: pipelineBiasMsRef.current,
       tracker: offsetTrackerRef.current,
-      setDelayMs: (ms) => applyOffsetToTarget(liveRef.current.target, anchorIso, ms),
+      setDelayMs: (ms) => applyOffsetToTarget(liveRef.current.target, ms, () => nowWallMs),
     });
     setStatus(status);
   }, []);

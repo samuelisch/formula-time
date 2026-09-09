@@ -35,15 +35,17 @@ export interface TimeTarget {
   /** A human-readable limitation of the current position, or null. */
   notice(): string | null;
   /**
-   * Replay-only wording (issue #67): net effect, in ms, of every `seekTo`/
-   * `nudge` call made against this target so far -- 0 for a fold that has
-   * only ever played straight through, since ticking while playing advances
-   * both the real position and this "un-nudged" reference by the same
-   * amount. Optional: live has no meaningful "un-nudged" reference distinct
-   * from `range().endMs − displayedAt()`, so `useLiveTimeTarget` does not
-   * implement it and `TransportBar` falls back to that existing reading.
+   * Net effect, in ms, of every `seekTo`/`nudge` call made against this
+   * target so far, relative to an un-nudged reference (issue #67; both
+   * implementations provide it, like `notice()`). Replay: 0 for a fold
+   * that has only ever played straight through, since ticking while
+   * playing advances both the real position and this "un-nudged"
+   * reference by the same amount -- null before a fold has loaded. Live:
+   * the current delay in ms (`range().endMs − displayedAt()`, the same
+   * reading `TransportBar` showed before this issue) -- never null once a
+   * target exists.
    */
-  syncOffsetMs?(): number | null;
+  syncOffsetMs(): number | null;
 }
 
 const TimeTargetContext = createContext<TimeTarget | null>(null);

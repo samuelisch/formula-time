@@ -12,10 +12,6 @@ import type { TimeTarget } from "./TimeTarget.ts";
 /** Exported so the test asserts the exact string the viewer sees, not a paraphrase. */
 export const BUFFER_SHORT_NOTICE = "Delay exceeds what this tab has buffered; showing the oldest";
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
 /**
  * `now` is injectable (default `Date.now`) so tests can drive it
  * deterministically -- the live store's own methods take `now` as a
@@ -32,8 +28,12 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
     () => ({
       displayedAt: () => displayedAtMs,
 
+      // No upper clamp to spanMs (fix round 1 on PR #110): an over-long
+      // delay is exactly what the store's own `bufferShort` is for -- it
+      // falls back to the oldest buffered entry and `notice()` surfaces the
+      // warning (pre-#67 behaviour: `setDelayMs` only ever floored at 0).
       seekTo: (atMs: number) => {
-        setDelayMs(clamp(now() - atMs, 0, spanMs));
+        setDelayMs(Math.max(0, now() - atMs));
       },
 
       nudge: (deltaMs: number) => {
@@ -54,6 +54,12 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
       // the oldest entry (`reselect` in `live/store.ts`). Same wording the
       // deleted `DelayControl` showed.
       notice: () => (bufferShort ? BUFFER_SHORT_NOTICE : null),
+
+      // Fix round 1 on PR #110: the current delay, in ms -- the same
+      // reading the position label already showed for live (`range().endMs
+      // − displayedAt()`), just exposed through the seam so `syncOffsetMs`
+      // is non-optional on both implementations.
+      syncOffsetMs: () => delayMs,
     }),
     [displayedAtMs, delayMs, spanMs, bufferShort, anchors, setDelayMs, now],
   );

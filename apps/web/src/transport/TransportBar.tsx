@@ -99,7 +99,7 @@ export function TransportBar() {
   // seconds relative to the un-nudged clock -- the replay analogue of
   // live's "seconds behind now" delay reading -- instead of the absolute
   // source clock.
-  const syncOffsetMs = playback === null ? null : (target.syncOffsetMs?.() ?? null);
+  const syncOffsetMs = playback === null ? null : target.syncOffsetMs();
   const positionLabel =
     playback === null
       ? range === null || displayedAtMs === null

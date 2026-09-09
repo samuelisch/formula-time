@@ -15,6 +15,8 @@ import { useLiveStore } from "../live/store.ts";
 import { TimeTargetProvider, type TimeTarget } from "../transport/TimeTarget.ts";
 import { useLiveTimeTarget } from "../transport/useLiveTimeTarget.ts";
 import type { OcrWorker, TesseractModule } from "./capture.ts";
+import { createOffsetTracker } from "./core.ts";
+import { chooseTarget, computeObservedWall } from "./policy.ts";
 import { applyOffsetToTarget, useAligner } from "./useAligner.ts";
 
 function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>> = {}): void {
@@ -421,6 +423,7 @@ function fakeLiveTarget(overrides: Partial<TimeTarget> = {}): TimeTarget {
     range: () => ({ startMs: 0, endMs: 100_000 }),
     playback: () => null,
     notice: () => null,
+    syncOffsetMs: () => 0,
     ...overrides,
   };
 }
@@ -439,6 +442,7 @@ function fakeReplayTarget(overrides: Partial<TimeTarget> = {}): TimeTarget & {
     range: () => ({ startMs: 0, endMs: 90_000 }),
     playback: () => ({ playing: false, play, pause }),
     notice: () => null,
+    syncOffsetMs: () => 0,
     play,
     pause,
     ...overrides,
@@ -448,36 +452,97 @@ function fakeReplayTarget(overrides: Partial<TimeTarget> = {}): TimeTarget & {
 describe("applyOffsetToTarget", () => {
   it("live: seeks to now() - ms, which a live target's own seekTo resolves back to setDelayMs(ms) -- unchanged from the pre-#67 direct call", () => {
     const target = fakeLiveTarget({ range: () => ({ startMs: 0, endMs: 200_000 }) });
-    applyOffsetToTarget(target, "2026-09-06T13:00:00.000Z", 4_000, () => 200_000);
+    applyOffsetToTarget(target, 4_000, () => 200_000);
     expect(target.seekTo).toHaveBeenCalledWith(196_000);
-  });
-
-  it("live: falls back to the injected now() when range() is null", () => {
-    const target = fakeLiveTarget({ range: () => null });
-    applyOffsetToTarget(target, null, 2_000, () => 50_000);
-    expect(target.seekTo).toHaveBeenCalledWith(48_000);
   });
 
   it("live, through the real useLiveTimeTarget: ends with delayMs exactly ms (the setDelayMs path, unchanged)", () => {
     resetStore({ buffer: { entries: [{ at: 0, raw: "{}" }, { at: 300_000, raw: "{}" }] } });
     const { result } = renderHook(() => useLiveTimeTarget(() => 300_000));
 
-    applyOffsetToTarget(result.current, null, 7_500, () => 300_000);
+    applyOffsetToTarget(result.current, 7_500, () => 300_000);
 
     expect(useLiveStore.getState().delayMs).toBe(7_500);
   });
 
-  it("replay: seeks to anchor + lead and keeps playing", () => {
+  it("replay: seeks to now() - ms and keeps playing", () => {
     const target = fakeReplayTarget();
-    applyOffsetToTarget(target, "2026-09-06T13:00:00.000Z", 1_500);
-    expect(target.seekTo).toHaveBeenCalledWith(Date.parse("2026-09-06T13:00:00.000Z") + 1_500);
+    applyOffsetToTarget(target, 1_500, () => 90_000);
+    expect(target.seekTo).toHaveBeenCalledWith(88_500);
     expect(target.play).toHaveBeenCalledTimes(1);
   });
 
-  it("replay: a null anchor is a no-op on the seek, but playback still resumes", () => {
+  // Fix round 1 on PR #110: the coordinator's ruling. `offsetMs` is
+  // `OffsetTracker.offsetMs()`, `observedWall − anchorSourceMs` -- for a
+  // replay of a days-old recording watched today, that gap is genuinely
+  // huge (days), not a small "lead". The bug in the original PR treated it
+  // as a lead and did `seekTo(anchorMs + ms)`, landing ~2 anchor-gaps past
+  // "now" and clamping to the end of the recording -- exactly the failure
+  // issue #67 named: "on a replay, 'Lights out' jumps the clock to lap 1"
+  // never actually happened. The fix (`seekTo(now() − ms)`, `now` the SAME
+  // wall clock `observedWall` was computed from) makes the huge offset and
+  // the huge "now" cancel, landing back at the anchor's own source time
+  // plus only the small residual between `observedWall` and that shared
+  // `now` -- proven below end to end with the real `computeObservedWall`
+  // and `OffsetTracker`, a historic anchor, and a fake `Date.now()` set to
+  // "today", days later.
+  it("replay: a historic anchor plus a far-later Date.now() lands the seek at the anchor's source time, not the end of the recording", () => {
     const target = fakeReplayTarget();
-    applyOffsetToTarget(target, null, 1_500);
-    expect(target.seekTo).not.toHaveBeenCalled();
+    const anchorIso = "2026-09-06T13:05:00.000Z"; // lap 1's source time, days before "today"
+    const anchorMs = Date.parse(anchorIso);
+
+    // "Today", watching the replay -- days after the anchor, and the same
+    // wall clock the reading itself was computed against (nowWallMs).
+    const nowWallMs = anchorMs + 3 * 24 * 60 * 60 * 1000 + 500;
+    const frameAt = 1_000; // performance.now() when the frame was grabbed
+    const nowPerfMs = frameAt + 40; // 40ms of OCR/processing elapsed since
+    const pipelineBiasMs = 25; // measured residual bias
+
+    const observedWall = computeObservedWall(nowWallMs, nowPerfMs, frameAt, pipelineBiasMs);
+    const tracker = createOffsetTracker();
+    tracker.observe(anchorIso, observedWall, "lights"); // kind "lights" always (re)seeds
+    const offsetMs = tracker.offsetMs();
+    expect(offsetMs).toBe(observedWall - anchorMs);
+
+    applyOffsetToTarget(target, offsetMs!, () => nowWallMs); // same wall clock the reading used
+
+    const lead = nowWallMs - observedWall; // the small processing residual, not the days-scale gap
+    expect(target.seekTo).toHaveBeenCalledWith(anchorMs + lead);
     expect(target.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("replay: a lights-out reseed lands the seek on lap 1's own source time", () => {
+    const target = fakeReplayTarget();
+    const lap1SourceTime = "2026-09-06T13:00:00.000Z";
+    const anchors: Anchors = { lights_out: lap1SourceTime, laps: [{ lap: 1, source_time: lap1SourceTime }], restarts: [] };
+    const anchorIso = chooseTarget(anchors, "lights", 0, false);
+    expect(anchorIso).toBe(lap1SourceTime);
+    const anchorMs = Date.parse(anchorIso!);
+
+    const nowWallMs = anchorMs + 500; // observed at the same instant as the frame, no pipeline lag
+    const tracker = createOffsetTracker();
+    tracker.observe(anchorIso, nowWallMs, "lights");
+    const offsetMs = tracker.offsetMs()!;
+
+    applyOffsetToTarget(target, offsetMs, () => nowWallMs);
+
+    expect(target.seekTo).toHaveBeenCalledWith(anchorMs);
+    expect(target.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("live: the delay set is exactly the tracker's measured offset", () => {
+    resetStore({ buffer: { entries: [{ at: 0, raw: "{}" }, { at: 1_000_000, raw: "{}" }] } });
+    const { result } = renderHook(() => useLiveTimeTarget(() => 500_000));
+
+    const anchorIso = "2026-09-06T13:00:00.000Z";
+    const observedWall = Date.parse(anchorIso) + 3_200; // the offset the tracker measures
+    const tracker = createOffsetTracker();
+    tracker.observe(anchorIso, observedWall, "flip");
+    const offsetMs = tracker.offsetMs()!;
+    expect(offsetMs).toBe(3_200);
+
+    applyOffsetToTarget(result.current, offsetMs, () => 500_000);
+
+    expect(useLiveStore.getState().delayMs).toBe(offsetMs);
   });
 });
