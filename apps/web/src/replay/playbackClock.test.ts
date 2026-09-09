@@ -11,14 +11,11 @@ describe("createPlaybackClock", () => {
     expect(clock.isPlaying()).toBe(false);
   });
 
-  it("advances by speed × elapsed wall time while playing", () => {
+  it("advances 1:1 with elapsed wall time while playing", () => {
     const clock = createPlaybackClock({ ...BOUNDS, initialWallMs: 0 });
     clock.play(0);
-    expect(clock.tick(1_000)).toBe(1_000); // 1x by default
-    clock.setSpeed(5);
-    expect(clock.tick(2_000)).toBe(1_000 + 5 * 1_000); // 1000ms elapsed at 5x
-    clock.setSpeed(20);
-    expect(clock.tick(2_500)).toBe(6_000 + 20 * 500); // 500ms elapsed at 20x
+    expect(clock.tick(1_000)).toBe(1_000);
+    expect(clock.tick(2_500)).toBe(2_500);
   });
 
   // Round 3 regression test: the real wiring (useReplayPlayback's

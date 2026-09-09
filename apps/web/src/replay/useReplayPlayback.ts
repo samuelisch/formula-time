@@ -8,19 +8,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { numberField, stringField } from "../lib/format.ts";
 import type { LivePush } from "../live/types.ts";
 import { foldAt, type FoldedRace, type LapMarker } from "./foldRace.ts";
-import { createPlaybackClock, type PlaybackClock, type PlaybackSpeed } from "./playbackClock.ts";
+import { createPlaybackClock, type PlaybackClock } from "./playbackClock.ts";
 
 export interface ReplayPlayback {
   push: LivePush | null;
   sourceMs: number;
   isPlaying: boolean;
-  speed: PlaybackSpeed;
   startSourceMs: number;
   endSourceMs: number;
   lapMarkers: LapMarker[];
   play(): void;
   pause(): void;
-  setSpeed(speed: PlaybackSpeed): void;
   seek(sourceMs: number): void;
   jumpToStart(): void;
 }
@@ -51,7 +49,6 @@ export function useReplayPlayback(folded: FoldedRace | null): ReplayPlayback {
 
   const [sourceMs, setSourceMs] = useState(startSourceMs);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeedState] = useState<PlaybackSpeed>(1);
 
   // A new race (or a re-fold) gets a fresh clock at its own bounds. Adjusted
   // during render rather than in an effect (React's "adjusting state when a
@@ -64,7 +61,6 @@ export function useReplayPlayback(folded: FoldedRace | null): ReplayPlayback {
       folded === null ? null : createPlaybackClock({ startSourceMs, endSourceMs, initialWallMs: performance.now() });
     setSourceMs(startSourceMs);
     setIsPlaying(false);
-    setSpeedState(1);
   }
 
   useEffect(() => {
@@ -104,11 +100,6 @@ export function useReplayPlayback(folded: FoldedRace | null): ReplayPlayback {
     setIsPlaying(false);
   }, []);
 
-  const setSpeed = useCallback((next: PlaybackSpeed) => {
-    clockRef.current?.setSpeed(next);
-    setSpeedState(next);
-  }, []);
-
   const seek = useCallback((target: number) => {
     const clock = clockRef.current;
     if (clock === null) return;
@@ -129,13 +120,11 @@ export function useReplayPlayback(folded: FoldedRace | null): ReplayPlayback {
     push,
     sourceMs,
     isPlaying,
-    speed,
     startSourceMs,
     endSourceMs,
     lapMarkers: folded?.lapMarkers ?? [],
     play,
     pause,
-    setSpeed,
     seek,
     jumpToStart,
   };

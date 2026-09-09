@@ -9,10 +9,14 @@ import { makePush } from "../test/fixtures.ts";
 import { Board } from "./Board.tsx";
 import { BoardSourceProvider } from "./useBoardState.ts";
 
-function renderWith(push: ReturnType<typeof makePush> | null, toolbar?: React.ReactNode): void {
+function renderWith(
+  push: ReturnType<typeof makePush> | null,
+  controls?: React.ReactNode,
+  transport?: React.ReactNode,
+): void {
   render(
     <BoardSourceProvider push={push}>
-      <Board toolbar={toolbar} />
+      <Board controls={controls} transport={transport} />
     </BoardSourceProvider>,
   );
 }
@@ -29,9 +33,10 @@ describe("Board", () => {
     expect(screen.getByText("VER")).toBeInTheDocument();
   });
 
-  it("renders a toolbar slot for a caller's control", () => {
-    renderWith(makePush(), <button type="button">Delay</button>);
-    expect(screen.getByRole("button", { name: "Delay" })).toBeInTheDocument();
+  it("renders a controls slot (row 1) and a transport slot (row 2, full width) for the caller's controls", () => {
+    renderWith(makePush(), <button type="button">Align</button>, <button type="button">Bar</button>);
+    expect(screen.getByRole("button", { name: "Align" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Bar" })).toBeInTheDocument();
   });
 
   it("renders the empty state before any push arrives", () => {
