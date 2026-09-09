@@ -1,8 +1,7 @@
-// The auto-align UI (issue #50): a button that starts screen capture, and a
-// floating panel with the status line, the preview canvas (drag on it to
-// override the auto-detected crop), a collapse tab, and Stop. All capture,
-// timers, and OCR live in useAligner.ts -- this component only renders its
-// state.
+// The auto-align UI: a button that starts screen capture, and a floating
+// panel with the status line, the preview canvas (drag on it to override
+// the auto-detected crop), a collapse tab, and Stop. All capture, timers,
+// and OCR live in useAligner.ts -- this component only renders its state.
 import { useState } from "react";
 
 import { Pill } from "../components/Pill.tsx";
@@ -52,7 +51,7 @@ export function AlignPanel() {
       )}
       {/* A capture failure resets phase to "idle" but keeps the panel
           visible so the status is seen -- offer a retry here instead of
-          Stop, mirroring the POC's re-shown start button. */}
+          Stop. */}
       {phase === "idle" ? (
         <button type="button" className={styles.stopButton} onClick={start}>
           Align with my screen
