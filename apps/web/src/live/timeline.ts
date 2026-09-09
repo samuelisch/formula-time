@@ -28,7 +28,7 @@
 // unchanged (the store's own 250ms `tick()` never touches `live`, but
 // still notifies every subscriber) and any push whose `seq` is not past
 // the last one already folded in.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { RaceEvent } from "@formula-time/domain";
 
@@ -86,12 +86,22 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus): U
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  // Kept current via an effect rather than read directly: `status` is
-  // deliberately not a dependency of the join-sequence effect below (see
-  // its own comment), so this ref is how that effect learns of a
-  // live -> finished transition without re-running.
+  // Kept current via a layout effect, not a passive one: the guards that
+  // read `statusRef.current` below live in a `useLiveStore.subscribe`
+  // callback, which fires synchronously and outside React's render cycle
+  // whenever the store's `set()` is called (e.g. from an `EventSource`
+  // handler) -- a passive `useEffect` is deferred to a later task with no
+  // guarantee it lands before the next SSE-driven `set()`, so a push that
+  // flips `status` to `"finished"` could still see a stale `statusRef`
+  // during a `rebuilt`/reconnect check delivered in the same event-loop
+  // turn. `useLayoutEffect` runs synchronously during commit, before the
+  // browser can process another event, so the ref is current by the time
+  // any such synchronous check can run. `status` is deliberately not a
+  // dependency of the join-sequence effect below (see its own comment), so
+  // this ref is how that effect learns of a live -> finished transition
+  // without re-running.
   const statusRef = useRef(status);
-  useEffect(() => {
+  useLayoutEffect(() => {
     statusRef.current = status;
   }, [status]);
 

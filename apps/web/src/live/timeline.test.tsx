@@ -1,21 +1,23 @@
-// Issue #97 PR1, reworked per the owner's decision 2026-09-09 (issue #114):
-// no head polling -- the live store's push stream carries the events
+// No head polling -- the live store's push stream carries the events
 // applied each tick, and this hook backfills once per join then keeps
 // itself current from the stream alone.
 import type { RaceEvent, RaceState } from "@formula-time/domain";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { useLayoutEffect } from "react";
+import { flushSync } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RaceEventsPage, SessionStatus } from "../races/api.ts";
 import * as replayTimelineModule from "../replay/timeline.ts";
 import { emptyAnchors } from "./anchors.ts";
 import { emptyBuffer } from "./buffer.ts";
+import { sessionStatusOf } from "./selectors.ts";
 import { useLiveStore } from "./store.ts";
 import { PAGE_LIMIT, RETRY_BACKOFF_MS, useSessionTimeline } from "./timeline.ts";
 import type { LivePush } from "./types.ts";
 
-// Review round 2 regression tests need to observe (and, for one test,
-// briefly pause) `appendEvents` calls on the shared `Timeline` -- so
+// These regression tests need to observe (and, for one test, briefly
+// pause) `appendEvents` calls on the shared `Timeline` -- so
 // `appendEvents` is mocked here, but wired by default to delegate to the
 // real implementation (captured via `vi.hoisted`, since `vi.mock`'s
 // factory is itself hoisted above ordinary top-level variables) so every
@@ -23,13 +25,28 @@ import type { LivePush } from "./types.ts";
 // test that overrides `mockImplementation` sees different timing, and
 // the shared `afterEach` below restores the passthrough for whichever
 // test runs next.
+//
+// `react`'s `useLayoutEffect` is instrumented the same way, for the
+// `statusRef` regression below: `vi.spyOn` cannot patch a live ESM
+// namespace export directly ("Module namespace is not configurable"), so
+// this wraps it through `vi.mock` instead, delegating to the real
+// implementation so every hook (this file's own, and React/React DOM's
+// internals) keeps working exactly as before.
 const mocks = vi.hoisted(() => {
-  return { actualAppendEvents: undefined as unknown as typeof import("../replay/timeline.ts").appendEvents };
+  return {
+    actualAppendEvents: undefined as unknown as typeof import("../replay/timeline.ts").appendEvents,
+    actualUseLayoutEffect: undefined as unknown as typeof import("react").useLayoutEffect,
+  };
 });
 vi.mock("../replay/timeline.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../replay/timeline.ts")>();
   mocks.actualAppendEvents = actual.appendEvents;
   return { ...actual, appendEvents: vi.fn(actual.appendEvents) };
+});
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>();
+  mocks.actualUseLayoutEffect = actual.useLayoutEffect;
+  return { ...actual, useLayoutEffect: vi.fn(actual.useLayoutEffect) };
 });
 
 function resetLiveStore(): void {
@@ -84,6 +101,20 @@ function streamPush(seq: string, events: RaceEvent[], rebuilt?: boolean): LivePu
   };
   if (rebuilt !== undefined) push.rebuilt = rebuilt;
   return push;
+}
+
+/** Same as `streamPush`, but with the session's own `status` field set -- for the `statusRef` race regression below, where a caller derives `status` from the live store the same way a real page's `useSessionStatus()` would. */
+function streamPushWithStatus(seq: string, status: SessionStatus, rebuilt?: boolean): LivePush {
+  const push = streamPush(seq, []);
+  push.state = { ...push.state, session: { status } };
+  if (rebuilt !== undefined) push.rebuilt = rebuilt;
+  return push;
+}
+
+/** Mirrors how a real page composes this hook: `status` comes from the live store itself (like `useSessionStatus()`), so this hook's own store subscriber and the caller's re-render are both driven by the same `set()` call -- the composition the `statusRef` race below depends on. */
+function useHarness(sessionKey: number) {
+  const status = useLiveStore((state) => sessionStatusOf(state.live?.state.session) ?? "live") as SessionStatus;
+  return useSessionTimeline(sessionKey, status);
 }
 
 function fullPage(prefix: string, nextSeq: number, status: SessionStatus = "live"): RaceEventsPage {
@@ -243,6 +274,60 @@ describe("useSessionTimeline", () => {
 
     expect(fetchStub).toHaveBeenCalledTimes(2);
     expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual(["r1"]);
+  });
+
+  it("does not spuriously restart on a rebuilt push right after a flushed status flip to finished", async () => {
+    const fetchStub = queuedFetch([shortPage([event("e1")], 1)]);
+    vi.stubGlobal("fetch", fetchStub);
+
+    // `useHarness` derives `status` from the live store itself, the same
+    // way a real page's `useSessionStatus()` does -- so this hook's own
+    // `useLiveStore.subscribe` callback and the caller's `status` re-render
+    // are both driven by the same `set()` call the assertions below fire.
+    const { result } = renderHook(() => useHarness(9999));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+
+    // `flushSync` forces the status-flipping push through render, commit,
+    // and effects before returning -- the deterministic stand-in, in this
+    // test environment, for "the status transition has fully landed"
+    // ahead of the next push.
+    flushSync(() => {
+      useLiveStore.setState({ live: streamPushWithStatus("2", "finished") });
+    });
+    // A rebuilt push arrives right after. `statusRef` must read "finished"
+    // by now, or this would wrongly restart (re-backfill) a session that
+    // has already finished -- the case the join-sequence comment says must
+    // be ignored once finished.
+    useLiveStore.setState({ live: streamPushWithStatus("3", "finished", true) });
+
+    // `restart()` defers the actual re-backfill to a microtask (its own
+    // out-of-memory-recursion guard, see its comment) -- so a spurious
+    // restart would not show up as a second fetch until that microtask
+    // runs. Give it every chance to before asserting it never happened.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // No restart: still exactly the one backfill fetch.
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps `statusRef` current via a layout effect, not a passive one", () => {
+    // The guard above pins the documented contract, but this test
+    // environment cannot reliably reproduce the exact production race a
+    // passive effect risks (a `useLiveStore.subscribe` callback firing,
+    // synchronously and outside React, between commit and a deferred
+    // passive-effect flush) -- `act()`/`flushSync` make effect flushing
+    // deterministic here in a way a real page's uncontrolled `EventSource`
+    // dispatch is not. This test pins the fix structurally instead: the
+    // status sync inside `useSessionTimeline` must go through
+    // `useLayoutEffect` (synchronous at commit, before the browser can
+    // process another event), never `useEffect` (deferred, no ordering
+    // guarantee against the next SSE-driven `set()`).
+    const callsBefore = vi.mocked(useLayoutEffect).mock.calls.length;
+    renderHook(() => useSessionTimeline(9999, "live"));
+    expect(vi.mocked(useLayoutEffect).mock.calls.length).toBeGreaterThan(callsBefore);
   });
 
   it("retries a failed backfill page at the retry backoff and clears error on the next success", async () => {
