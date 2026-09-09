@@ -31,7 +31,13 @@ sha256_hex() {
   fi
 }
 
-toplevel="$(git rev-parse --show-toplevel)"
+# git is absent in the Docker image; fall back to the working directory so
+# this script never fails a deploy that reaches it.
+if command -v git >/dev/null 2>&1; then
+  toplevel="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+else
+  toplevel="$(pwd)"
+fi
 digest8="$(printf '%s' "$toplevel" | sha256_hex | cut -c1-8)"
 
 compose_project_name="${COMPOSE_PROJECT_NAME:-ft-$digest8}"
