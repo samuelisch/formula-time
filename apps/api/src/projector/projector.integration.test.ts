@@ -3,6 +3,7 @@
 // `pnpm test:integration`. Connection pattern from
 // `packages/db/src/db.integration.test.ts`.
 import { createDb, type PrismaClient } from "@formula-time/db";
+import type { RaceEvent } from "@formula-time/domain";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
 import { prismaEventSource } from "./event-source.js";
@@ -90,8 +91,12 @@ test("folds real rows from Postgres, sits idle with no subscriber call, and rebu
   });
 
   let calls = 0;
-  projector.subscribe(() => {
+  const seenEvents: RaceEvent[][] = [];
+  const seenRebuilt: boolean[] = [];
+  projector.subscribe((_state, _cursor, events, rebuilt) => {
     calls += 1;
+    seenEvents.push(events);
+    seenRebuilt.push(rebuilt);
   });
 
   try {
@@ -103,6 +108,17 @@ test("folds real rows from Postgres, sits idle with no subscriber call, and rebu
     expect(projector.snapshot().drivers["3"]).toBeDefined();
     expect(projector.status().cursor).toBe(highestSeq);
     expect(calls).toBe(1);
+
+    // Issue #114: the push carries the RaceEvent rows this tick applied,
+    // read from the real Postgres rows, in seq order.
+    expect(seenEvents[0]?.map((e) => e.event_id)).toEqual(["driver-1", "driver-2", "driver-3"]);
+    expect(seenEvents[0]?.[0]).toEqual({
+      event_id: "driver-1",
+      endpoint: "drivers",
+      source_time: null,
+      payload: { driver_number: 1 },
+    });
+    expect(seenRebuilt[0]).toBe(false);
 
     // A second tick with no new rows: no subscriber call.
     await sleep(150);
@@ -124,6 +140,10 @@ test("folds real rows from Postgres, sits idle with no subscriber call, and rebu
 
     expect(projector.snapshot().drivers["999"]).toBeDefined();
     expect(projector.status().cursor).toBe(highestSeq);
+    // The rebuild's push: events discarded, rebuilt flagged, so a client
+    // knows to throw away its timeline and backfill again.
+    expect(seenEvents[seenEvents.length - 1]).toEqual([]);
+    expect(seenRebuilt[seenRebuilt.length - 1]).toBe(true);
   } finally {
     projector.stop();
     await db.event.deleteMany({ where: { sessionKey: SESSION_KEY, eventId: "driver-late" } });

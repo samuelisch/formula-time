@@ -258,6 +258,45 @@ describe("Fanout delta pushes (issue #89)", () => {
     expect(fanout.snapshotJson()).toBe(JSON.stringify(payload));
   });
 
+  test("a delta frame carries the pushed payload's events, and rebuilt only when the source payload set it (issue #114)", async () => {
+    const fanout = new Fanout();
+    await fanout.push({ ...statePush(1, raceState({ sequence: 1 })), events: [] });
+
+    const res = new FakeRes();
+    await fanout.join(asRes(res), "plain", "delta");
+
+    const applied = [{ event_id: "e1", endpoint: "drivers", source_time: null, payload: { driver_number: 1 } }];
+
+    // Ordinary tick: events present, rebuilt absent from the wire entirely.
+    await fanout.push({
+      ...statePush(2, raceState({ sequence: 2, latest_source_time: "2026-01-01T00:00:00Z" })),
+      events: applied,
+    });
+    const afterOrdinary = frames(res);
+    const ordinaryDelta = afterOrdinary[afterOrdinary.length - 1] as {
+      event: string;
+      data: { events: unknown; rebuilt?: boolean };
+    };
+    expect(ordinaryDelta.event).toBe("delta");
+    expect(ordinaryDelta.data.events).toEqual(applied);
+    expect("rebuilt" in ordinaryDelta.data).toBe(false);
+
+    // Rebuild tick: events empty, rebuilt true.
+    await fanout.push({
+      ...statePush(3, raceState({ sequence: 3, latest_source_time: "2026-01-01T00:00:01Z" })),
+      events: [],
+      rebuilt: true,
+    });
+    const afterRebuild = frames(res);
+    const rebuildDelta = afterRebuild[afterRebuild.length - 1] as {
+      event: string;
+      data: { events: unknown; rebuilt?: boolean };
+    };
+    expect(rebuildDelta.event).toBe("delta");
+    expect(rebuildDelta.data.events).toEqual([]);
+    expect(rebuildDelta.data.rebuilt).toBe(true);
+  });
+
   test("removing the only delta socket stops delta-frame work; a legacy socket keeps getting state frames throughout", async () => {
     // Review round 1 (PR #109): the delta-socket count is now maintained
     // incrementally in join()/remove(), not scanned from `sockets` on every

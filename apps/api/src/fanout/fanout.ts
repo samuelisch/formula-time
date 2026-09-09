@@ -29,13 +29,19 @@ export type FanoutLog = (msg: string, fields?: Record<string, unknown>) => void;
 /** The shape `push()` needs to build a delta -- a structural subset of the
  * real `{ type: "state", ... }` payload session-lifecycle.ts sends. `push`
  * itself stays typed as `object` (existing callers, and tests, push
- * arbitrary shapes when they only exercise state-format delivery). */
+ * arbitrary shapes when they only exercise state-format delivery).
+ *
+ * `events`/`rebuilt` (issue #114): carried through to the delta frame
+ * exactly like `polls` already is, unvalidated by `isStateLike` -- neither
+ * is used to decide whether a payload is state-like, only read once it is. */
 interface StateLike {
   seq: unknown;
   sent_at: unknown;
   session_key: unknown;
   state: unknown;
   polls: unknown;
+  events: unknown;
+  rebuilt?: unknown;
 }
 
 function isStateLike(payload: object): payload is StateLike {
@@ -262,6 +268,14 @@ export class Fanout {
         session_key: payload.session_key,
         patch,
         polls: payload.polls,
+        // Issue #114: straight through from the source payload, same as
+        // `polls` above -- `events` is the RaceEvent rows the tick applied
+        // (a client folds these into its timeline regardless of format);
+        // `rebuilt` is `undefined` on an ordinary tick, which
+        // `JSON.stringify` omits from the wire entirely, so a delta client
+        // only ever sees the key when a rebuild produced this push.
+        events: payload.events,
+        rebuilt: payload.rebuilt,
       };
       const plain = Buffer.from(`event: delta\ndata: ${JSON.stringify(deltaPayload)}\n\n`);
       const gz = await this.deflate(plain);
