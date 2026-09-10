@@ -80,15 +80,27 @@ STUB
 main_repo=$(mktemp -d)
 worktree_repo=$(mktemp -d)
 no_install_repo=$(mktemp -d)
-trap 'rm -rf "$main_repo" "$worktree_repo" "$no_install_repo"' EXIT
+stale_lock_repo=$(mktemp -d)
+space_repo="$(mktemp -d)/repo with space"
+mkdir -p "$space_repo"
+trap 'rm -rf "$main_repo" "$worktree_repo" "$no_install_repo" "$stale_lock_repo" "$(dirname "$space_repo")"' EXIT
 
 make_repo "$main_repo" yes
 make_repo "$worktree_repo" yes
 make_repo "$no_install_repo" no
+make_repo "$stale_lock_repo" yes
+# node_modules/.pnpm was created before the lockfile is touched again, so
+# the lockfile now reads as newer than the install. The sleep guarantees a
+# distinct mtime second between the two, since -nt compares whole seconds.
+sleep 1
+touch "$stale_lock_repo/pnpm-lock.yaml"
+make_repo "$space_repo" yes
 
 main_top=$(git -C "$main_repo" rev-parse --show-toplevel)
 worktree_top=$(git -C "$worktree_repo" rev-parse --show-toplevel)
 no_install_top=$(git -C "$no_install_repo" rev-parse --show-toplevel)
+stale_lock_top=$(git -C "$stale_lock_repo" rev-parse --show-toplevel)
+space_top=$(git -C "$space_repo" rev-parse --show-toplevel)
 
 # Feeds one command to the hook with the hook's own cwd set to hook_cwd, and
 # asserts which tree the gate ran pnpm in (or, if expect_install_msg is
@@ -132,5 +144,33 @@ run_tree_case "a cd after the commit is not gated (only a cd before it counts)" 
   "$main_repo" "git commit -m x && cd $worktree_repo && echo done" "$main_top" no
 run_tree_case "a decoy 'git commit' inside quotes does not fool the cut point" \
   "$main_repo" "echo 'run git commit yourself' && cd $worktree_repo && git commit -m x" "$worktree_top" no
+run_tree_case "a quoted cd path with a space gates that tree" \
+  "$main_repo" "cd \"$space_repo\" && git commit -m x" "$space_top" no
+run_tree_case "a stale lockfile reports the install gap" \
+  "$main_repo" "cd $stale_lock_repo && git commit -m x" "$stale_lock_top" yes
+
+# Feeds one command to the hook and asserts both that a given substring
+# appears in its output and which tree it fell back to gating.
+run_message_case() {
+  local desc="$1" hook_cwd="$2" cmd="$3" expect_tree="$4" expect_msg_substr="$5"
+  rm -f "$MARKER_FILE"
+  local out ok=1
+  out=$(jq -cn --arg cmd "$cmd" '{tool_input:{command:$cmd}}' | (cd "$hook_cwd" && "$hook") 2>&1)
+  printf '%s' "$out" | grep -qF "$expect_msg_substr" || ok=0
+  [ -f "$MARKER_FILE" ] && grep -qxF "$expect_tree" "$MARKER_FILE" || ok=0
+  if [ "$ok" = "1" ]; then
+    echo "PASS: $desc"
+  else
+    echo "FAIL: $desc (output: $out; marker: $(cat "$MARKER_FILE" 2>/dev/null || echo none))"
+    fail=1
+  fi
+}
+
+run_message_case "an unresolvable plain path is named and falls back to cwd" \
+  "$main_repo" "cd /this/path/does/not/exist && git commit -m x" "$main_top" \
+  "cannot resolve '/this/path/does/not/exist' to a git tree"
+run_message_case 'an unexpanded $VAR path is named and falls back to cwd' \
+  "$main_repo" 'cd $SOME_VAR && git commit -m x' "$main_top" \
+  "cannot resolve '\$SOME_VAR' (unexpanded variable)"
 
 exit $fail
