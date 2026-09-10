@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { clock } from "../lib/format.ts";
+import { jumpToRaceStart } from "./raceStart.ts";
 import { SliderWithTicks, type TickMark } from "./SliderWithTicks.tsx";
 import { useTimeTarget } from "./TimeTarget.ts";
 import styles from "./TransportBar.module.css";
@@ -72,12 +73,11 @@ export function TransportBar() {
   }
 
   function handleRaceStart(): void {
-    if (anchors.lights_out === null) {
+    if (!jumpToRaceStart(target)) {
       setJumpMessage("Race start not seen since you joined");
       return;
     }
     setJumpMessage(null);
-    seekAndMaybePause(Date.parse(anchors.lights_out));
   }
 
   function handleGoToLap(event: FormEvent<HTMLFormElement>): void {

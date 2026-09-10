@@ -27,13 +27,23 @@ describe("SliderWithTicks", () => {
     expect(lap3).toBeDefined();
   });
 
-  it("labels only lap numbers that are multiples of 5", () => {
+  it("labels every lap when 40 or fewer ticks fall inside the slider", () => {
     render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={vi.fn()} />);
-    expect(screen.getByText("5")).toBeInTheDocument();
-    expect(screen.queryByText("1")).not.toBeInTheDocument();
-    expect(screen.queryByText("2")).not.toBeInTheDocument();
-    expect(screen.queryByText("3")).not.toBeInTheDocument();
-    expect(screen.queryByText("4")).not.toBeInTheDocument();
+    for (const lap of ["1", "2", "3", "4", "5"]) {
+      expect(screen.getByText(lap)).toBeInTheDocument();
+    }
+  });
+
+  it("labels only every fifth lap once more than 40 ticks fall inside the slider", () => {
+    const manyTicks: TickMark[] = Array.from({ length: 60 }, (_, index) => ({ lap: index + 1, value: index * 1_000 }));
+    render(
+      <SliderWithTicks min={0} max={59_000} value={0} ticks={manyTicks} ariaLabel="Playback position" onChange={vi.fn()} />,
+    );
+    const labels = screen.getAllByText(/^\d+$/).filter((el) => el.className.includes("tickLabel"));
+    expect(labels).toHaveLength(12);
+    expect(labels.map((el) => el.textContent)).toEqual(
+      ["5", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55", "60"],
+    );
   });
 
   it("shows the current lap in a tooltip above the thumb", () => {

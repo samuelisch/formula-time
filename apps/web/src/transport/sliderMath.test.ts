@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { currentLap, snapTarget, type TickMark } from "./sliderMath.ts";
+import { currentLap, shouldLabelTick, snapTarget, type TickMark } from "./sliderMath.ts";
 
 const TICKS: TickMark[] = [
   { lap: 1, value: 0 },
@@ -45,5 +45,25 @@ describe("currentLap", () => {
   it("is null before the first tick", () => {
     expect(currentLap(-1, TICKS)).toBeNull();
     expect(currentLap(10_000, [{ lap: 3, value: 20_000 }])).toBeNull();
+  });
+});
+
+describe("shouldLabelTick", () => {
+  it("labels every lap when 40 or fewer ticks fall inside the slider", () => {
+    for (const lap of [1, 2, 3, 4, 5, 6, 40]) {
+      expect(shouldLabelTick(lap, 40)).toBe(true);
+    }
+  });
+
+  it("labels only every fifth lap once more than 40 ticks fall inside the slider", () => {
+    expect(shouldLabelTick(5, 41)).toBe(true);
+    expect(shouldLabelTick(10, 41)).toBe(true);
+    expect(shouldLabelTick(1, 41)).toBe(false);
+    expect(shouldLabelTick(41, 41)).toBe(false);
+  });
+
+  it("60 ticks label every fifth lap (12 labels)", () => {
+    const labeled = Array.from({ length: 60 }, (_, index) => index + 1).filter((lap) => shouldLabelTick(lap, 60));
+    expect(labeled).toEqual([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]);
   });
 });
