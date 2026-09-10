@@ -1,8 +1,9 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 
+import { foldAt, type Timeline } from "../replay/timeline.ts";
 import { deriveAnchors, emptyAnchors, type Anchors } from "./anchors.ts";
 import { append, emptyBuffer, select, type BufferedPush, type PushBuffer } from "./buffer.ts";
-import { axisOf, type Connection, type LivePush } from "./types.ts";
+import { axisOf, type Connection, type LivePush, type RewindMode } from "./types.ts";
 
 export interface LiveStore {
   connection: Connection;
@@ -16,11 +17,16 @@ export interface LiveStore {
   displayed: LivePush | null; // what the board renders
   bufferShort: boolean; // true when delay asks for older history than the buffer holds; displayed is then the oldest entry
   anchors: Anchors; // jump targets folded from pushes seen since this tab connected
+  /** The browser-side full-race timeline for the live session, set by the page that loads it (`LiveTimelineLoader`); null when not loaded. */
+  timeline: Timeline | null;
+  /** How `displayed` was chosen: "edge" (delay 0), "buffer" (from the push ring buffer, including the `bufferShort` fallback), or "timeline" (synthesised from `foldAt`). */
+  mode: RewindMode;
   onOpen(): void;
   onError(): void;
   onStatus(status: { catching_up: boolean }): void;
   onState(raw: string, push: LivePush, now: number): void;
   setDelayMs(ms: number, now: number): void;
+  setTimeline(timeline: Timeline | null, now: number): void;
   tick(now: number): void;
 }
 
@@ -29,6 +35,7 @@ export type LiveStoreApi = UseBoundStore<StoreApi<LiveStore>>;
 interface Selection {
   displayed: LivePush | null;
   bufferShort: boolean;
+  mode: RewindMode;
 }
 
 /** Creates an isolated store instance with its own displayed-entry cache; the app uses the `useLiveStore` singleton below, tests create their own. */
@@ -45,14 +52,14 @@ export function createLiveStore(): LiveStoreApi {
   }
 
   function reselect(
-    state: Pick<LiveStore, "live" | "buffer" | "delayMs" | "lastMessageAt">,
+    state: Pick<LiveStore, "live" | "buffer" | "delayMs" | "lastMessageAt" | "timeline">,
     now: number,
   ): Selection {
     if (state.delayMs === 0) {
-      return { displayed: state.live, bufferShort: false };
+      return { displayed: state.live, bufferShort: false, mode: "edge" };
     }
-    if (state.live === null || state.buffer.entries.length === 0) {
-      return { displayed: null, bufferShort: false };
+    if (state.live === null) {
+      return { displayed: null, bufferShort: false, mode: "edge" };
     }
 
     const liveAxis = axisOf(state.live);
@@ -61,12 +68,31 @@ export function createLiveStore(): LiveStoreApi {
 
     const found = select(state.buffer, target);
     if (found !== null) {
-      return { displayed: parseCached(found), bufferShort: false };
+      return { displayed: parseCached(found), bufferShort: false, mode: "buffer" };
+    }
+
+    if (state.timeline !== null && state.timeline.firstSourceMs !== null) {
+      const atMs = Math.max(target, state.timeline.firstSourceMs);
+      const foldedState = foldAt(state.timeline, atMs);
+      const live = state.live;
+      return {
+        displayed: {
+          type: "state",
+          seq: live.seq,
+          sent_at: live.sent_at,
+          session_key: live.session_key,
+          total_laps: live.total_laps,
+          state: foldedState,
+          polls: [],
+        },
+        bufferShort: false,
+        mode: "timeline",
+      };
     }
 
     const oldest = state.buffer.entries[0];
-    if (oldest === undefined) return { displayed: null, bufferShort: false };
-    return { displayed: parseCached(oldest), bufferShort: true };
+    if (oldest === undefined) return { displayed: null, bufferShort: false, mode: "buffer" };
+    return { displayed: parseCached(oldest), bufferShort: true, mode: "buffer" };
   }
 
   return create<LiveStore>()((set, get) => ({
@@ -80,6 +106,8 @@ export function createLiveStore(): LiveStoreApi {
     displayed: null,
     bufferShort: false,
     anchors: emptyAnchors(),
+    timeline: null,
+    mode: "edge",
 
     onOpen: () => set({ connection: "open" }),
     onError: () => set({ connection: "reconnecting" }),
@@ -89,21 +117,26 @@ export function createLiveStore(): LiveStoreApi {
       const buffer = append(get().buffer, { at: axisOf(push), raw });
       const anchors = deriveAnchors(get().anchors, push, seenRestarts);
       const next = { live: push, buffer, lastMessageAt: now, catchingUp: false, anchors };
-      const { displayed, bufferShort } = reselect({ ...get(), ...next }, now);
-      set({ ...next, displayed, bufferShort });
+      const { displayed, bufferShort, mode } = reselect({ ...get(), ...next }, now);
+      set({ ...next, displayed, bufferShort, mode });
     },
 
     setDelayMs: (ms, now) => {
       const delayMs = Math.max(0, ms);
-      const { displayed, bufferShort } = reselect({ ...get(), delayMs }, now);
-      set({ delayMs, displayed, bufferShort });
+      const { displayed, bufferShort, mode } = reselect({ ...get(), delayMs }, now);
+      set({ delayMs, displayed, bufferShort, mode });
+    },
+
+    setTimeline: (timeline, now) => {
+      const { displayed, bufferShort, mode } = reselect({ ...get(), timeline }, now);
+      set({ timeline, displayed, bufferShort, mode });
     },
 
     tick: (now) => {
       const state = get();
       if (state.delayMs === 0) return;
-      const { displayed, bufferShort } = reselect(state, now);
-      set({ displayed, bufferShort });
+      const { displayed, bufferShort, mode } = reselect(state, now);
+      set({ displayed, bufferShort, mode });
     },
   }));
 }

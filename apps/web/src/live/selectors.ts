@@ -7,7 +7,7 @@ import { useMemo } from "react";
 import type { Anchors } from "./anchors.ts";
 import { span } from "./buffer.ts";
 import { useLiveStore } from "./store.ts";
-import type { Connection, LivePush } from "./types.ts";
+import type { Connection, LivePush, RewindMode } from "./types.ts";
 
 export function useConnection(): Connection {
   return useLiveStore((state) => state.connection);
@@ -91,4 +91,9 @@ export function useLastMessageAt(): number | null {
 /** Jump targets folded from pushes seen since this tab connected (lights-out, lap starts, restarts). */
 export function useAnchors(): Anchors {
   return useLiveStore((state) => state.anchors);
+}
+
+/** How `displayed` was chosen: "edge", "buffer", or "timeline" (past the buffer, folded from the browser-side log). */
+export function useRewindMode(): RewindMode {
+  return useLiveStore((state) => state.mode);
 }

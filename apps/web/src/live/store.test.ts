@@ -1,7 +1,39 @@
-import type { DriverState } from "@formula-time/domain";
+import type { DriverState, RaceEvent, RawRecord } from "@formula-time/domain";
 import { describe, expect, it } from "vitest";
+import { appendEvents, createTimeline, foldAt, type Timeline } from "../replay/timeline.ts";
 import { createLiveStore } from "./store.ts";
 import type { LivePush } from "./types.ts";
+
+const TIMELINE_SESSION: RawRecord = {
+  session_key: 9999,
+  name: "Race",
+  country: "Italy",
+  circuit_key: 39,
+  date_start: "2026-09-08T12:00:00.000Z",
+  date_end: "2026-09-08T14:00:00.000Z",
+  total_laps: 58,
+  status: "live",
+};
+
+function timelineIsoAt(offsetSeconds: number): string {
+  return new Date(Date.parse("2026-09-08T12:00:00.000Z") + offsetSeconds * 1000).toISOString();
+}
+
+function timelineEvent(id: string, endpoint: string, offsetSeconds: number, payload: RawRecord): RaceEvent {
+  return { event_id: id, endpoint, source_time: timelineIsoAt(offsetSeconds), payload };
+}
+
+/** A small timeline: two leader laps 40s apart (past the fold's keyframe interval), for testing the timeline-mode fold path. */
+async function buildRewindTimeline(): Promise<Timeline> {
+  const timeline = createTimeline(TIMELINE_SESSION);
+  await appendEvents(timeline, [
+    timelineEvent("t1", "position", 0, { driver_number: 1, position: 1 }),
+    timelineEvent("t2", "laps", 0, { driver_number: 1, lap_number: 1 }),
+    timelineEvent("t3", "laps", 40, { driver_number: 1, lap_number: 2 }),
+    timelineEvent("t4", "laps", 90, { driver_number: 1, lap_number: 3 }),
+  ]);
+  return timeline;
+}
 
 function racePush(overrides: {
   sourceTime: string | null;
@@ -50,6 +82,20 @@ describe("live store", () => {
     expect(store.getState().bufferShort).toBe(false);
   });
 
+  it("mode is edge initially and after setDelayMs(0)", () => {
+    const store = createLiveStore();
+    expect(store.getState().mode).toBe("edge");
+
+    store.getState().setDelayMs(5_000, 0);
+    const { raw, push } = frame("2026-09-08T12:00:00.000Z", 0);
+    store.getState().onState(raw, push, 0);
+    expect(store.getState().mode).not.toBe("edge");
+
+    store.getState().setDelayMs(0, 0);
+    expect(store.getState().mode).toBe("edge");
+    expect(store.getState().displayed).toBe(push);
+  });
+
   it("selects a delayed entry from the buffer", () => {
     const store = createLiveStore();
     store.getState().setDelayMs(5_000, 0);
@@ -63,9 +109,11 @@ describe("live store", () => {
     // the last message -> target is 12:00:05, which selects the first entry.
     expect(store.getState().displayed).toEqual(first.push);
     expect(store.getState().bufferShort).toBe(false);
+    expect(store.getState().mode).toBe("buffer");
+    expect(store.getState().timeline).toBeNull();
   });
 
-  it("marks bufferShort and shows the oldest entry when delay outruns the buffer", () => {
+  it("marks bufferShort and shows the oldest entry when delay outruns the buffer and there is no timeline", () => {
     const store = createLiveStore();
     store.getState().setDelayMs(60_000, 0);
 
@@ -74,6 +122,115 @@ describe("live store", () => {
 
     expect(store.getState().bufferShort).toBe(true);
     expect(store.getState().displayed).toEqual(only.push);
+    expect(store.getState().mode).toBe("buffer");
+  });
+
+  describe("timeline mode", () => {
+    it("folds from the timeline when the delay outruns the buffer", async () => {
+      const store = createLiveStore();
+      const timeline = await buildRewindTimeline();
+      store.getState().setTimeline(timeline, 0);
+      store.getState().setDelayMs(150_000, 0);
+
+      const live = frame("2026-09-08T12:03:20.000Z", 200_000); // 200s offset
+      store.getState().onState(live.raw, live.push, 200_000);
+
+      // target = 200s - 150s = 50s offset, past the 1-entry buffer span.
+      const expectedTargetMs = Date.parse("2026-09-08T12:00:00.000Z") + 50_000;
+
+      expect(store.getState().mode).toBe("timeline");
+      expect(store.getState().bufferShort).toBe(false);
+      const displayed = store.getState().displayed;
+      expect(displayed).not.toBeNull();
+      expect(displayed!.polls).toEqual([]);
+      expect(displayed!.session_key).toBe(live.push.session_key);
+      expect(displayed!.seq).toBe(live.push.seq);
+      expect(displayed!.sent_at).toBe(live.push.sent_at);
+      expect(displayed!.state).toEqual(foldAt(timeline, expectedTargetMs));
+    });
+
+    it("clamps a target before the timeline's first source time to firstSourceMs", async () => {
+      const store = createLiveStore();
+      const timeline = await buildRewindTimeline();
+      store.getState().setTimeline(timeline, 0);
+      // Huge delay: target lands well before the timeline's first event.
+      store.getState().setDelayMs(500_000, 0);
+
+      const live = frame("2026-09-08T12:03:20.000Z", 200_000);
+      store.getState().onState(live.raw, live.push, 200_000);
+
+      expect(store.getState().mode).toBe("timeline");
+      expect(store.getState().displayed!.state).toEqual(foldAt(timeline, timeline.firstSourceMs!));
+    });
+
+    it("setTimeline flips a stale bufferShort fallback into timeline mode without a setDelayMs call", async () => {
+      const store = createLiveStore();
+      store.getState().setDelayMs(150_000, 0);
+      const live = frame("2026-09-08T12:03:20.000Z", 200_000);
+      store.getState().onState(live.raw, live.push, 200_000);
+
+      expect(store.getState().mode).toBe("buffer");
+      expect(store.getState().bufferShort).toBe(true);
+
+      const timeline = await buildRewindTimeline();
+      store.getState().setTimeline(timeline, 200_000);
+
+      expect(store.getState().mode).toBe("timeline");
+      expect(store.getState().bufferShort).toBe(false);
+
+      store.getState().setTimeline(null, 200_000);
+      expect(store.getState().mode).toBe("buffer");
+      expect(store.getState().bufferShort).toBe(true);
+    });
+
+    it("tick re-folds at the advanced target in timeline mode", async () => {
+      const store = createLiveStore();
+      const timeline = await buildRewindTimeline();
+      store.getState().setTimeline(timeline, 0);
+      // delay 190s: target = 200s - 190s = 10s offset (before the 40s lap-2 marker).
+      store.getState().setDelayMs(190_000, 0);
+
+      const live = frame("2026-09-08T12:03:20.000Z", 200_000);
+      store.getState().onState(live.raw, live.push, 200_000);
+
+      const baseMs = Date.parse("2026-09-08T12:00:00.000Z");
+      expect(store.getState().displayed!.state).toEqual(foldAt(timeline, baseMs + 10_000));
+      const before = store.getState().displayed!.state.latest_source_time;
+
+      // 40s of wall-clock time pass with no new push: target advances to 50s offset, past the 40s lap-2 marker.
+      store.getState().tick(240_000);
+
+      expect(store.getState().mode).toBe("timeline");
+      expect(store.getState().displayed!.state).toEqual(foldAt(timeline, baseMs + 50_000));
+      const after = store.getState().displayed!.state.latest_source_time;
+      expect(after).not.toBeNull();
+      expect(before).not.toBeNull();
+      expect(Date.parse(after!)).toBeGreaterThan(Date.parse(before!));
+    });
+
+    it("returns to buffer mode when the target catches up into the buffer span, then to edge on setDelayMs(0)", async () => {
+      const store = createLiveStore();
+      const timeline = await buildRewindTimeline();
+      store.getState().setTimeline(timeline, 0);
+      store.getState().setDelayMs(150_000, 0);
+
+      const first = frame("2026-09-08T12:03:20.000Z", 200_000); // 200s offset
+      store.getState().onState(first.raw, first.push, 200_000);
+      expect(store.getState().mode).toBe("timeline");
+
+      const second = frame("2026-09-08T12:03:30.000Z", 210_000); // 210s offset
+      store.getState().onState(second.raw, second.push, 210_000);
+      // Still timeline mode: target = 210s - 150s = 60s offset, outside the buffer's [200s, 210s] span.
+      expect(store.getState().mode).toBe("timeline");
+
+      // Nudge the delay down until the target re-enters the buffer span.
+      store.getState().setDelayMs(5_000, 210_000);
+      expect(store.getState().mode).toBe("buffer");
+
+      store.getState().setDelayMs(0, 210_000);
+      expect(store.getState().mode).toBe("edge");
+      expect(store.getState().displayed).toBe(second.push);
+    });
   });
 
   it("keeps displayed referentially stable across ticks that select the same entry", () => {
