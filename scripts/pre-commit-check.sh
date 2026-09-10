@@ -35,11 +35,17 @@ strip_quotes() {
 # inside a quoted echo argument) cannot be mistaken for it either: the cut
 # point comes from grep's own byte offset for the anchored match, not a
 # second, textual search for the matched string.
+#
+# That offset is a count of bytes, so the cut point is measured and applied
+# in bytes throughout — `wc -c` for the length of the match's leading
+# separator, `head -c` for the slice. Bash's ${#var} and ${var:0:n} count
+# characters in a UTF-8 locale, so mixing them in would move the cut point
+# one place right per multibyte character earlier in the command.
 hook_cwd="$(pwd)"
-git_part=$(printf '%s\n' "$cmd_match" | sed -E 's/^[;&|]?[[:space:]]*//')
-anchor_len=$(( ${#cmd_match} - ${#git_part} ))
-git_start=$(( match_offset + anchor_len ))
-prefix="${cmd:0:git_start}"
+git_part=$(printf '%s' "$cmd_match" | sed -E 's/^[;&|]?[[:space:]]*//')
+anchor=${cmd_match%"$git_part"}
+anchor_bytes=$(printf '%s' "$anchor" | wc -c | tr -d '[:space:]')
+prefix=$(printf '%s' "$cmd" | head -c "$(( match_offset + anchor_bytes ))")
 raw_path=$(printf '%s\n' "$prefix" | sed -nE "s/.*(^|[;&|])[[:space:]]*cd[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]*(&&|;).*/\\2/p")
 if [ -z "$raw_path" ]; then
   raw_path=$(printf '%s\n' "$cmd_match" | sed -nE "s/.*git[[:space:]]+-C[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]+commit.*/\\1/p")
