@@ -1,12 +1,12 @@
-// ONE in-process queue (issue deliverable 3, HLD §7 single writer): both
+// ONE in-process queue (HLD §7 single writer): both
 // lanes (REST here, MQTT in T6) push onto it; the writer drains it in
 // arrival order through the one connection, so `seq` order equals commit
 // order.
 
 export interface EventQueueOptions {
   /**
-   * Hard cap on queue length (round 4, owner review: an unbounded queue
-   * behind a stuck writer grows without bound). Default 200,000 rows.
+   * Hard cap on queue length: an unbounded queue
+   * behind a stuck writer grows without bound. Default 200,000 rows.
    * Beyond it, `push`/`pushAll` drop the newest row and count it —
    * `takeDropped()` is how the writer reads and clears that count.
    */
@@ -61,11 +61,11 @@ export class EventQueue<T> {
   }
 
   /**
-   * Drops every item currently queued, returning how many. Round 1 fix
-   * (PR #74, issue #71): after a caller decides a stuck batch (still at the
-   * front from `requeueFront`) is never going to write — `EventWriter`'s
-   * `drainAll()` gave up on it — the queue must not carry that batch into
-   * whatever the caller does next, or it poisons the next thing drained.
+   * Drops every item currently queued, returning how many. After a caller
+   * decides a stuck batch (still at the front from `requeueFront`) is never
+   * going to write — `EventWriter`'s `drainAll()` gave up on it — the queue
+   * must not carry that batch into whatever the caller does next, or it
+   * poisons the next thing drained.
    */
   public clear(): number {
     const count = this.items.length;
