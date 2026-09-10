@@ -32,6 +32,14 @@ interface SessionFields {
 // comment) — the same window discovery and expiry use to pick a live session.
 const LIVE_WINDOW_MS = 30 * 60 * 1000;
 
+// Only race sessions are captured: practice, qualifying and sprint are
+// scrubbed off. A sprint carries `session_type: "Race"` but
+// `session_name: "Sprint"`, so the filter is on `session_name`, exact and
+// case-sensitive, matching OpenF1's own value.
+export function isRaceSession(raw: RawRecord): boolean {
+  return raw["session_name"] === "Race";
+}
+
 export function computeSessionStatus(dateStart: Date, dateEnd: Date, nowMs: number): SessionStatus {
   const start = dateStart.getTime();
   const end = dateEnd.getTime();

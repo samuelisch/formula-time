@@ -16,9 +16,15 @@ const START = Date.parse("2026-09-06T13:00:00Z");
 const END = Date.parse("2026-09-06T15:00:00Z");
 const WINDOW = 30 * 60 * 1000;
 
+// No meeting_key: most tests below use SESSION as the sole row in a fake
+// `sessions?year=` response, which would otherwise read as a meeting whose
+// only known session is its own race — not a real-world shape (OpenF1's
+// full-year response always carries a race's practice/qualifying siblings
+// too) and not one the Friday-fetch tests below need SESSION for; they
+// build their own meeting fixtures with an explicit meeting_key instead.
 const SESSION: RawRecord = {
   session_key: 11361,
-  meeting_key: 1293,
+  session_name: "Race",
   circuit_key: 39,
   country_name: "Italy",
   date_start: "2026-09-06T13:00:00+00:00",
@@ -116,11 +122,13 @@ describe("RestLane discovery", () => {
   test("onSessionSelected fires once, only for the session that becomes live, not once per discovery tick", async () => {
     const upcoming: RawRecord = {
       session_key: 11362,
+      session_name: "Race",
       date_start: "2026-09-13T13:00:00Z",
       date_end: "2026-09-13T15:00:00Z",
     };
     const finished: RawRecord = {
       session_key: 11349,
+      session_name: "Race",
       date_start: "2026-08-30T13:00:00Z",
       date_end: "2026-08-30T15:00:00Z",
     };
@@ -144,7 +152,7 @@ describe("RestLane discovery", () => {
   });
 
   test("one onSession row throwing (a malformed session) does not stop the rest, or starve ensureLiveSession", async () => {
-    const bad: RawRecord = { session_key: "not-a-number", date_start: "nope", date_end: "nope" };
+    const bad: RawRecord = { session_key: "not-a-number", session_name: "Race", date_start: "nope", date_end: "nope" };
     const { fetcher } = fakeFetcher({ sessions: [bad, SESSION], drivers: [{ driver_number: 1 }] });
     const onSession = vi.fn(async (row: RawRecord) => {
       if (row === bad) throw new Error("upsertSession: session_key is not a valid integer");
@@ -192,6 +200,112 @@ describe("RestLane discovery", () => {
     await lane.discoverOnce();
 
     expect(lane.status()).toEqual({ active: true, sessionKey: 11361 });
+  });
+});
+
+describe("RestLane: races only (issue #168)", () => {
+  const PRACTICE_1: RawRecord = {
+    session_key: 40001,
+    meeting_key: 1400,
+    session_type: "Practice",
+    session_name: "Practice 1",
+    country_name: "Italy",
+    circuit_key: 39,
+    date_start: "2026-09-06T13:00:00Z",
+    date_end: "2026-09-06T14:00:00Z",
+  };
+  const QUALIFYING: RawRecord = {
+    session_key: 40002,
+    meeting_key: 1400,
+    session_type: "Qualifying",
+    session_name: "Qualifying",
+    country_name: "Italy",
+    circuit_key: 39,
+    date_start: "2026-09-06T15:00:00Z",
+    date_end: "2026-09-06T16:00:00Z",
+  };
+  const SPRINT: RawRecord = {
+    session_key: 40003,
+    meeting_key: 1400,
+    session_type: "Race", // OpenF1 gives a sprint session_type "Race"...
+    session_name: "Sprint", // ...but session_name "Sprint" — the filter is on session_name.
+    country_name: "Italy",
+    circuit_key: 39,
+    date_start: "2026-09-06T17:00:00Z",
+    date_end: "2026-09-06T18:00:00Z",
+  };
+  const RACE_ROW: RawRecord = {
+    session_key: 40004,
+    meeting_key: 1400,
+    session_type: "Race",
+    session_name: "Race",
+    country_name: "Italy",
+    circuit_key: 39,
+    date_start: "2026-09-06T19:00:00Z",
+    date_end: "2026-09-06T21:00:00Z",
+  };
+
+  test("a sessions?year= response with Practice 1, Qualifying, Sprint, Race rows upserts only the Race row; knownSessionKeys holds one key", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [PRACTICE_1, QUALIFYING, SPRINT, RACE_ROW], drivers: [] });
+    const onSession = vi.fn();
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, {
+      fetcher,
+      now: () => Date.parse("2026-09-05T00:00:00Z"), // outside every session's live window
+      onSession,
+      onLog: () => {},
+    });
+
+    await lane.discoverOnce();
+
+    expect(onSession).toHaveBeenCalledTimes(1);
+    expect(onSession).toHaveBeenCalledWith(RACE_ROW, expect.any(Number));
+    const knownSessionKeys = (lane as unknown as { knownSessionKeys: Set<number> }).knownSessionKeys;
+    expect(knownSessionKeys).toEqual(new Set([40004]));
+  });
+
+  test("a Practice session inside its live window is not selected while a Race one is", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [PRACTICE_1, RACE_ROW], drivers: [] });
+    const queue = new EventQueue<QueueItem>();
+    const practiceNow = Date.parse("2026-09-06T13:30:00Z"); // inside PRACTICE_1's window, outside RACE_ROW's
+    const lane = new RestLane(queue, { fetcher, now: () => practiceNow, onLog: () => {} });
+
+    await lane.discoverOnce();
+
+    expect(lane.status()).toEqual({ active: false, sessionKey: null });
+
+    const raceNow = Date.parse("2026-09-06T19:30:00Z"); // inside RACE_ROW's window
+    const lane2 = new RestLane(queue, { fetcher, now: () => raceNow, onLog: () => {} });
+    await lane2.discoverOnce();
+
+    expect(lane2.status()).toEqual({ active: true, sessionKey: 40004 });
+  });
+
+  test("the Friday check still fires with the practice rows present in the snapshot", async () => {
+    const calls: string[] = [];
+    const fetcher = async (url: string): Promise<unknown> => {
+      calls.push(url);
+      if (url.includes("/sessions?")) return [PRACTICE_1, QUALIFYING, SPRINT, RACE_ROW];
+      if (url.includes("/drivers?meeting_key=1400")) {
+        return [{ session_key: 40004, meeting_key: 1400, driver_number: 1, full_name: "Lando NORRIS" }];
+      }
+      return [];
+    };
+    // After PRACTICE_1's date_start, well before RACE_ROW's own live window —
+    // no session is selected live, so the idle discovery tick's own Friday
+    // check runs unbudgeted, grouping the meeting from every row in the
+    // snapshot (practice, qualifying and sprint included) to find its first
+    // session's start and its (already-known) race session.
+    const now = Date.parse("2026-09-06T13:30:00Z");
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => now, onLog: () => {} });
+
+    await lane.discoverOnce();
+
+    expect(calls.some((u) => u.includes("meeting_key=1400"))).toBe(true);
+    const items = queue.drain(1000).filter((i) => i.endpoint === "drivers");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ sessionKey: 40004n });
   });
 });
 
@@ -544,6 +658,7 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
     session_key: 11361,
     meeting_key: 1293,
     session_type: "Race",
+    session_name: "Race",
     date_start: "2026-09-06T13:00:00Z",
     date_end: "2026-09-06T15:00:00Z",
   };
@@ -564,9 +679,12 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
     const queue = new EventQueue<QueueItem>();
     const lane = new RestLane(queue, { fetcher, now: () => now, onLog: () => {} });
 
-    await lane.discoverOnce(); // FP1 becomes live: its selection fetch takes this tick's drivers budget
-    expect(calls.filter((u) => u.includes("meeting_key=1293"))).toHaveLength(0);
-    await lane.pollOnce(); // next tick: the Friday meeting-wide fetch is due and fails
+    // FP1 (Practice) is inside its live window but is never selected (races
+    // only) — no session goes live, so the idle discovery tick's own Friday
+    // check runs immediately, unbudgeted (there is no rotation while idle).
+    // RACE's own upsert succeeds trivially this tick (no onSession override
+    // here), so it is already known, and the fetch fires straight away.
+    await lane.discoverOnce();
     expect(calls.filter((u) => u.includes("meeting_key=1293"))).toHaveLength(1);
     queue.drain(1000);
 
@@ -606,8 +724,9 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
       onLog: () => {},
     });
 
-    await lane.discoverOnce(); // FP1 goes live too: its static fallback (11360) is recorded separately
-    await lane.pollOnce(); // the Friday fetch runs on the next tick (one drivers fetch per tick)
+    // FP1 stays unselected (Practice); RACE is already known, so the idle
+    // tick's own Friday check fires within this one discoverOnce() call.
+    await lane.discoverOnce();
 
     const raceCalls = onNewRows.mock.calls.filter((c) => c[1] === "drivers" && c[0] === 11361);
     expect(raceCalls).toHaveLength(1);
@@ -626,7 +745,7 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
       return [];
     };
     const onSession = vi.fn(async (row: RawRecord) => {
-      if (raceFails && row["session_type"] === "Race") throw new Error("db down");
+      if (raceFails && row["session_name"] === "Race") throw new Error("db down");
     });
     let now = Date.parse("2026-09-04T11:31:00Z");
     const queue = new EventQueue<QueueItem>();
@@ -634,22 +753,16 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
 
     const raceRows = () => queue.drain(1000).filter((i) => i.endpoint === "drivers" && i.sessionKey === 11361n);
 
-    await lane.discoverOnce(); // FP1 goes live; RACE's upsert failed: it is not "in the sessions table" yet
-    const idle = await lane.pollOnce(); // live loop: Friday is not due (race unknown), so the rotation runs
-    expect(idle?.endpoint).toBe(POLL_ROTATION[0]);
+    // FP1 is Practice, never selected. RACE's own upsert fails: it is not
+    // "known" yet, so checkFridayFetch's own knownSessionKeys guard skips
+    // the meeting entirely — no meeting-wide fetch is even attempted.
+    await lane.discoverOnce();
     expect(calls.some((u) => u.includes("meeting_key="))).toBe(false);
-    expect(raceRows()).toHaveLength(0); // FP1's own static fallback (11360) is fine; nothing for 11361
+    expect(raceRows()).toHaveLength(0);
 
-    // The idle discovery loop is off while FP1 is live; the live loop refreshes
-    // the sessions snapshot on the discovery cadence instead (its own tick).
     now += 60_000;
     raceFails = false;
-    const refresh = await lane.pollOnce();
-    expect(refresh?.endpoint).toBe("sessions");
-    expect(calls.some((u) => u.includes("meeting_key="))).toBe(false);
-
-    const friday = await lane.pollOnce(); // RACE is known now: the Friday fetch fires and its row is queued
-    expect(friday?.endpoint).toBe("drivers");
+    await lane.discoverOnce(); // RACE's upsert succeeds this time: it becomes known
     expect(calls.filter((u) => u.includes("meeting_key=1293"))).toHaveLength(1);
     expect(raceRows()).toHaveLength(1);
   });
@@ -681,12 +794,12 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
       const meetingKey = 1279 + i;
       pastMeetings.push(
         { session_key: 20000 + i, meeting_key: meetingKey, session_type: "Practice", date_start: "2026-08-01T10:00:00Z", date_end: "2026-08-01T11:00:00Z" },
-        { session_key: 21000 + i, meeting_key: meetingKey, session_type: "Race", date_start: "2026-08-03T13:00:00Z", date_end: "2026-08-03T15:00:00Z" },
+        { session_key: 21000 + i, meeting_key: meetingKey, session_type: "Race", session_name: "Race", date_start: "2026-08-03T13:00:00Z", date_end: "2026-08-03T15:00:00Z" },
       );
     }
     const upcoming: RawRecord[] = [
       { session_key: 30000, meeting_key: 1300, session_type: "Practice", date_start: "2026-09-08T10:00:00Z", date_end: "2026-09-08T11:00:00Z" },
-      { session_key: 30001, meeting_key: 1300, session_type: "Race", date_start: "2026-09-10T13:00:00Z", date_end: "2026-09-10T15:00:00Z" },
+      { session_key: 30001, meeting_key: 1300, session_type: "Race", session_name: "Race", date_start: "2026-09-10T13:00:00Z", date_end: "2026-09-10T15:00:00Z" },
     ];
     const allSessions = [...pastMeetings, ...upcoming];
     const calls: string[] = [];
@@ -709,7 +822,7 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
     const now = Date.parse("2026-09-09T12:00:00Z");
     const pastMeeting: RawRecord[] = [
       { session_key: 20000, meeting_key: 1279, session_type: "Practice", date_start: "2026-08-01T10:00:00Z", date_end: "2026-08-01T11:00:00Z" },
-      { session_key: 21000, meeting_key: 1279, session_type: "Race", date_start: "2026-08-03T13:00:00Z", date_end: "2026-08-03T15:00:00Z" },
+      { session_key: 21000, meeting_key: 1279, session_type: "Race", session_name: "Race", date_start: "2026-08-03T13:00:00Z", date_end: "2026-08-03T15:00:00Z" },
     ];
     const calls: string[] = [];
     const fetcher = async (url: string): Promise<unknown> => {
@@ -827,7 +940,7 @@ describe("RestLane: drivers fetch budget (issue #39)", () => {
       date_start: "2026-09-04T11:30:00Z",
       date_end: "2026-09-04T12:30:00Z",
     };
-    const RACE: RawRecord = { ...SESSION, session_type: "Race" };
+    const RACE: RawRecord = { ...SESSION, meeting_key: 1293, session_type: "Race" };
     const calls: string[] = [];
     const fetcher = async (url: string): Promise<unknown> => {
       calls.push(url);

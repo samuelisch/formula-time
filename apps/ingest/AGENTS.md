@@ -22,6 +22,22 @@ else.
   `session_key`, not just per process (ADR-0010 §1): the live service owns
   every session inside its live window, and the loader/`fetch-race` below
   own only sessions whose window has closed.
+- Only race sessions are captured (`isRaceSession`, `writer/sessions.ts`:
+  `session_name === "Race"`, exact and case-sensitive — a sprint carries
+  `session_type: "Race"` but `session_name: "Sprint"`, so the filter is on
+  `session_name`). Practice, qualifying and sprint rows are never upserted
+  into `sessions` and never added to the REST lane's known-session set, so
+  the live REST lane never selects or polls one; the recording loader and
+  `fetch-race` refuse one outright (`load: refused <key>: session_name is
+  "<name>", only "Race" is loaded`). A `drivers?meeting_key=` row tagged to
+  a practice session_key is written nowhere (it hits the same
+  not-a-known-session drop every row naming an absent `sessions` row
+  already gets). Consequence: the race's entry list is no longer
+  guaranteed to exist before the race itself is selected — it now comes
+  from that session's own `drivers?session_key=` fetch at selection (30
+  minutes before the race), not from Friday's meeting-wide fetch, which
+  still runs (grouping a meeting from every row it has seen, practice
+  included) but only ever writes the race's own tagged rows.
 - The entry list: fetched live per session — at session selection
   (`drivers?session_key=`, retried every 5 min until it returns rows),
   again 5 minutes before the session starts, and meeting-wide from the
