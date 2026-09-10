@@ -21,6 +21,12 @@
   margin-bottom: 0.75rem;
 }
 
+.status {
+  color: var(--color-accent);
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
 .stats {
   display: grid;
   grid-template-columns: auto 1fr;

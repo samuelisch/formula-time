@@ -6,17 +6,25 @@
 // nothing when no driver is selected or the selection is not in the current
 // push (e.g. a stale `?driver=` after a session change).
 import { useEffect } from "react";
+import type { RunStatus } from "@formula-time/domain";
 
 import { Card } from "../components/Card.tsx";
 import { gapText, lapTime, pitStopText, text } from "../lib/format.ts";
 import styles from "./DriverPanel.module.css";
 import { TeamDot } from "./TeamDot.tsx";
-import { useBoardDriver, useBoardSessionMeta } from "./useBoardState.ts";
+import { useBoardDriver, useBoardRunStatus, useBoardSessionMeta } from "./useBoardState.ts";
 import { useDriverSelection } from "./useDriverSelection.ts";
 
 function lapText(currentLap: number | null, totalLaps: number | null): string {
   if (currentLap === null) return "—";
   return totalLaps === null ? String(currentLap) : `${currentLap}/${totalLaps}`;
+}
+
+/** The panel's status line for a retired car; null while running (no line shown). */
+function statusText(runStatus: RunStatus): string | null {
+  if (runStatus === "dnf") return "Retired (DNF)";
+  if (runStatus === "dns") return "Did not start (DNS)";
+  return null;
 }
 
 function pitOutText(isPitOutLap: boolean | null): string {
@@ -27,6 +35,7 @@ function pitOutText(isPitOutLap: boolean | null): string {
 export function DriverPanel() {
   const { selected, clear } = useDriverSelection();
   const driver = useBoardDriver(selected ?? -1);
+  const runStatus = useBoardRunStatus(selected ?? -1);
   const { totalLaps } = useBoardSessionMeta();
 
   useEffect(() => {
@@ -41,6 +50,7 @@ export function DriverPanel() {
   if (selected === null || driver === null) return null;
 
   const pitStopsNewestFirst = [...driver.pit_stops].reverse();
+  const status = statusText(runStatus);
 
   return (
     <Card>
@@ -55,6 +65,7 @@ export function DriverPanel() {
         <TeamDot teamColour={driver.team_colour} />
         {text(driver.team_name)}
       </div>
+      {status !== null && <div className={styles.status}>{status}</div>}
       <dl className={styles.stats}>
         <dt>Gap</dt>
         <dd>{gapText(driver.gap_to_leader)}</dd>

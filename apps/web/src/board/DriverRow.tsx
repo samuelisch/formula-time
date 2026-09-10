@@ -3,7 +3,7 @@ import type { DriverState } from "@formula-time/domain";
 
 import { cx } from "../lib/classNames.ts";
 import { gapText, pitStopText, text } from "../lib/format.ts";
-import { useBoardDriver } from "./useBoardState.ts";
+import { useBoardDriver, useBoardRunStatus } from "./useBoardState.ts";
 import { TeamDot } from "./TeamDot.tsx";
 import styles from "./TimingTable.module.css";
 
@@ -50,16 +50,23 @@ export interface DriverRowProps {
 // same `delta`.
 export const DriverRow = memo(function DriverRow({ number: driverNumber, delta = 0, selected, onSelect }: DriverRowProps) {
   const driver = useBoardDriver(driverNumber);
+  const runStatus = useBoardRunStatus(driverNumber);
   if (driver === null) return null;
 
-  const cueClass = deltaClass(delta, styles.cueGain, styles.cueLoss);
-  const rowChangeClass = deltaClass(delta, styles.rowGain, styles.rowLoss);
-  const rowClassName = cx(styles.row, selected && styles.selected, rowChangeClass);
+  // A retired car (dnf/dns) shows its status word instead of a gap, gets no
+  // position-change cue (a car that stopped racing does not "gain" places),
+  // and its non-position text is muted.
+  const isRetired = runStatus === "dnf" || runStatus === "dns";
+  const statusWord = runStatus.toUpperCase();
+
+  const cueClass = isRetired ? undefined : deltaClass(delta, styles.cueGain, styles.cueLoss);
+  const rowChangeClass = isRetired ? undefined : deltaClass(delta, styles.rowGain, styles.rowLoss);
+  const rowClassName = cx(styles.row, selected && styles.selected, rowChangeClass, isRetired && styles.retired);
 
   return (
     <tr className={rowClassName} onClick={() => onSelect(driverNumber)} aria-selected={selected}>
       <td className={styles.position}>{driver.position === null ? "—" : driver.position}</td>
-      <td className={cueClass}>{cueText(delta)}</td>
+      <td className={cueClass}>{isRetired ? "" : cueText(delta)}</td>
       <td>
         <strong>{text(driver.name_acronym)}</strong>
         <span className={styles.fullName}>
@@ -71,8 +78,8 @@ export const DriverRow = memo(function DriverRow({ number: driverNumber, delta =
         <TeamDot teamColour={driver.team_colour} />
         <span className={styles.teamName}>{text(driver.team_name)}</span>
       </td>
-      <td>{gapText(driver.gap_to_leader)}</td>
-      <td>{gapText(driver.interval)}</td>
+      <td>{isRetired ? statusWord : gapText(driver.gap_to_leader)}</td>
+      <td>{isRetired ? statusWord : gapText(driver.interval)}</td>
       <td>{tyreText(driver.tyre)}</td>
       <td>{pitStopText(driver.latest_pit_stop)}</td>
     </tr>
