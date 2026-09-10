@@ -1,23 +1,29 @@
 #!/usr/bin/env bash
-# Starts (or tears down) the rehearse-race stack for e2e: compose Postgres,
-# the drip simulator on a fixture recording, ingest pointed at the
-# simulator's output, the api, and the web dev server. `start` blocks until
-# the api and web are both answering, then returns with the stack running
-# in the background -- Playwright's `webServer` option runs `start`, so
-# tests only begin once every part is up. PIDs land in .e2e/pids under the
-# repo root so `stop` can find and end them from a separate invocation.
+# Starts (or tears down) the rehearse-race stack for e2e: Postgres, the drip
+# simulator on a fixture recording, ingest pointed at the simulator's
+# output, the api, and the web dev server. `start` blocks until the api and
+# web are both answering, then returns with the stack running in the
+# background -- Playwright's `webServer` option runs `start`, so tests only
+# begin once every part is up. PIDs land in .e2e/pids under the repo root
+# so `stop` can find and end them from a separate invocation.
 #
-# Never points at anything but the local compose Postgres (rehearse-race
-# skill): the simulator never touches the network, and ingest reads from
-# the simulator's own output directory, never OpenF1. The local
-# DATABASE_URL/DATABASE_DIRECT_URL are exported before any database command
-# runs, including the migration, overriding whatever the invoking shell had.
+# Postgres: a local run brings up this worktree's own compose Postgres,
+# exporting its DATABASE_URL/DATABASE_DIRECT_URL before any database
+# command runs (including the migration) so an ambient value in the
+# invoking shell is never used, and migrates it (torn down on `stop`). CI
+# already has a Postgres service container and exports DATABASE_URL for it
+# before calling this script, so a pre-set DATABASE_URL skips both -- CI
+# migrates that database itself, the same way the `checks` job does.
+#
+# The simulator never touches the network, and ingest reads from the
+# simulator's own output directory, never OpenF1.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE_DIR="$REPO_ROOT/.e2e"
 PID_FILE="$STATE_DIR/pids"
 LOG_DIR="$STATE_DIR/logs"
+LOCAL_DB_MARKER="$STATE_DIR/started-local-db"
 
 cmd="${1:-start}"
 
@@ -30,7 +36,10 @@ stop_stack() {
     done <"$PID_FILE"
     rm -f "$PID_FILE"
   fi
-  (cd "$REPO_ROOT" && pnpm db:down) || true
+  if [ -f "$LOCAL_DB_MARKER" ]; then
+    (cd "$REPO_ROOT" && pnpm db:down) || true
+    rm -f "$LOCAL_DB_MARKER"
+  fi
 }
 
 case "$cmd" in
@@ -58,30 +67,38 @@ mkdir -p "$STATE_DIR" "$LOG_DIR"
 : >"$PID_FILE"
 
 cd "$REPO_ROOT"
-pnpm db:up
+if [ -z "${DATABASE_URL:-}" ]; then
+  pnpm db:up
+  : >"$LOCAL_DB_MARKER"
 
-# Export this worktree's own compose Postgres before migrating it: an
-# already-exported DATABASE_URL/DATABASE_DIRECT_URL in the invoking shell
-# (left over from other work) must never leak in here and get migrated
-# instead of the compose Postgres just started.
-eval "$(scripts/db-env.sh)"
-export DATABASE_URL="postgres://formula:formula@localhost:${DB_PORT}/formula_time"
-export DATABASE_DIRECT_URL="$DATABASE_URL"
+  # Export this worktree's own compose Postgres before migrating it: an
+  # already-exported DATABASE_URL/DATABASE_DIRECT_URL in the invoking shell
+  # (left over from other work) must never leak in here and get migrated
+  # instead of the compose Postgres just started. This branch only runs
+  # when neither was already set (checked above), so it is always this
+  # worktree's own compose Postgres being exported here.
+  eval "$(scripts/db-env.sh)"
+  export DATABASE_URL="postgres://formula:formula@localhost:${DB_PORT}/formula_time"
+  export DATABASE_DIRECT_URL="$DATABASE_URL"
 
-# `docker compose up -d` returns once the container starts, not once
-# Postgres is accepting connections (no `--wait`), so a migrate right after
-# can race a still-starting server. Retry instead of failing outright.
-migrated=false
-for _ in $(seq 1 15); do
-  if pnpm db:migrate:deploy; then
-    migrated=true
-    break
+  # `docker compose up -d` returns once the container starts, not once
+  # Postgres is accepting connections (no `--wait`), so a migrate right
+  # after can race a still-starting server. Retry instead of failing
+  # outright.
+  migrated=false
+  for _ in $(seq 1 15); do
+    if pnpm db:migrate:deploy; then
+      migrated=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$migrated" != true ]; then
+    echo "e2e-stack: database never became ready for migration" >&2
+    exit 1
   fi
-  sleep 2
-done
-if [ "$migrated" != true ]; then
-  echo "e2e-stack: database never became ready for migration" >&2
-  exit 1
+else
+  echo "e2e-stack: DATABASE_URL already set, using the caller's Postgres"
 fi
 
 pnpm sim --recording "$RECORDING" --speed 20 --start race >"$LOG_DIR/sim.log" 2>&1 &

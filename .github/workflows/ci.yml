@@ -85,3 +85,83 @@ jobs:
         env:
           ADR_CHECK_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: scripts/check-adr-immutable.sh
+
+  # Whether this run touches the two e2e test flows themselves: apps/web
+  # (the specs and the app they drive) or packages/domain (the reducer and
+  # wire types the web app imports). A separate job so `e2e` below can skip
+  # entirely -- not just no-op its steps -- when neither changed.
+  e2e-changed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            web:
+              - 'apps/web/**'
+              - 'packages/domain/**'
+
+  # ADR-0002: Playwright e2e for the three named flows, against the
+  # rehearse-race stack scripts/e2e-stack.sh drives. Not required for merge
+  # yet (see the PR that added this job) -- a failure here does not block.
+  e2e:
+    needs: [checks, e2e-changed]
+    if: needs.e2e-changed.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: formula
+          POSTGRES_PASSWORD: formula
+          POSTGRES_DB: formula_time
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U formula -d formula_time"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+
+    env:
+      DATABASE_URL: postgres://formula:formula@localhost:5432/formula_time
+      DATABASE_DIRECT_URL: postgres://formula:formula@localhost:5432/formula_time
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install chromium
+        run: pnpm --filter @formula-time/web exec playwright install --with-deps chromium
+
+      - name: Download the rehearse-race recording
+        # The owner uploads this asset once; recordings/ is gitignored, so
+        # CI (and any fresh checkout) needs its own copy. The tarball
+        # unpacks to recordings/11361/ directly (made with
+        # `tar -czf recordings-11361.tar.gz -C recordings 11361`).
+        run: |
+          curl -sSL -o recordings-11361.tar.gz https://github.com/samuelisch/formula-time/releases/download/recordings/recordings-11361.tar.gz
+          mkdir -p recordings
+          tar -xzf recordings-11361.tar.gz -C recordings
+          rm recordings-11361.tar.gz
+
+      - name: Migrate the test database
+        run: pnpm db:migrate:deploy
+
+      - name: e2e tests
+        run: pnpm test:e2e
