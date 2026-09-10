@@ -7,6 +7,8 @@
 // push (e.g. a stale `?driver=` after a session change).
 import { useEffect } from "react";
 
+import type { Gap } from "@formula-time/domain";
+
 import { Card } from "../components/Card.tsx";
 import { lapTime, number, pitStopText, text } from "../lib/format.ts";
 import styles from "./DriverPanel.module.css";
@@ -27,7 +29,7 @@ function pitOutText(isPitOutLap: boolean | null): string {
 // The "s" suffix must be conditional on there being a number to suffix --
 // otherwise a null gap/interval (the race leader's gap, for one) renders
 // "—s" instead of a plain "—".
-function secondsText(value: number | null): string {
+function secondsText(value: Gap): string {
   return value === null ? "—" : `${number(value, 3)}s`;
 }
 
