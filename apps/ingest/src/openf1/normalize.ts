@@ -2,7 +2,7 @@
 // eventId, timestampValue, timestampMillis, LiveNormalizer, endpointConfigs),
 // with the MQTT envelope strip (`../f1-live-events-poc/poc/ts/mqtt_ingest.ts`
 // `stripMqttMeta`) folded into identity itself, so a REST row and its MQTT
-// twin (T6) hash to the same `eventId` no matter which lane computes it
+// twin hash to the same `eventId` no matter which lane computes it
 // first. Everything the POC's reducer needed per row (schema_version,
 // original_index, out_of_order, duplicate) is dropped: ingest never folds
 // (apps/ingest/AGENTS.md), and the `events` table has no columns for them.
@@ -22,9 +22,8 @@ export const endpointConfigs: Record<string, EndpointConfig> = {
   pit: { timestampField: "date" },
   race_control: { timestampField: "date" },
   weather: { timestampField: "date" },
-  // Review round 2 (PR #105, issue #25): `overtakes` is one of the eight
-  // named MQTT topics, and this PR is what turns it on end-to-end for the
-  // first time — REST's POLL_ROTATION has never polled it. Confirmed
+  // `overtakes` is one of the eight named MQTT topics — REST's
+  // POLL_ROTATION never polls it. Confirmed
   // against a real capture (`../f1-live-events-poc/poc/live-logs/
   // mqtt-probe-2026-09-06T12-57-39-863Z/topics/v1_overtakes.jsonl`): a
   // `date` field, same shape as position/intervals/pit/race_control/weather.
@@ -116,7 +115,7 @@ export class LiveNormalizer {
   private readonly lapStartByDriverAndLap = new Map<string, string>();
 
   /**
-   * Never throws: one malformed row (round 4, owner review — e.g. a stray
+   * Never throws: one malformed row (e.g. a stray
    * `null` in the response array) must not lose every row after it in the
    * same batch. Each row is normalized in its own try/catch; a row that
    * throws is skipped and counted in `malformed`. An id is added to `seen`

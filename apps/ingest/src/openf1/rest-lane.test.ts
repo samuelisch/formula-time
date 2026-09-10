@@ -348,8 +348,8 @@ describe("RestLane.stop() and an in-flight tick (SIGTERM race)", () => {
   });
 });
 
-// Issue #39: the fetched entry list, replacing the static ENTRY_LIST_2026
-// fallback. Verified fact (the brief): every OpenF1 `drivers` row carries
+// The fetched entry list, replacing the static ENTRY_LIST_2026
+// fallback. Verified: every OpenF1 `drivers` row carries
 // its own `session_key` and `meeting_key`, e.g.
 // `{"meeting_key":1293,"session_key":11361,"driver_number":1,...}`
 // (recordings/11361/raw/drivers.jsonl) — so a row is tagged by the
@@ -743,7 +743,7 @@ describe("RestLane: pre-race refresh (issue #39)", () => {
       if (url.includes("/drivers?session_key=11361")) {
         refreshCallCount += 1;
         if (refreshCallCount === 1) {
-          // The selection fetch (behaviour 1) is satisfied on the very first call.
+          // The selection fetch is satisfied on the very first call.
           return [{ session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" }];
         }
         if (refreshShouldFail) throw new Error("network error");

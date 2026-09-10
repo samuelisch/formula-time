@@ -1,6 +1,6 @@
 // Drip simulator: replays a live-recorder recording (or a real ingest
 // recording under `LIVE_LOG_DIR`) as if the race were happening now. Lifted
-// from `../f1-live-events-poc/poc/live-recorder/simulator.ts` (issue #56):
+// from `../f1-live-events-poc/poc/live-recorder/simulator.ts`:
 // it impersonates the recorder — writing session.json and appending raw
 // rows into a fresh directory at the pace they originally arrived
 // (`received_at`), optionally time-compressed — so the unmodified ingest

@@ -93,11 +93,10 @@ describe("LiveNormalizer", () => {
     expect(event?.sourceTime).toBeNull();
   });
 
-  // Review round 2 (PR #105, issue #25): `overtakes` is one of the eight
-  // named MQTT topics this PR turns on end-to-end for the first time (REST's
-  // POLL_ROTATION has never polled it), and it was missing from
-  // endpointConfigs — every overtakes row got a null sourceTime. Payload
-  // shape confirmed against a real capture: `../f1-live-events-poc/poc/
+  // `overtakes` is one of the eight named MQTT topics (REST's
+  // POLL_ROTATION never polls it). It must be present in
+  // endpointConfigs — otherwise every overtakes row gets a null sourceTime.
+  // Payload shape confirmed against a real capture: `../f1-live-events-poc/poc/
   // live-logs/mqtt-probe-2026-09-06T12-57-39-863Z/topics/v1_overtakes.jsonl`
   // — `{"meeting_key":1293,"session_key":11361,"overtaking_driver_number":81,
   // "overtaken_driver_number":3,"date":"2026-09-06T13:03:40.488000",

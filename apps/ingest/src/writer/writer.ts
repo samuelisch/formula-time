@@ -1,7 +1,7 @@
 // The one writer: ONE Prisma client (`createDb(process.env.DATABASE_URL, {
 // max: 1 })`, wired in main.ts) draining the ONE queue, inserting in arrival
 // order in batches of up to 100 with `event.createMany({ data, skipDuplicates:
-// true })` (issue deliverable 3). Because there is one connection, `seq`
+// true })`. Because there is one connection, `seq`
 // order equals commit order (HLD §7 single writer). Never patch, never
 // update an event row — apps/ingest/AGENTS.md.
 
@@ -71,7 +71,7 @@ export class EventWriter {
    * a rejection never silently loses rows.
    */
   public async drainOnce(): Promise<DrainResult | null> {
-    // The queue's hard cap (round 4, owner review): if it's been dropping
+    // The queue's hard cap: if it's been dropping
     // the newest rows because a stuck writer let it grow unbounded, log
     // that once per batch rather than losing rows silently.
     const dropped = this.queue.takeDropped();
@@ -142,7 +142,7 @@ export class EventWriter {
   }
 
   // The retry backoff after consecutive run() failures: 250ms doubling to a
-  // 30s cap (round 4, owner review) — a dead database must not be hammered
+  // 30s cap — a dead database must not be hammered
   // at the steady polling cadence forever.
   private static readonly BACKOFF_BASE_MS = 250;
   private static readonly BACKOFF_MAX_MS = 30_000;

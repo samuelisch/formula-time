@@ -1,13 +1,13 @@
-// Unit test (issue #63 deliverable "Unit test"): a tiny fixture recording
+// Unit test: a tiny fixture recording
 // dir (two endpoints, three rows, one duplicate) drives `loadRecordings()`
 // against in-memory fakes for both `SessionsDb` and `EventWriterDb` — no
 // Postgres. Pins: the fake writer receives the static-entry-list `drivers`
 // events before the raw-file rows, in file order; the session is upserted
 // `finished` regardless of its window; a malformed sibling session doesn't
-// lose the others' rows (round 1 fix); a live session is refused, never
+// lose the others' rows; a live session is refused, never
 // written (ADR-0010); the session is upserted `upcoming`, then its events
 // are written, then it is updated to `finished`, in that order, and a
-// writer failure leaves it `upcoming` (issue #71).
+// writer failure leaves it `upcoming`.
 
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -25,12 +25,12 @@ function fakeDb(): LoaderDb & {
   insertOrder: string[];
   // Records every `session.upsert` (as `upsert:<status>`) and every
   // `event.createMany` (as `events:<row count>`) call, in call order — how
-  // the issue #71 tests pin the upcoming -> events -> finished sequence.
+  // the tests below pin the upcoming -> events -> finished sequence.
   callLog: string[];
   // `failEvents` fails every `event.createMany` call; `failSessionKeys`
-  // fails only batches whose rows belong to one of these session keys
-  // (round 1 fix: a cross-session queue-poisoning test needs one session's
-  // writes to fail forever while a sibling session's succeed).
+  // fails only batches whose rows belong to one of these session keys —
+  // a cross-session queue-poisoning test needs one session's writes to
+  // fail forever while a sibling session's succeed.
   flags: { failEvents: boolean; failSessionKeys: Set<string> };
 } {
   const sessions = new Map<string, { status?: string; [key: string]: unknown }>();
@@ -113,7 +113,7 @@ describe("loadRecordings", () => {
       path.join(dir, "session.json"),
       sessionJson({ sessionKey: 9999, dateStart: "2026-01-01T13:00:00+00:00", dateEnd: "2026-01-01T15:00:00+00:00" }),
     );
-    // Two endpoints, three unique rows, one duplicate (issue #63's unit test spec).
+    // Two endpoints, three unique rows, one duplicate.
     await writeFile(
       path.join(dir, "raw", "position.jsonl"),
       jsonlLine({ session_key: 9999, driver_number: 1, date: "2026-01-01T13:00:01Z", x: 1, y: 1 }) +
@@ -146,12 +146,12 @@ describe("loadRecordings", () => {
 
   test("the session is upserted finished via the override", async () => {
     const db = fakeDb();
-    // Round-3 review fix (issue #39): the ADR-0010 guard now refuses any
+    // The ADR-0010 guard refuses any
     // session whose window hasn't closed yet (not only a `live` one), so
     // `now` must be past the window (FAR_FUTURE_NOW) for the load to be
     // accepted at all — a `now` before the window (`computeSessionStatus`
-    // would say "upcoming") is refused up front (covered below), no longer
-    // reachable. The final `{ status: "finished" }` override still runs
+    // would say "upcoming") is refused up front (covered below), not
+    // reachable here. The final `{ status: "finished" }` override still runs
     // regardless of the naturally-computed status; with the window closed
     // that computation already agrees, so this pins the override's own
     // behaviour rather than a divergence from it.
@@ -171,11 +171,11 @@ describe("loadRecordings", () => {
   });
 });
 
-// Issue #71: the loader upserted `finished` first (to satisfy the events FK)
-// and streamed events afterwards, so the api's exporter (ADR-0009 §2) could
-// export the session — once, immutably — before any event existed. Fix:
-// upsert `upcoming` first, write and drain every event, then update to
-// `finished`; a failure part-way leaves the row `upcoming`.
+// Upserting `finished` before events exist would let the api's exporter
+// (ADR-0009 §2) export the session — once, immutably — before any event
+// existed. So the loader upserts `upcoming` first, writes and drains every
+// event, then updates to `finished`; a failure part-way leaves the row
+// `upcoming`.
 describe("loadRecordings: issue #71 — upcoming, then events, then finished", () => {
   let dir: string;
 
@@ -386,7 +386,7 @@ describe("loadRecordings: a malformed sibling session doesn't lose the others' r
   });
 });
 
-// Round 1 (PR #74 review): one shared `queue`/`writer` serves every session
+// One shared `queue`/`writer` serves every session
 // in a multi-dir load. When a session's `drainAll()` gives up on a
 // deterministically failing batch, `EventWriter` requeues it at the FRONT
 // of the queue (writer.ts) — so without clearing it, every later session's
@@ -450,16 +450,14 @@ describe("loadRecordings: round 1 fix — a stuck session's queue doesn't poison
   });
 });
 
-// Issue #77: a bulk read of a complete recording used to emit one endpoint's
-// rows fully before the next — `position` (read second, per
-// `RECORDING_ENDPOINT_ORDER`) landed after every `laps` row (read fourth)
-// only because of file-read order, not because that's when the rows
-// actually arrived. Fixed by sorting the whole session's rows by
-// `received_at` before emitting. This fixture's two endpoints interleave in
-// time (position, laps, position, laps): with the fix, the emitted order —
-// same as `db.insertOrder`, since the fake writer records rows in the order
-// `event.createMany` receives them — must follow `received_at` across
-// endpoints, not group by endpoint.
+// A bulk read of a complete recording, read in `RECORDING_ENDPOINT_ORDER`,
+// must not emit one endpoint's rows fully before the next — `position`
+// (read second) and `laps` (read fourth) interleave in time, so emission
+// follows `received_at` across endpoints, not file-read order. This
+// fixture's two endpoints interleave in time (position, laps, position,
+// laps): the emitted order — same as `db.insertOrder`, since the fake
+// writer records rows in the order `event.createMany` receives them — must
+// follow `received_at` across endpoints, not group by endpoint.
 describe("loadRecordings: issue #77 — emits interleaved-endpoint rows in received_at order", () => {
   let dir: string;
 

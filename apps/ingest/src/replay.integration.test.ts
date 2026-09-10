@@ -1,4 +1,4 @@
-// Replay smoke (issue Tests: "Replay smoke"). Needs the real Postgres from
+// Replay smoke. Needs the real Postgres from
 // `docker-compose.yml` AND the POC's Italian GP recording, which lives
 // outside this repo (a worktree's `../` does not reach `../f1-live-events-poc`)
 // — skipped, loudly, when that path isn't present (e.g. a reviewer's machine
@@ -7,10 +7,10 @@
 // machine can point it elsewhere without editing this file.
 //
 // Drives the REST lane's file fetcher (LIVE_SOURCE=<directory>) through the
-// same normalizer, queue and writer production code uses, then asserts the
-// two facts the issue names: the writer inserts (a large number of) events,
-// and a second run of the exact same replay inserts zero more (DB-level
-// dedup via `event.createMany({ skipDuplicates: true })` on `event_id`).
+// same normalizer, queue and writer production code uses, then asserts two
+// facts: the writer inserts (a large number of) events, and a second run of
+// the exact same replay inserts zero more (DB-level dedup via
+// `event.createMany({ skipDuplicates: true })` on `event_id`).
 
 import { existsSync } from "node:fs";
 
@@ -73,10 +73,10 @@ test.skipIf(!existsSync(POC_DIR))(
   async () => {
     const first = await runOneReplayPass();
     console.log(`replay smoke: first pass inserted=${first.inserted} skipped=${first.skipped}`);
-    // Issue #22's body was corrected to match the recording: "the writer
-    // inserts >28,000 events" (the recording holds 28,422 already-deduped
-    // rows across drivers + position + intervals + laps + pit +
-    // race_control + stints + weather — poc/live-logs/11361/raw/*.jsonl).
+    // The writer inserts >28,000 events (the recording holds 28,422
+    // already-deduped rows across drivers + position + intervals + laps +
+    // pit + race_control + stints + weather —
+    // poc/live-logs/11361/raw/*.jsonl).
     expect(first.inserted).toBeGreaterThan(28_000);
     expect(first.skipped).toBe(0);
 

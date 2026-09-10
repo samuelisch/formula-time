@@ -1,5 +1,5 @@
 // Shared shapes for the OpenF1 REST lane. Kept transport-independent on
-// purpose: MQTT (T6) will produce the same `RawRecord`/`Fetcher` shapes so
+// purpose: the MQTT lane produces the same `RawRecord`/`Fetcher` shapes, so
 // both lanes can feed the same normalizer and the same queue.
 
 /** One row as OpenF1 (or a recorded capture) hands it back: no fixed schema. */

@@ -1,4 +1,4 @@
-// The MQTT lane (issue #25 / T6). Lifted from
+// The MQTT lane. Lifted from
 // `../f1-live-events-poc/poc/ts/mqtt_ingest.ts` (`mqttTopicEndpoint`,
 // `stripMqttMeta`, the `MqttNormalizer` shape) and
 // `../f1-live-events-poc/poc/live-recorder/mqtt_probe.ts` (the broker URL,
@@ -15,14 +15,14 @@
 // Deviates from the POC's `MqttNormalizer` on purpose: instead of an
 // MQTT-lane-private `LiveNormalizer` instance, this lane calls into the
 // SAME normalizer the REST lane is currently using (`getNormalizer`,
-// RestLane#getNormalizer) — "the shared LiveNormalizer" (issue #25) — so
+// RestLane#getNormalizer) — the shared LiveNormalizer — so
 // in-memory dedup state is one thing, not two lanes each thinking a row is
 // new. The database's `skipDuplicates` insert is still the invariant-3
 // backstop regardless.
 //
 // Not exercised against the real broker (no network in tests, ever) —
 // `isAuthRejection`'s CONNACK-error-code guess (MQTT 3.1.1 codes 4/5, MQTT5
-// reason codes 0x86/0x87) is unverified until the day-3 rehearsal.
+// reason codes 0x86/0x87) is unverified until a live run against the broker.
 
 import mqtt from "mqtt";
 
@@ -32,7 +32,7 @@ import type { LiveNormalizer } from "./normalize.js";
 import type { QueueItem, RawRecord } from "./types.js";
 import type { EventQueue } from "../writer/queue.js";
 
-// The eight named timing topics (issue #25) — never `v1/#` (AGENTS.md).
+// The eight named timing topics — never `v1/#` (AGENTS.md).
 export const MQTT_ENDPOINTS = [
   "intervals",
   "laps",
@@ -143,23 +143,23 @@ export interface MqttLaneOptions {
   auth: MqttLaneAuth;
   /** The sponsor account login, sent as the MQTT username (mqtt_probe.ts: "username: creds.login, password: <bearer token>"). */
   username: string;
-  /** Current normalizer to dedup/normalize into — "the shared LiveNormalizer" (issue #25), i.e. `RestLane#getNormalizer`. */
+  /** Current normalizer to dedup/normalize into — the shared LiveNormalizer, i.e. `RestLane#getNormalizer`. */
   getNormalizer: () => LiveNormalizer;
-  /** Current live session key, or `null` when none is selected — "the REST lane is the authority on which session is live" (issue #25). */
+  /** Current live session key, or `null` when none is selected — the REST lane is the authority on which session is live. */
   getSessionKey: () => number | null;
   onLog?: (line: string) => void;
   brokerUrl?: string;
   topics?: readonly string[];
   now?: () => number;
-  /** Proactive token refresh cadence (issue #25: "refresh ~50 min"). */
+  /** Proactive token refresh cadence (refresh ~50 min). */
   refreshIntervalMs?: number;
-  /** Retry delay after a CONNACK auth rejection (issue #25: "retry after 30 s"). */
+  /** Retry delay after a CONNACK auth rejection (retry after 30 s). */
   authRetryDelayMs?: number;
   /** Reconnect backoff base (broker-unreachable path). */
   baseBackoffMs?: number;
-  /** Reconnect backoff cap (issue #25: "capped at 60 s"). */
+  /** Reconnect backoff cap (capped at 60 s). */
   maxBackoffMs?: number;
-  /** How often `messages/rows/dropped` is logged (issue #25: "one line per minute"). */
+  /** How often `messages/rows/dropped` is logged (one line per minute). */
   statsIntervalMs?: number;
   connectTimeoutMs?: number;
 }
@@ -268,13 +268,13 @@ export class MqttLane {
 
   /**
    * Cancels any reconnect already armed by a `close` handler or a failed
-   * `connectNow()` (review round 1: without this, a broker-unreachable
+   * `connectNow()`: without this, a broker-unreachable
    * `close` could arm a backoff timer, then a `reconnectNow()` from the
    * 50-min proactive refresh would open a fresh client while that stale
    * timer was still pending — and when it later fired, its own
    * `connectNow()` would silently overwrite `this.client` with a THIRD
    * client, orphaning the fresh one: still connected to the broker, but
-   * unreferenced and never `end()`'d — a leaked socket).
+   * unreferenced and never `end()`'d — a leaked socket.
    */
   private cancelScheduledReconnect(): void {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -302,11 +302,11 @@ export class MqttLane {
    * Opens the one MQTT connection. `forceFreshToken`: the very first connect
    * reuses whatever token `auth` already has cached (likely fetched by the
    * REST lane already); every reconnect (broker-unreachable, auth-rejected,
-   * or the 50-min timer) forces a fresh one first (issue #25: "refresh ...
-   * before every reconnect by reconnecting with a fresh token").
+   * or the 50-min timer) forces a fresh one first: refresh with a fresh
+   * token before every reconnect.
    *
-   * The attempt claims its generation number BEFORE awaiting anything
-   * (review round 1): if a second, independent `connectNow()`/`reconnectNow()`
+   * The attempt claims its generation number BEFORE awaiting anything: if
+   * a second, independent `connectNow()`/`reconnectNow()`
    * runs while this one is still awaiting the token, IT claims a higher
    * generation, so this attempt notices it's been superseded (the
    * post-await check below) and bails out instead of racing it to set
@@ -317,8 +317,8 @@ export class MqttLane {
    * not left to reject an unawaited promise: `start()`, `reconnectNow()`,
    * and the `close`/timer paths all call this via `void`, so an uncaught
    * rejection here would surface as an unhandled promise rejection —
-   * capable of crashing the process under Node's default behavior — which
-   * would violate "never throws out of an event handler" (issue #25).
+   * capable of crashing the process under Node's default behavior, which
+   * must never throw out of an event handler.
    * Treated the same as a broker-unreachable close: logged, retried with
    * backoff.
    */
@@ -402,9 +402,9 @@ export class MqttLane {
     }
     const sessionKey = this.getSessionKey();
     if (sessionKey === null) {
-      // "The REST lane is the authority on which session is live" (issue
-      // #25) — a message that arrives before REST has selected one is
-      // dropped and counted, never guessed at.
+      // The REST lane is the authority on which session is live — a message
+      // that arrives before REST has selected one is dropped and counted,
+      // never guessed at.
       this.droppedSinceLog += 1;
       return;
     }

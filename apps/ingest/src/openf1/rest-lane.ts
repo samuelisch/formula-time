@@ -1,4 +1,4 @@
-// The REST lane (issue deliverable 2). Lifted from
+// The REST lane. Lifted from
 // `../f1-live-events-poc/poc/ts/live_capture.ts` (`OPENF1_BASE`,
 // `POLL_ROTATION`, `pickLiveSession`, `sessionExpired`, `buildPollUrl`,
 // `Fetcher`, the polling-loop shape) and
@@ -77,12 +77,12 @@ export interface EmitRowsResult {
 }
 
 /**
- * The one normalize-and-enqueue path (issue #63: "same `emitRows` path so
- * the ids match a live run") — pushed out of `RestLane` so the one-shot
+ * The one normalize-and-enqueue path — so the ids match a live run —
+ * pushed out of `RestLane` so the one-shot
  * recording loader (`load-recording.ts`) can drive the same normalizer +
  * queue a live session does, both for the static `ENTRY_LIST_2026`
  * `drivers` emission and for every `raw/*.jsonl` endpoint. `RestLane`
- * itself now calls this too (see `emitAndRecord` below) — no second
+ * itself calls this too (see `emitAndRecord` below) — no second
  * normalize path.
  */
 export function emitRows(
@@ -109,7 +109,7 @@ export function emitRows(
 export interface EmitTaggedRowsResult {
   newRows: number;
   malformed: number;
-  /** Rows whose OWN `session_key` differs from `expectedSessionKey` — still written, tagged to the session they name (issue #39 brief: "a row naming another session is still written, tagged to that session, and counted as `foreign`"). `null` `expectedSessionKey` (the Friday meeting-wide fetch has no single session to compare against) counts nothing as foreign. */
+  /** Rows whose OWN `session_key` differs from `expectedSessionKey` — still written, tagged to the session they name, and counted as `foreign`. `null` `expectedSessionKey` (the Friday meeting-wide fetch has no single session to compare against) counts nothing as foreign. */
   foreign: number;
   /** Rows naming a `session_key` that is not in the `sessions` table (per `isKnownSession`): dropped, never queued. `events.session_key` is a real FK, and one such row would fail the writer's whole batch and requeue it forever. */
   unknownSession: number;
@@ -120,8 +120,8 @@ export interface EmitTaggedRowsResult {
 
 /**
  * Tags each `drivers` row to the `session_key` IN ITS OWN PAYLOAD, never to
- * the session or meeting the fetch was made for. Verified fact (issue #39
- * brief, from `recordings/11361/raw/drivers.jsonl`): every OpenF1 `drivers`
+ * the session or meeting the fetch was made for. Verified from
+ * `recordings/11361/raw/drivers.jsonl`: every OpenF1 `drivers`
  * row carries its own `session_key` and `meeting_key` fields, e.g.
  * `{"meeting_key":1293,"session_key":11361,"driver_number":1,...}` — so the
  * tagging rule is: a drivers row is tagged to the `session_key` in its own
@@ -181,9 +181,9 @@ export interface RestLaneOptions {
   now?: () => number;
   /** Rotation cadence once a session is live. Default matches the POC: 2200ms. */
   tickMs?: number;
-  /** Discovery cadence while no session is in its window. Issue: "every 60 s". */
+  /** Discovery cadence while no session is in its window. Default: every 60 s. */
   discoveryIntervalMs?: number;
-  /** Sessions upsert (issue deliverable 4) — called for every session row discovery sees. */
+  /** Sessions upsert — called for every session row discovery sees. */
   onSession?: (session: RawRecord, nowMs: number) => void | Promise<void>;
   /**
    * Called once, when a session is newly selected as the one being followed
@@ -221,20 +221,20 @@ export class RestLane {
   private sessionKey: number | null = null;
   private rotationIndex = 0;
 
-  // Entry list (issue #39). All state below is reset in ensureLiveSession()
+  // Entry list. All state below is reset in ensureLiveSession()
   // when a NEW session is selected (`this.sessionKey` changes) — never on
   // every discovery tick, same reasoning as onSessionSelected.
   //
-  // Behaviour 1 (session selection): retried from the poll loop every 5
+  // Session selection: retried from the poll loop every 5
   // minutes until the fetch returns >= 1 row.
   private entryListSessionKey: number | null = null;
   private entryListSatisfied = false;
   private entryListFallbackEmitted = false;
   private entryListNextRetryAt = 0;
-  // Behaviour 3 (pre-race refresh): a one-shot per session_key; a throw
+  // Pre-race refresh: a one-shot per session_key; a throw
   // leaves it unmarked so the very next tick retries it.
   private readonly preRaceRefreshDone = new Set<number>();
-  // Behaviour 2 (Friday, per meeting_key): retried every 30 minutes while it
+  // Friday, per meeting_key: retried every 30 minutes while it
   // returns zero rows or fails.
   private readonly fridayMeetings = new Map<number, { satisfied: boolean; nextRetryAt: number }>();
   // The last `sessions?year=` snapshot discovery saw — Friday's condition
@@ -283,9 +283,9 @@ export class RestLane {
   }
 
   /**
-   * The REST lane's current normalizer instance (T6, MQTT lane): "each
-   * message -> ... -> the shared LiveNormalizer with the CURRENT session key
-   * from the REST lane's selection" (issue #25) — REST is the authority on
+   * The REST lane's current normalizer instance (MQTT lane): each
+   * message goes through the shared LiveNormalizer with the CURRENT session
+   * key from the REST lane's selection — REST is the authority on
    * which session is live, so MQTT rides the SAME normalizer instance rather
    * than keeping its own dedup state, and it's swapped out from under the
    * caller exactly when REST's is: on `ensureLiveSession`'s new-session reset.
@@ -295,8 +295,8 @@ export class RestLane {
   }
 
   /**
-   * `sessions?year=<current>` (issue: "every 60 s until a session is inside
-   * its ±30 min window"). Upserts every session it sees, and selects the
+   * `sessions?year=<current>`, every 60 s until a session is inside
+   * its ±30 min window. Upserts every session it sees, and selects the
    * live session (if any) for the rotation.
    */
   public async discoverOnce(): Promise<{ sessionCount: number; live: boolean }> {
@@ -305,13 +305,12 @@ export class RestLane {
     if (refreshed === null) return { sessionCount: 0, live: this.sessionKey !== null };
     const { rows, upserted } = refreshed;
 
-    // Behaviour 5 (one drivers fetch per tick) holds here too: a session
+    // The one-drivers-fetch-per-tick rule holds here too: a session
     // discovered inside its live window fetches its entry list at selection,
     // and Friday's meeting-wide fetch then waits for the next tick.
     const selectionFetched = await this.ensureLiveSession(rows, nowMs, upserted);
 
-    // Behaviour 2 (Friday): checked on every discovery tick, same "on
-    // discovery of a meeting" wording as the brief — this is the idle (60s)
+    // Friday: checked on every discovery tick — this is the idle (60s)
     // loop's own extra fetch, not competing with the rotation budget (there
     // is no rotation while idle).
     if (!selectionFetched) await this.checkFridayFetch(this.lastSessions, nowMs);
@@ -364,7 +363,7 @@ export class RestLane {
     return { rows, upserted };
   }
 
-  /** Returns whether it made a drivers fetch this tick (the selection fetch of behaviour 1). */
+  /** Returns whether it made a drivers fetch this tick (the selection fetch). */
   private async ensureLiveSession(
     sessions: RawRecord[],
     nowMs: number,
@@ -391,17 +390,17 @@ export class RestLane {
         `rest: following session_key=${key} (${String(live["country_name"] ?? "?")})`,
       );
       // Once per newly-selected session — NOT on every discovery tick like
-      // onSession (issue round 3: recorder.writeSession() was running from
-      // onSession, re-stamping session.json for every session of the year
-      // every 60s while nothing was live).
+      // onSession: recorder.writeSession() running from onSession would
+      // re-stamp session.json for every session of the year every 60s while
+      // nothing is live.
       await this.onSessionSelected?.(live, nowMs);
 
-      // Behaviour 1 (issue #39): fetch `drivers?session_key=<selected>` for
+      // Fetch `drivers?session_key=<selected>` for
       // the newly-selected session. `entryListNextRetryAt = nowMs` makes the
       // first attempt immediate; tryEntryListSelectionFetch() falls back to
       // the static ENTRY_LIST_2026 and schedules a 5-minute retry if the
       // fetch fails or returns zero rows (a restart re-running this is
-      // harmless: same reasoning as before — the payload's own `session_key`
+      // harmless: the payload's own `session_key`
       // makes the event id unique per session, and event.createMany's
       // skipDuplicates drops the repeat).
       this.entryListSessionKey = key;
@@ -414,7 +413,7 @@ export class RestLane {
   }
 
   /**
-   * Behaviour 1: fetch `drivers?session_key=<selected>`, tag each row by its
+   * Fetches `drivers?session_key=<selected>`, tags each row by its
    * own `session_key` (emitTaggedDriverRows), asserting it equals the
    * selected key (a mismatch is still written, tagged to the session it
    * names, and counted `foreign` — never dropped). Zero rows or a failure:
@@ -469,10 +468,11 @@ export class RestLane {
   }
 
   /**
-   * Behaviour 3: 5 minutes before `date_start`, the same `session_key` fetch
-   * as behaviour 1, once — retried next tick (not the 5-minute selection
-   * cadence) only when the fetch itself throws. A zero-row response still
-   * counts as done (nothing to add, but the attempt succeeded).
+   * 5 minutes before `date_start`, the same `session_key` fetch
+   * as the selection fetch, once — retried next tick (not the 5-minute
+   * selection cadence) only when the fetch itself throws. A zero-row
+   * response still counts as done (nothing to add, but the attempt
+   * succeeded).
    */
   private async tryPreRaceRefresh(session: RawRecord, nowMs: number): Promise<boolean> {
     const key = Number(session["session_key"]);
@@ -505,7 +505,7 @@ export class RestLane {
   }
 
   /**
-   * Behaviour 2: on discovery of a meeting whose first session's
+   * On discovery of a meeting whose first session's
    * `date_start` has passed and whose race session is already in the
    * `sessions` table, fetch `drivers?meeting_key=<meeting>` once per
    * meeting, retried every 30 minutes while it returns zero rows or fails.
@@ -535,12 +535,7 @@ export class RestLane {
       // session's window has not closed: `date_end` of the meeting's race
       // session + 30 minutes is still in the future. A meeting whose race is
       // over is never fetched; its entry list came in with the live sessions
-      // or is already in the log. (Production, 2026-09-09: on first
-      // discovery of the full 2026 calendar this fired for every one of 15
-      // PAST meetings — "entry list: friday fetch meeting_key=1279 rows=110
-      // new=110" through 1293 — writing ~110 drivers rows into each finished
-      // meeting's sessions, which the api's exporter then surfaced as 79
-      // driver-only sessions polluting `GET /api/races`.)
+      // or is already in the log.
       const raceEnd = Date.parse(String(raceSession["date_end"] ?? ""));
       if (Number.isNaN(raceEnd) || nowMs > raceEnd + LIVE_WINDOW_MS) continue;
 
@@ -583,10 +578,10 @@ export class RestLane {
   /**
    * Runs at most one due drivers-type fetch (selection retry, then pre-race
    * refresh, then Friday) for the poll loop (pollOnce) to call BEFORE it
-   * spends the tick's one request on the rotation — "never more than one
+   * spends the tick's one request on the rotation: never more than one
    * drivers fetch per tick, and never inside the same tick as a rotation
    * poll that already used the budget (schedule them as rotation slots, not
-   * extra requests)" (issue #39 brief, behaviour 5). Returns whether it made
+   * extra requests). Returns whether it made
    * a request this tick.
    */
   private async runDueDriversFetch(nowMs: number): Promise<boolean> {
@@ -607,7 +602,7 @@ export class RestLane {
       return null;
     }
 
-    // Budget rule (behaviour 5): a due drivers fetch takes this tick's one
+    // Budget rule: a due drivers fetch takes this tick's one
     // request instead of the rotation poll — `rotationIndex` is left
     // untouched so the rotation resumes at the same endpoint next tick,
     // nothing is skipped.
@@ -640,7 +635,7 @@ export class RestLane {
     return { endpoint, rows: rawRows.length, newRows, malformed };
   }
 
-  /** Thin wrapper around the free `emitRows()` that also feeds the jsonl recorder's `onNewRows`, once per call, only when there's something new (same as before this was pulled out to be shared with the loader). */
+  /** Thin wrapper around the free `emitRows()` that also feeds the jsonl recorder's `onNewRows`, once per call, only when there's something new. */
   private async emitAndRecord(
     endpoint: string,
     sessionKey: number,

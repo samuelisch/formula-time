@@ -1,28 +1,27 @@
-// Issue #88: `fetch-race` — pull one finished historical OpenF1 session
-// straight from the live API into `sessions` + `events`, as a one-shot CLI
-// command. Owner decision quoted in the issue: "historical races are
-// fetched from OpenF1 once and stored, never served on demand (ground rule
-// 3: finished races are immutable exports, the database is the record; the
-// free tier locks the whole API during any live session and allows 30
-// requests a minute)".
+// `fetch-race` — pull one finished historical OpenF1 session straight from
+// the live API into `sessions` + `events`, as a one-shot CLI command.
+// Historical races are fetched from OpenF1 once and stored, never served on
+// demand: finished races are immutable exports, the database is the
+// record; the free tier locks the whole API during any live session and
+// allows 30 requests a minute.
 //
 // Reuses `writeSessionThroughLoader` (load-recording.ts, pulled out of
 // `loadOneSession` for this) for the write path — ADR-0009: "a fetched race
 // reaches the exporter the same way a loaded one does" — so the ADR-0010
-// live guard, the upcoming -> events -> finished ordering (issue #71), and
-// idempotency (`event.createMany({ skipDuplicates: true })`) are exactly
-// the loader's, not reimplemented. Auth (`openf1/auth.ts`), the
-// `LiveNormalizer` (`openf1/normalize.ts`), and `RECORDING_ENDPOINT_ORDER`
-// (load-recording.ts) are reused unchanged too.
+// live guard, the upcoming -> events -> finished ordering, and idempotency
+// (`event.createMany({ skipDuplicates: true })`) are exactly the loader's,
+// not reimplemented. Auth (`openf1/auth.ts`), the `LiveNormalizer`
+// (`openf1/normalize.ts`), and `RECORDING_ENDPOINT_ORDER` (load-recording.ts)
+// are reused unchanged too.
 //
 // What's new here, specific to fetching straight from the API rather than
 // reading a recorded capture:
 //   - a rate-limited, retrying `Fetcher` (`withSpacing`, `withRetry` below)
 //     — the loader reads a file, so it never needed either;
 //   - the emission-order rule (`orderForEmission`): historical rows carry no
-//     `received_at` (the loader's ordering signal, issue #77), so this
-//     orders by `source_time` instead, with the lap/stint exceptions quoted
-//     in the issue body and reproduced on `orderKeyMs` below;
+//     `received_at` (the loader's ordering signal), so this orders by
+//     `source_time` instead, with the lap/stint exceptions reproduced on
+//     `orderKeyMs` below;
 //   - the fetched `drivers` rows ARE this session's entry list (unlike the
 //     loader and the live rest lane, which both emit the static
 //     `ENTRY_LIST_2026`) — never emit `ENTRY_LIST_2026` for a fetched race;
@@ -50,11 +49,11 @@ import { EventQueue } from "./writer/queue.js";
 import type { DrainResult } from "./writer/writer.js";
 import { EventWriter } from "./writer/writer.js";
 
-// "Respect the rate limit: at most 3 requests per second and 30 per minute
-// (a 2.1 s spacing satisfies both)" — 2.1s * 30 = 63s per 30 requests, i.e.
+// Respect the rate limit: at most 3 requests per second and 30 per minute
+// (a 2.1 s spacing satisfies both) — 2.1s * 30 = 63s per 30 requests, i.e.
 // well under the per-minute cap too, and comfortably under 3/s.
 export const FETCH_SPACING_MS = 2100;
-// "Retry a 429 or 5xx after 20 s, at most 3 times."
+// Retry a 429 or 5xx after 20 s, at most 3 times.
 export const RETRY_DELAY_MS = 20_000;
 export const MAX_RETRIES = 3;
 
@@ -63,8 +62,8 @@ export type Sleep = (ms: number) => Promise<void>;
 const defaultSleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Enforces a minimum spacing between successive calls through `fetcher`
- * (issue: "at most 3 requests per second and 30 per minute"). `now`/`sleep`
+ * Enforces a minimum spacing between successive calls through `fetcher`:
+ * at most 3 requests per second and 30 per minute. `now`/`sleep`
  * are injectable so the unit test can drive a fake clock without a real
  * wait — `sleep` advancing a shared fake `now` is what makes "8 requests
  * take >= 14.7s of fake time" (7 gaps of 2.1s) provable without the test
@@ -133,15 +132,15 @@ export function withRetry(fetcher: Fetcher, opts: RetryOptions = {}): Fetcher {
 }
 
 /**
- * The lap rule quoted in the issue body: "Historical laps arrive complete;
- * applied at `date_start` they would reveal a lap's final time at the start
- * of the lap. Apply a lap at `date_start + lap_duration` (seconds) when
- * `lap_duration` is present, else at `date_start`."
+ * The lap rule: historical laps arrive complete; applied at `date_start`
+ * they would reveal a lap's final time at the start of the lap. Apply a lap
+ * at `date_start + lap_duration` (seconds) when `lap_duration` is present,
+ * else at `date_start`.
  *
- * Round 1 review fix: this adjusted time is used for BOTH the emission
- * order key (`orderKeyMs` below) AND the row's persisted `source_time` —
- * not only the order key, as the first version of this file had it. A live
- * capture emits a laps row more than once as it fills in over the lap (the
+ * This adjusted time is used for BOTH the emission order key
+ * (`orderKeyMs` below) AND the row's persisted `source_time`, not only the
+ * order key. A live capture emits a laps row more than once as it fills in
+ * over the lap (the
  * normalizer's unadjusted `date_start` reflects that: the row a viewer sees
  * mid-lap really does only have partial data). A historical fetch gets
  * exactly one, already-complete row per lap. Storing that one row's
@@ -164,11 +163,11 @@ function lapsEffectiveSourceTimeIso(row: NormalizedRow): string | null {
 }
 
 /**
- * The order-key rule quoted in the issue body — the lap exception is
- * `lapsEffectiveSourceTimeIso` above (shared with the persisted
- * `source_time`, see its comment); the stint exception is: "`stints` rows
- * have no timestamp: place each at the `date_start` of its `lap_start` lap
- * (join on `driver_number` + lap number), else at session start."
+ * The order-key rule: the lap exception is `lapsEffectiveSourceTimeIso`
+ * above (shared with the persisted `source_time`, see its comment); the
+ * stint exception is: `stints` rows have no timestamp, so place each at
+ * the `date_start` of its `lap_start` lap (join on `driver_number` + lap
+ * number), else at session start.
  *
  * Every other endpoint already carries a real timestamp field
  * (`endpointConfigs` in normalize.ts), computed into `row.sourceTime` by the
@@ -182,18 +181,17 @@ function orderKeyMs(row: NormalizedRow, sessionStartMs: number): number {
 }
 
 /**
- * Orders every non-`drivers` row for emission (issue: "This ordering
- * decides `seq`, so it is the replay order"), and puts `drivers` first,
- * unsorted — the fetched `drivers` rows ARE this session's entry list, and
- * "drivers rows come first" is a hard requirement, not a consequence of
- * their (nonexistent) timestamp.
+ * Orders every non-`drivers` row for emission — this ordering decides
+ * `seq`, so it is the replay order — and puts `drivers` first, unsorted:
+ * the fetched `drivers` rows ARE this session's entry list, and drivers
+ * rows come first as a hard requirement, not a consequence of their
+ * (nonexistent) timestamp.
  *
  * `byEndpoint` must already be in `RECORDING_ENDPOINT_ORDER`'s iteration
  * order (the caller builds it that way, by fetching in that order) — the
  * `rest` array below is built in that same order before the sort, so a
  * stable sort (`Array.prototype.sort`, ES2019+) leaves rows that tie on
- * `orderKeyMs` in fetch order, exactly "Ties break in the fetch order
- * above".
+ * `orderKeyMs` in fetch order: ties break in the fetch order above.
  */
 export function orderForEmission(
   byEndpoint: ReadonlyMap<string, readonly NormalizedRow[]>,
@@ -219,8 +217,7 @@ export function orderForEmission(
  *
  * Uses `lapsEffectiveSourceTimeIso`, not `row.sourceTime` directly, so a
  * laps row's *stored* `source_time` is the same adjusted instant as the
- * order key that placed it — see that function's comment for why (round 1
- * review fix).
+ * order key that placed it — see that function's comment for why.
  */
 function pushNormalized(queue: EventQueue<QueueItem>, sessionKey: number, rows: readonly NormalizedRow[]): void {
   if (rows.length === 0) return;
@@ -249,7 +246,7 @@ export const NULL_RECORDER: RaceRecorder = {
 };
 
 export interface FetchOneSessionResult {
-  /** `false` when `GET sessions?session_key=` returned no row — "refuse with exit 1 if none" (behaviour 2). */
+  /** `false` when `GET sessions?session_key=` returned no row — refuse with exit 1 if none. */
   found: boolean;
   skipped: boolean;
   drainResult: DrainResult;
@@ -259,11 +256,11 @@ export interface FetchOneSessionResult {
  * Fetches and writes one session: `GET sessions?session_key=<k>`, the
  * ADR-0010 guard (via `writeSessionThroughLoader`), then — only once the
  * guard has passed, so a refused/live session costs no further requests —
- * every `RECORDING_ENDPOINT_ORDER` endpoint (behaviour 3), normalized in
- * fetch order (behaviour 4) into `byEndpoint`, recorded to jsonl as it
- * goes (behaviour 7), then pushed to the queue in `orderForEmission`'s
- * order (behaviour 5), grouped into consecutive same-endpoint batches the
- * same shape `loadOneSession`'s merged loop uses.
+ * every `RECORDING_ENDPOINT_ORDER` endpoint, normalized in fetch order
+ * into `byEndpoint`, recorded to jsonl as it goes, then pushed to the
+ * queue in `orderForEmission`'s order, grouped into consecutive
+ * same-endpoint batches the same shape `loadOneSession`'s merged loop
+ * uses.
  */
 async function fetchOneSession(
   sessionKey: number,
@@ -296,7 +293,7 @@ async function fetchOneSession(
     nowMs,
     log,
     async (normalizer: LiveNormalizer, sessionKeyNum: number, alreadyFinished: boolean) => {
-      // Round 1 review fix: fetching and normalizing always happens on a
+      // Fetching and normalizing always happens on a
       // rerun (DB-level idempotency comes from `event.createMany({
       // skipDuplicates: true })` downstream), but a fresh `LiveNormalizer`
       // per call means every row looks "new" to it again — recording those
@@ -347,7 +344,7 @@ export interface FetchRacesResult {
   sessionsAttempted: number;
   /** Refused (ADR-0010 live guard) or left unfinished by a writer failure — same meaning as `LoadRecordingsResult.sessionsSkipped`. */
   sessionsSkipped: number;
-  /** `GET sessions?session_key=` returned no row (behaviour 2's exit-1 case). */
+  /** `GET sessions?session_key=` returned no row: refuse with exit 1 if none. */
   sessionsNotFound: number;
 }
 
@@ -430,7 +427,7 @@ if (isMain) {
 
   const db = createDb(config.databaseUrl, { max: 1 });
 
-  // Behaviour 1: "Auth as the REST lane does" — OPENF1_LOGIN/PASSWORD when
+  // Auth as the REST lane does — OPENF1_LOGIN/PASSWORD when
   // set, unauthenticated otherwise (works for historical data outside live
   // windows; apps/ingest/AGENTS.md).
   const auth = new OpenF1Auth(credentialsFromEnv());

@@ -59,6 +59,9 @@ Read `docs/` before doing anything. What each part holds:
 - OpenF1 credentials only via the platform secret store; never in the repo.
 - Use the vocabulary in `docs/HLD.md` §7. "Projector" is the class,
   "authority" is the role. "Lock" is the poll state, not "close".
+- Comments state what the code is for and any invariant it relies on. Never
+  an issue number, a PR number, a review round, or who asked for it; git
+  blame and the PR hold that history.
 
 ## Context by function
 

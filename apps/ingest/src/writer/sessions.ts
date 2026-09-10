@@ -1,4 +1,4 @@
-// Sessions upsert at discovery (issue deliverable 4). Ingest is the ONLY
+// Sessions upsert at discovery. Ingest is the ONLY
 // writer of `sessions` (ADR-0001 §1); it never touches `polls`/`votes`.
 
 import type { SessionStatus } from "@formula-time/db";
@@ -103,9 +103,9 @@ export function sessionFieldsFromRaw(raw: RawRecord, nowMs: number): SessionFiel
 export interface UpsertSessionOptions {
   /**
    * Forces `status` instead of deriving it from `nowMs` vs. the session's
-   * window (issue #63: the loader upserts a past recording's session as
+   * window: the loader upserts a past recording's session as
    * `finished` regardless of the ±30min live window `computeSessionStatus`
-   * would otherwise apply). One `upsertSession` with a status override,
+   * would otherwise apply. One `upsertSession` with a status override,
    * not a second upsert function.
    */
   status?: SessionStatus;
@@ -113,7 +113,7 @@ export interface UpsertSessionOptions {
 
 /**
  * Upserts the `sessions` row for a raw OpenF1 `sessions` record. `nowMs`
- * drives the `upcoming` / `live` / `finished` status (issue deliverable 4)
+ * drives the `upcoming` / `live` / `finished` status
  * unless `opts.status` overrides it.
  *
  * Validates first (`sessionKeyOf`, `sessionFieldsFromRaw`): a malformed

@@ -2,8 +2,8 @@
 // `../f1-live-events-poc/poc/live-recorder/recorder.ts`. AGENTS.md: "The
 // sponsor bearer token expires in 3600 s: refresh before expiry and on every
 // reconnect." OPENF1_LOGIN/OPENF1_PASSWORD unset -> unauthenticated fallback
-// (historical use only; live will 401 — see the issue body and
-// apps/ingest/AGENTS.md "free tier locks out during any live session").
+// (historical use only; live will 401 — see apps/ingest/AGENTS.md "free tier
+// locks out during any live session").
 
 import type { Fetcher, RawRecord } from "./types.js";
 
@@ -19,7 +19,7 @@ export function credentialsFromEnv(env: NodeJS.ProcessEnv = process.env): Creden
 }
 
 const TOKEN_URL = "https://api.openf1.org/token";
-// "refresh 2 min before expiry" (issue body, deliverable 1).
+// Refresh 2 min before expiry.
 const REFRESH_MARGIN_MS = 2 * 60 * 1000;
 
 export type FetchLike = typeof fetch;

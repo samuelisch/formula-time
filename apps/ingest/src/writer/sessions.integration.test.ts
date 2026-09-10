@@ -1,6 +1,6 @@
 // Integration test (ADR-0002): needs the real Postgres from the root
-// `docker-compose.yml`. Pins the issue's acceptance fact: "a `sessions`
-// upsert twice -> one row with the later status."
+// `docker-compose.yml`. Pins the fact: a `sessions`
+// upsert twice -> one row with the later status.
 
 import { afterAll, beforeEach, expect, test } from "vitest";
 

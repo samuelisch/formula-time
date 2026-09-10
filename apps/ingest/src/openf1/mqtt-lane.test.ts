@@ -428,8 +428,8 @@ describe("MqttLane: reconnect races (review round 1)", () => {
     const clientB = clients[1]!;
     expect(clientB.endCalls).toBe(0); // clientB is the live one now
 
-    // Wait past where the STALE broker-unreachable timer would have fired.
-    // With the fix it was cancelled by reconnectNow() and never fires; a
+    // Wait past where the STALE broker-unreachable timer would have fired:
+    // it was cancelled by reconnectNow() and never fires; a
     // leaked third client never appears, and clientB (the one actually in
     // use) is never silently orphaned.
     await new Promise((resolve) => setTimeout(resolve, 60));
