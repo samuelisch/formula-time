@@ -69,7 +69,7 @@ describe("RaceControlCard flag line", () => {
     expect(screen.getByText("Virtual Safety Car (VSC)")).toBeInTheDocument();
   });
 
-  it("joins active_flags as scope: flag and driver_flags as #num: flag", () => {
+  it("renders track flags and driver flags as separate lines", () => {
     renderWith(
       makePush(
         {},
@@ -85,6 +85,26 @@ describe("RaceControlCard flag line", () => {
         },
       ),
     );
-    expect(screen.getByText("Track: YELLOW · #44: BLACK AND WHITE")).toBeInTheDocument();
+    expect(screen.getByText("Track: YELLOW")).toBeInTheDocument();
+    expect(screen.getByText("#44: BLACK AND WHITE")).toBeInTheDocument();
+  });
+
+  it("collapses driver flags to a single Blue flags line when every driver flag is BLUE", () => {
+    renderWith(
+      makePush(
+        {},
+        {
+          race_control: {
+            session_status: "SESSION STARTED",
+            current_flag: null,
+            safety_car: null,
+            active_flags: {},
+            driver_flags: { "11": "BLUE", "23": "BLUE", "31": "BLUE", "77": "BLUE", "81": "BLUE" },
+            recent_messages: [],
+          },
+        },
+      ),
+    );
+    expect(screen.getByText("Blue flags: #11, #23, #31, #77, #81")).toBeInTheDocument();
   });
 });
