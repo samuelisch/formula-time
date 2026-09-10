@@ -1,16 +1,35 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, type RenderResult } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { BoardSourceProvider } from "../board/useBoardState.ts";
+import { makePush } from "../test/fixtures.ts";
 import { makePoll } from "./pollFixtures.ts";
 import { PollModal, type PollModalProps } from "./PollModal.tsx";
 import { usePollModalUiStore } from "./pollModalStore.ts";
 
-function renderModal(polls: PollModalProps["polls"]) {
+function pushFor(sessionKey: string | null) {
+  return sessionKey === null ? null : makePush({ session_key: sessionKey });
+}
+
+function renderModal(polls: PollModalProps["polls"], sessionKey: string | null = "session-1") {
   const queryClient = new QueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
-      <PollModal polls={polls} />
+      <BoardSourceProvider push={pushFor(sessionKey)}>
+        <PollModal polls={polls} />
+      </BoardSourceProvider>
+    </QueryClientProvider>,
+  );
+}
+
+function rerenderModal(rerender: RenderResult["rerender"], polls: PollModalProps["polls"], sessionKey: string | null = "session-1") {
+  const queryClient = new QueryClient();
+  rerender(
+    <QueryClientProvider client={queryClient}>
+      <BoardSourceProvider push={pushFor(sessionKey)}>
+        <PollModal polls={polls} />
+      </BoardSourceProvider>
     </QueryClientProvider>,
   );
 }
@@ -26,64 +45,56 @@ describe("PollModal", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("pops when the displayed polls first contain an open poll", () => {
-    renderModal([makePoll({ poll_id: "poll-1", status: "open" })]);
-
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-  });
-
-  it("pops each time the count of resolved polls grows, even while the modal was dismissed", () => {
-    const { rerender } = renderModal([
-      makePoll({ poll_id: "poll-1", status: "resolved" }),
-      makePoll({ poll_id: "poll-2", status: "locked" }),
+  it("does not open when the first signature observed for a session has resolved polls", () => {
+    renderModal([
+      makePoll({ poll_id: "poll-1", status: "resolved", winning_option_ids: ["opt-a"] }),
+      makePoll({ poll_id: "poll-2", status: "resolved", winning_option_ids: ["opt-a"] }),
     ]);
 
-    // First render already contains a resolved poll -> the transition from
-    // "" fires the auto-pop (0 -> 1 resolved). Dismiss it.
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    act(() => {
-      usePollModalUiStore.getState().close();
-    });
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-
-    const queryClient = new QueryClient();
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <PollModal polls={[makePoll({ poll_id: "poll-1", status: "resolved" }), makePoll({ poll_id: "poll-2", status: "resolved" })]} />
-      </QueryClientProvider>,
-    );
-
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-  });
-
-  it("does not re-pop for an unchanged set", () => {
-    const polls = [makePoll({ poll_id: "poll-1", status: "open" })];
-    const { rerender } = renderModal(polls);
-
-    act(() => {
-      usePollModalUiStore.getState().close();
-    });
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-
-    const queryClient = new QueryClient();
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <PollModal polls={[makePoll({ poll_id: "poll-1", status: "open" })]} />
-      </QueryClientProvider>,
-    );
-
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("stays closed across an unmount/remount for an unchanged set (fix round 1: BoardPage/PollsPage are sibling routes)", () => {
-    const polls = [makePoll({ poll_id: "poll-1", status: "open" })];
-    const { unmount } = renderModal(polls);
+  it("does not open when the first signature observed for a session has an open poll, and a rerender with the same set stays closed", () => {
+    const { rerender } = renderModal([makePoll({ poll_id: "poll-1", status: "open" })]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
+    rerenderModal(rerender, [makePoll({ poll_id: "poll-1", status: "open" })]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("opens when a poll transitions from open to resolved", () => {
+    const { rerender } = renderModal([makePoll({ poll_id: "poll-1", status: "open" })]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    rerenderModal(rerender, [makePoll({ poll_id: "poll-1", status: "resolved", winning_option_ids: ["opt-a"] })]);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("re-seeds without opening when the session key changes", () => {
+    const { rerender } = renderModal([makePoll({ poll_id: "poll-1", status: "open" })], "session-1");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    rerenderModal(rerender, [makePoll({ poll_id: "poll-1", status: "resolved", winning_option_ids: ["opt-a"] })], "session-1");
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     act(() => {
       usePollModalUiStore.getState().close();
     });
+
+    // A new race reusing the same poll_id/status shape must not re-pop: the
+    // session change re-seeds instead of comparing against the old race.
+    rerenderModal(rerender, [makePoll({ poll_id: "poll-1", status: "resolved", winning_option_ids: ["opt-a"] })], "session-2");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("stays closed across an unmount/remount for an unchanged set (BoardPage/PollsPage are sibling routes)", () => {
+    const { rerender, unmount } = renderModal([makePoll({ poll_id: "poll-1", status: "locked" })]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); // seed only
+
+    rerenderModal(rerender, [makePoll({ poll_id: "poll-1", status: "open" })]);
+    expect(screen.getByRole("dialog")).toBeInTheDocument(); // real transition: locked -> open
+    act(() => {
+      usePollModalUiStore.getState().close();
+    });
 
     // Simulate navigating away (/polls) and back (/): PollModal unmounts and
     // remounts as a fresh component instance, but the poll set is unchanged.
@@ -94,8 +105,10 @@ describe("PollModal", () => {
   });
 
   it("pops on remount when a newly resolved poll arrived while unmounted", () => {
-    const { unmount } = renderModal([makePoll({ poll_id: "poll-1", status: "open" })]);
+    const { rerender, unmount } = renderModal([makePoll({ poll_id: "poll-1", status: "locked" })]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); // seed only
 
+    rerenderModal(rerender, [makePoll({ poll_id: "poll-1", status: "open" })]);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     act(() => {
       usePollModalUiStore.getState().close();
@@ -109,7 +122,8 @@ describe("PollModal", () => {
   });
 
   it("closes on backdrop click and stays closed until the next transition", () => {
-    renderModal([makePoll({ poll_id: "poll-1", status: "open" })]);
+    const { rerender } = renderModal([makePoll({ poll_id: "poll-1", status: "locked" })]);
+    rerenderModal(rerender, [makePoll({ poll_id: "poll-1", status: "open" })]);
 
     const dialog = screen.getByRole("dialog");
     // The backdrop is the dialog's parent; clicking it (outside the dialog) closes.
