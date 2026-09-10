@@ -1,7 +1,7 @@
 // jsdom has no window.matchMedia. Installs a stub that answers `matches:
-// true` only for the narrow-viewport query useNarrowViewport.ts reads
-// (mirrors --bp-narrow, 640px, in index.css), so a test can simulate a
-// phone-width viewport. Call restore() (e.g. in afterEach) to undo it.
+// true` only for the narrow-viewport query (mirrors --bp-narrow, 640px, in
+// index.css), so a component or test that reads it sees a phone-width
+// result. Call restore() (e.g. in afterEach) to put the original back.
 type ChangeListener = (event: MediaQueryListEvent) => void;
 
 const NARROW_QUERY = "(max-width: 640px)";
