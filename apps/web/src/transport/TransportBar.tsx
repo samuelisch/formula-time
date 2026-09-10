@@ -164,7 +164,9 @@ export function TransportBar() {
           onChange={(value) => target.seekTo(value)}
         />
 
-        <span className={styles.clock}>{positionLabel}</span>
+        <span className={styles.clock} data-testid="position-label">
+          {positionLabel}
+        </span>
 
         <button type="button" className={styles.control} onClick={handleRaceStart}>
           Race start
