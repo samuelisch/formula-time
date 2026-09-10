@@ -77,6 +77,50 @@ describe("DriverPanel", () => {
     expect(screen.getByText("+2 LAPS")).toBeInTheDocument();
   });
 
+  it("shows a Retired (DNF) status line for a driver 3+ laps down with a stale intervals timestamp", () => {
+    const leader = makeDriver({
+      driver_number: 1,
+      name_acronym: "VER",
+      position: 1,
+      current_lap: 5,
+      source_timestamps: { lap: "2026-09-08T13:10:00.000Z" },
+    });
+    const dnfDriver = makeDriver({
+      driver_number: 16,
+      name_acronym: "LEC",
+      position: 16,
+      current_lap: 2,
+      source_timestamps: { intervals: "2026-09-08T13:00:00.000Z" },
+    });
+    renderWith(
+      makePush({}, { drivers: { "1": leader, "16": dnfDriver }, driver_order: [1, 16] }),
+      "/live?driver=16",
+    );
+
+    expect(screen.getByText("Retired (DNF)")).toBeInTheDocument();
+  });
+
+  it("shows a Did not start (DNS) status line for a driver with no lap row once the leader has passed lap 2", () => {
+    const leader = makeDriver({
+      driver_number: 1,
+      name_acronym: "VER",
+      position: 1,
+      current_lap: 5,
+    });
+    const dnsDriver = makeDriver({ driver_number: 14, name_acronym: "ALO", position: 17, current_lap: null });
+    renderWith(
+      makePush({}, { drivers: { "1": leader, "14": dnsDriver }, driver_order: [1, 14] }),
+      "/live?driver=14",
+    );
+
+    expect(screen.getByText("Did not start (DNS)")).toBeInTheDocument();
+  });
+
+  it("shows no status line for a running driver", () => {
+    renderWith(makePush());
+    expect(screen.queryByText(/Retired|Did not start/)).not.toBeInTheDocument();
+  });
+
   it("orders pit stops newest first", () => {
     const driver = makeDriver({
       driver_number: 7,
