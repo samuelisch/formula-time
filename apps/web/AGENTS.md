@@ -94,7 +94,7 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
 - The board seam: every board component reads through the hooks in
   `src/board/useBoardState.ts` (`useBoardPush`, `useBoardDriver`,
   `useBoardDriverOrder`, `useBoardRaceControl`, `useBoardSessionMeta`,
-  `useBoardSessionStatus`, `useBoardIsReplay`), never the live store
+  `useBoardSessionStatus`, `useBoardIsReplay`, ...), never the live store
   directly, so the same component renders a live push and a folded replay
   push. `ReplayPage` mounts `Board` under `BoardSourceProvider`; `BoardPage`
   mounts it on the live store.
