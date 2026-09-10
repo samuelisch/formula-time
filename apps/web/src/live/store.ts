@@ -6,8 +6,17 @@ import { deriveAnchors, emptyAnchors, type Anchors } from "./anchors.ts";
 import { append, emptyBuffer, select, type BufferedPush, type PushBuffer } from "./buffer.ts";
 import { axisOf, type Connection, type LivePush, type RewindMode } from "./types.ts";
 
-/** Whether `timeline` is the live session's own log -- `createTimeline` always normalises `session.session_key` to a string (see `replay/timeline.ts`), so this is a plain string comparison against the live push's own `session_key`. A timeline for a different session (e.g. a stale one left over from before a session change finished unmounting) must never be folded from. */
-function timelineMatchesSession(timeline: Timeline, liveSessionKey: string): boolean {
+/**
+ * Whether `timeline` is the live session's own log -- `createTimeline`
+ * always normalises `session.session_key` to a string (see
+ * `replay/timeline.ts`), so this is a plain string comparison against the
+ * live push's own `session_key`. A timeline for a different session (e.g.
+ * a stale one left over from before a session change finished unmounting)
+ * must never be folded from. Exported so `live/selectors.ts`'s
+ * `useTimeline()` can apply the identical guard: `useLiveTimeTarget`'s
+ * `anchors()`/`range()` must never see a mismatched timeline either.
+ */
+export function timelineMatchesSession(timeline: Timeline, liveSessionKey: string): boolean {
   const key = timeline.session["session_key"];
   return typeof key === "string" && key === liveSessionKey;
 }

@@ -1,7 +1,7 @@
 import type { DriverState, RaceEvent, RawRecord } from "@formula-time/domain";
 import { describe, expect, it } from "vitest";
 import { appendEvents, createTimeline, foldAt, type Timeline } from "../replay/timeline.ts";
-import { createLiveStore } from "./store.ts";
+import { createLiveStore, timelineMatchesSession } from "./store.ts";
 import type { LivePush } from "./types.ts";
 
 const TIMELINE_SESSION: RawRecord = {
@@ -430,5 +430,19 @@ describe("live store", () => {
 
     expect(storeA.getState().anchors.laps).toHaveLength(1);
     expect(storeB.getState().anchors).toEqual({ lights_out: null, laps: [], restarts: [] });
+  });
+});
+
+// Exported (PR #157 review round 1) so `live/selectors.ts`'s `useTimeline()`
+// can apply the identical session guard `reselect()` uses here.
+describe("timelineMatchesSession", () => {
+  it("is true when the timeline's normalised session_key equals the live push's", () => {
+    const timeline = createTimeline(TIMELINE_SESSION); // session_key: 9999 (number), normalised to "9999"
+    expect(timelineMatchesSession(timeline, "9999")).toBe(true);
+  });
+
+  it("is false for a different session", () => {
+    const timeline = createTimeline({ ...TIMELINE_SESSION, session_key: 1111 });
+    expect(timelineMatchesSession(timeline, "9999")).toBe(false);
   });
 });
