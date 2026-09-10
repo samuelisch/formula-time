@@ -6,6 +6,7 @@ import { FakeEventSource } from "../test/fakeEventSource.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
 import type { LivePush } from "../live/types.ts";
+import { useHeaderStore } from "./headerStore.ts";
 import { Shell } from "./Shell.tsx";
 
 // jsdom has no EventSource; Shell mounts useLiveStream() itself, so stub the
@@ -62,6 +63,7 @@ function renderShell(): void {
 describe("Shell", () => {
   beforeEach(() => {
     resetStore();
+    useHeaderStore.setState({ override: null });
   });
 
   it("shows the waiting-for-a-session line by default", () => {
@@ -123,6 +125,30 @@ describe("Shell", () => {
     });
     renderShell();
     expect(screen.getByText("Waiting for a session")).toBeInTheDocument();
+  });
+
+  it("shows the header override line instead of the live session line when set", () => {
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ status: "live", name: "Race", country: "Italy" }),
+    });
+    useHeaderStore.setState({ override: { line: "Netherlands · Race · replay" } });
+    renderShell();
+    expect(screen.getByText("Netherlands · Race · replay")).toBeInTheDocument();
+    expect(screen.queryByText("Italy · Race")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the live session line once the override is cleared", () => {
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ status: "live", name: "Race", country: "Italy" }),
+    });
+    useHeaderStore.setState({ override: { line: "Netherlands · Race · replay" } });
+    useHeaderStore.setState({ override: null });
+    renderShell();
+    expect(screen.getByText("Italy · Race")).toBeInTheDocument();
   });
 
   // The connection pill moved to the live page only (ConnectionPill.tsx,
