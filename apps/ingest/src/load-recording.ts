@@ -331,12 +331,12 @@ export async function writeSessionThroughLoader(
   }
 
   // Only race sessions are loaded: practice, qualifying and sprint are
-  // refused here, before any write — including
-  // before the `--replace` delete below, so a `--replace` run can never
-  // wipe a non-race session's events on its way to refusing the reload.
-  // isRaceSession is the one shared predicate (writer/sessions.ts) so the
-  // REST lane, this loader, and fetch-race (via this same function) all
-  // agree on what counts as a race.
+  // refused here, before any write — including before the `--replace`
+  // delete below, so a `--replace` run can never wipe a non-race session's
+  // events on its way to refusing the reload. isRaceSession is the one
+  // shared predicate (writer/sessions.ts) so the REST lane, this loader,
+  // and fetch-race (via this same function) all agree on what counts as a
+  // race.
   if (!isRaceSession(session)) {
     log(`load: refused ${sessionKey}: session_name is "${String(session["session_name"])}", only "Race" is loaded`);
     return { skipped: true, drainResult: noEvents };
