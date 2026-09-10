@@ -1,6 +1,7 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { createTimeline } from "../replay/timeline.ts";
 import { emptyAnchors } from "./anchors.ts";
 import { emptyBuffer } from "./buffer.ts";
 import { useLiveSessionKey, useLiveSessionStatus, useRewindMode, useSessionStatus, useTimeline } from "./selectors.ts";
@@ -91,6 +92,33 @@ describe("useTimeline", () => {
     resetStore();
     const { result } = renderHook(() => useTimeline());
     expect(result.current).toBeNull();
+  });
+
+  // PR #157 review round 1: useLiveTimeTarget's anchors()/range() must never
+  // see a timeline for a session other than the live push's own -- the same
+  // guard reselect() applies in store.ts (timelineMatchesSession()).
+  it("is null when the timeline's session does not match the live push's, even though one is loaded", () => {
+    const mismatchedTimeline = createTimeline({ session_key: 1111 }); // live push's session_key is "9999"
+    resetStore({ live: pushWithSession({ status: "live" }), timeline: mismatchedTimeline });
+
+    const { result } = renderHook(() => useTimeline());
+    expect(result.current).toBeNull();
+  });
+
+  it("is null when live is null, even if a timeline is loaded", () => {
+    const timeline = createTimeline({ session_key: 9999 });
+    resetStore({ live: null, timeline });
+
+    const { result } = renderHook(() => useTimeline());
+    expect(result.current).toBeNull();
+  });
+
+  it("returns the timeline once it matches the live push's session", () => {
+    const timeline = createTimeline({ session_key: 9999 }); // live push's session_key is "9999"
+    resetStore({ live: pushWithSession({ status: "live" }), timeline });
+
+    const { result } = renderHook(() => useTimeline());
+    expect(result.current).toBe(timeline);
   });
 });
 

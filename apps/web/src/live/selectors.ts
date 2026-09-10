@@ -7,7 +7,7 @@ import { useMemo } from "react";
 import type { Timeline } from "../replay/timeline.ts";
 import type { Anchors } from "./anchors.ts";
 import { span } from "./buffer.ts";
-import { useLiveStore } from "./store.ts";
+import { timelineMatchesSession, useLiveStore } from "./store.ts";
 import type { Connection, LivePush, RewindMode } from "./types.ts";
 
 export function useConnection(): Connection {
@@ -99,9 +99,26 @@ export function useRewindMode(): RewindMode {
   return useLiveStore((state) => state.mode);
 }
 
-/** The browser-side full-race timeline for the live session (`LiveTimelineLoader` sets it), or null when not loaded. */
+/**
+ * The browser-side full-race timeline for the live session
+ * (`LiveTimelineLoader` sets it), or null when not loaded -- or when it is
+ * loaded but does not match the *live* push's own session
+ * (`timelineMatchesSession`, the same guard `reselect()` applies in
+ * `store.ts`). That mismatch window is real, not hypothetical: a session
+ * change (e.g. quali -> race) leaves `useSessionTimeline`'s effect keyed on
+ * the old `sessionKey` for at least one render after `state.live` flips to
+ * the new session, and `BoardPage` never remounts `LiveTimelineLoader`
+ * across that transition (`/live` carries no session param) -- without this
+ * guard, `useLiveTimeTarget`'s `anchors()`/`range()` would show the
+ * outgoing session's span and lap markers for that window even though the
+ * store's own `displayed`/`mode` have already fallen back correctly.
+ */
 export function useTimeline(): Timeline | null {
-  return useLiveStore((state) => state.timeline);
+  return useLiveStore((state) =>
+    state.live !== null && state.timeline !== null && timelineMatchesSession(state.timeline, state.live.session_key)
+      ? state.timeline
+      : null,
+  );
 }
 
 /**

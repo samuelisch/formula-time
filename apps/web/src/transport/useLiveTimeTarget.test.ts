@@ -191,19 +191,45 @@ describe("useLiveTimeTarget", () => {
 
     it("range() is [timeline.firstSourceMs, now] once a timeline is loaded", async () => {
       const timeline = await buildTimeline();
-      resetStore({ buffer: bufferedSpan, timeline });
+      resetStore({ buffer: bufferedSpan, timeline, live: makePush({}, { latest_source_time: null }) }); // session_key "9999", matches the timeline
       const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
       expect(result.current.range()).toEqual({ startMs: timeline.firstSourceMs, endMs: NOW });
     });
 
     it("anchors() comes from the timeline when one is loaded, overriding the stream-derived anchors", async () => {
       const timeline = await buildTimeline();
-      resetStore({ buffer: bufferedSpan, anchors: anchorsWithLap5, timeline });
+      resetStore({ buffer: bufferedSpan, anchors: anchorsWithLap5, timeline, live: makePush({}, { latest_source_time: null }) });
       const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
       const anchors = result.current.anchors();
       expect(anchors).not.toEqual(anchorsWithLap5);
       expect(anchors.lights_out).toBe(isoAt(0));
       expect(anchors.laps.map((a) => a.lap)).toEqual([1, 2]);
+    });
+
+    // PR #157 review round 1: a timeline for a session other than the *live*
+    // push's own must never feed anchors()/range() -- the same guard
+    // reselect() applies for `mode`/`displayed` in store.ts
+    // (timelineMatchesSession()), now shared via useTimeline() in
+    // live/selectors.ts.
+    it("falls back to the buffer span and the store's anchors once the live session no longer matches the loaded timeline", async () => {
+      const timeline = await buildTimeline(); // session_key "9999"
+      resetStore({
+        buffer: bufferedSpan,
+        anchors: anchorsWithLap5,
+        timeline,
+        live: makePush({}, { latest_source_time: null }), // session_key "9999", matches
+      });
+      const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
+
+      expect(result.current.range()).toEqual({ startMs: timeline.firstSourceMs, endMs: NOW });
+      expect(result.current.anchors()).not.toEqual(anchorsWithLap5);
+
+      act(() => {
+        useLiveStore.setState({ live: makePush({ session_key: "8888" }, { latest_source_time: null }) });
+      });
+
+      expect(result.current.range()).toEqual({ startMs: NOW - 180_000, endMs: NOW });
+      expect(result.current.anchors()).toEqual(anchorsWithLap5);
     });
 
     it("seekTo() inside the buffer sets the delay and leaves mode buffer even with a timeline loaded", async () => {
