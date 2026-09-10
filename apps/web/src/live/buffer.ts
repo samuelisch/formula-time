@@ -1,10 +1,13 @@
-// Pure push ring buffer (no React). Stores the raw JSON text of each push
-// and lets the caller parse on demand. Deltas are a post-deploy item
-// (ADR-0001 consequences); until then this cap is the memory bound.
+// Pure push ring buffer (no React). Stores each push already parsed --
+// `applyPatch` (packages/domain) is pure and returns a new RaceState
+// sharing untouched sub-objects by reference, so an older buffer entry is
+// never mutated by a later delta application. The entry count / age cap
+// below is the memory bound.
+import type { LivePush } from "./types.ts";
 
 export interface BufferedPush {
   at: number;
-  raw: string;
+  push: LivePush;
 }
 
 /** Ascending by `at`. */
@@ -29,7 +32,7 @@ export function append(
 ): PushBuffer {
   const newest = buffer.entries[buffer.entries.length - 1];
   const at = newest !== undefined && entry.at < newest.at ? newest.at : entry.at;
-  let entries = [...buffer.entries, { at, raw: entry.raw }];
+  let entries = [...buffer.entries, { at, push: entry.push }];
 
   const cutoff = at - limits.maxAgeMs;
   entries = entries.filter((e) => e.at >= cutoff);

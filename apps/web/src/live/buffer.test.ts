@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { makePush } from "../test/fixtures.ts";
 import { append, BUFFER_LIMITS, emptyBuffer, select, span } from "./buffer.ts";
 import type { BufferedPush } from "./buffer.ts";
 
-function push(at: number, raw = `raw-${at}`): BufferedPush {
-  return { at, raw };
+function push(at: number, marker = `push-${at}`): BufferedPush {
+  return { at, push: makePush({ seq: marker, sent_at: at }) };
 }
 
 describe("emptyBuffer", () => {
@@ -26,7 +27,7 @@ describe("append", () => {
     buffer = append(buffer, push(200));
     buffer = append(buffer, push(100, "late"));
     expect(buffer.entries.map((e) => e.at)).toEqual([200, 200]);
-    expect(buffer.entries[1]?.raw).toBe("late");
+    expect(buffer.entries[1]?.push.seq).toBe("late");
   });
 
   it("evicts by age from the newest entry", () => {

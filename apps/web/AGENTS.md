@@ -74,11 +74,9 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   to `sent_at` when null (`axisOf` in `src/live/types.ts`) -- the POC's
   alignment anchor, so an offset measured against the broadcast applies
   directly. The push ring buffer (`src/live/buffer.ts`) caps at 600
-  entries or 180 000ms of span, whichever hits first, oldest evicted. The
-  server already sends delta pushes (ADR-0013); this app still speaks the
-  legacy full-state format, so the ring buffer remains the memory bound
-  until the web migration to delta pushes (issue #108) lands. `delayMs
-  === 0` renders the live edge with zero buffer work.
+  entries or 180 000ms of span, whichever hits first, oldest evicted -- that
+  cap is the memory bound. `delayMs === 0` renders the live edge with zero
+  buffer work.
 - `src/live/useLiveStream.ts` is the only place in the app that
   constructs an `EventSource`; it is mounted once in `Shell`. No other
   component or hook opens its own connection.

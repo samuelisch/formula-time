@@ -68,16 +68,15 @@ function racePush(overrides: {
   };
 }
 
-function frame(sourceTimeIso: string, sentAt: number): { raw: string; push: LivePush } {
-  const push = racePush({ sourceTime: sourceTimeIso, sentAt });
-  return { raw: JSON.stringify(push), push };
+function frame(sourceTimeIso: string, sentAt: number): LivePush {
+  return racePush({ sourceTime: sourceTimeIso, sentAt });
 }
 
 describe("live store", () => {
   it("renders the live edge with zero buffer work when delayMs is 0", () => {
     const store = createLiveStore();
-    const { raw, push } = frame("2026-09-08T12:00:00.000Z", 1_000);
-    store.getState().onState(raw, push, 1_000);
+    const push = frame("2026-09-08T12:00:00.000Z", 1_000);
+    store.getState().onState(push, 1_000);
     expect(store.getState().displayed).toBe(push);
     expect(store.getState().bufferShort).toBe(false);
   });
@@ -87,8 +86,8 @@ describe("live store", () => {
     expect(store.getState().mode).toBe("edge");
 
     store.getState().setDelayMs(5_000, 0);
-    const { raw, push } = frame("2026-09-08T12:00:00.000Z", 0);
-    store.getState().onState(raw, push, 0);
+    const push = frame("2026-09-08T12:00:00.000Z", 0);
+    store.getState().onState(push, 0);
     expect(store.getState().mode).not.toBe("edge");
 
     store.getState().setDelayMs(0, 0);
@@ -102,12 +101,12 @@ describe("live store", () => {
 
     const first = frame("2026-09-08T12:00:00.000Z", 0);
     const second = frame("2026-09-08T12:00:10.000Z", 10_000);
-    store.getState().onState(first.raw, first.push, 0);
-    store.getState().onState(second.raw, second.push, 10_000);
+    store.getState().onState(first, 0);
+    store.getState().onState(second, 10_000);
 
     // live axis is 12:00:10, delay 5s with no elapsed wall-clock time since
     // the last message -> target is 12:00:05, which selects the first entry.
-    expect(store.getState().displayed).toEqual(first.push);
+    expect(store.getState().displayed).toEqual(first);
     expect(store.getState().bufferShort).toBe(false);
     expect(store.getState().mode).toBe("buffer");
     expect(store.getState().timeline).toBeNull();
@@ -118,10 +117,10 @@ describe("live store", () => {
     store.getState().setDelayMs(60_000, 0);
 
     const only = frame("2026-09-08T12:00:00.000Z", 0);
-    store.getState().onState(only.raw, only.push, 0);
+    store.getState().onState(only, 0);
 
     expect(store.getState().bufferShort).toBe(true);
-    expect(store.getState().displayed).toEqual(only.push);
+    expect(store.getState().displayed).toEqual(only);
     expect(store.getState().mode).toBe("buffer");
   });
 
@@ -133,7 +132,7 @@ describe("live store", () => {
       store.getState().setDelayMs(150_000, 0);
 
       const live = frame("2026-09-08T12:03:20.000Z", 200_000); // 200s offset
-      store.getState().onState(live.raw, live.push, 200_000);
+      store.getState().onState(live, 200_000);
 
       // target = 200s - 150s = 50s offset, past the 1-entry buffer span.
       const expectedTargetMs = Date.parse("2026-09-08T12:00:00.000Z") + 50_000;
@@ -143,9 +142,9 @@ describe("live store", () => {
       const displayed = store.getState().displayed;
       expect(displayed).not.toBeNull();
       expect(displayed!.polls).toEqual([]);
-      expect(displayed!.session_key).toBe(live.push.session_key);
-      expect(displayed!.seq).toBe(live.push.seq);
-      expect(displayed!.sent_at).toBe(live.push.sent_at);
+      expect(displayed!.session_key).toBe(live.session_key);
+      expect(displayed!.seq).toBe(live.seq);
+      expect(displayed!.sent_at).toBe(live.sent_at);
       expect(displayed!.state).toEqual(foldAt(timeline, expectedTargetMs));
     });
 
@@ -157,7 +156,7 @@ describe("live store", () => {
       store.getState().setDelayMs(500_000, 0);
 
       const live = frame("2026-09-08T12:03:20.000Z", 200_000);
-      store.getState().onState(live.raw, live.push, 200_000);
+      store.getState().onState(live, 200_000);
 
       expect(store.getState().mode).toBe("timeline");
       expect(store.getState().displayed!.state).toEqual(foldAt(timeline, timeline.firstSourceMs!));
@@ -167,7 +166,7 @@ describe("live store", () => {
       const store = createLiveStore();
       store.getState().setDelayMs(150_000, 0);
       const live = frame("2026-09-08T12:03:20.000Z", 200_000);
-      store.getState().onState(live.raw, live.push, 200_000);
+      store.getState().onState(live, 200_000);
 
       expect(store.getState().mode).toBe("buffer");
       expect(store.getState().bufferShort).toBe(true);
@@ -191,7 +190,7 @@ describe("live store", () => {
       store.getState().setDelayMs(190_000, 0);
 
       const live = frame("2026-09-08T12:03:20.000Z", 200_000);
-      store.getState().onState(live.raw, live.push, 200_000);
+      store.getState().onState(live, 200_000);
 
       const baseMs = Date.parse("2026-09-08T12:00:00.000Z");
       expect(store.getState().displayed!.state).toEqual(foldAt(timeline, baseMs + 10_000));
@@ -220,7 +219,7 @@ describe("live store", () => {
       store.getState().setDelayMs(190_000, 0);
 
       const live = frame("2026-09-08T12:03:20.000Z", 200_000);
-      store.getState().onState(live.raw, live.push, 200_000);
+      store.getState().onState(live, 200_000);
       const first = store.getState().displayed;
       expect(store.getState().mode).toBe("timeline");
 
@@ -247,11 +246,11 @@ describe("live store", () => {
       store.getState().setDelayMs(150_000, 0);
 
       const live = frame("2026-09-08T12:03:20.000Z", 200_000); // session_key "9999"
-      store.getState().onState(live.raw, live.push, 200_000);
+      store.getState().onState(live, 200_000);
 
       expect(store.getState().mode).toBe("buffer");
       expect(store.getState().bufferShort).toBe(true);
-      expect(store.getState().displayed).toEqual(live.push);
+      expect(store.getState().displayed).toEqual(live);
     });
 
     // The cache key must include more than `timeline.events` and the folded
@@ -267,19 +266,19 @@ describe("live store", () => {
       store.getState().setDelayMs(195_000, 0);
 
       const first = frame("2026-09-08T12:03:20.000Z", 200_000); // 200s offset -> target 5s
-      store.getState().onState(first.raw, first.push, 200_000);
+      store.getState().onState(first, 200_000);
       const firstDisplayed = store.getState().displayed;
       expect(store.getState().mode).toBe("timeline");
 
       const second = frame("2026-09-08T12:03:30.000Z", 210_000); // 210s offset -> target 15s, same fold interval (before the 40s marker)
-      store.getState().onState(second.raw, second.push, 210_000);
+      store.getState().onState(second, 210_000);
       const secondDisplayed = store.getState().displayed;
 
       expect(store.getState().mode).toBe("timeline");
       expect(secondDisplayed!.state).toEqual(firstDisplayed!.state); // same fold content -- no boundary crossed
       expect(secondDisplayed).not.toBe(firstDisplayed); // but a new push must not reuse the stale envelope
-      expect(secondDisplayed!.seq).toBe(second.push.seq);
-      expect(secondDisplayed!.sent_at).toBe(second.push.sent_at);
+      expect(secondDisplayed!.seq).toBe(second.seq);
+      expect(secondDisplayed!.sent_at).toBe(second.sent_at);
     });
 
     it("returns to buffer mode when the target catches up into the buffer span, then to edge on setDelayMs(0)", async () => {
@@ -289,11 +288,11 @@ describe("live store", () => {
       store.getState().setDelayMs(150_000, 0);
 
       const first = frame("2026-09-08T12:03:20.000Z", 200_000); // 200s offset
-      store.getState().onState(first.raw, first.push, 200_000);
+      store.getState().onState(first, 200_000);
       expect(store.getState().mode).toBe("timeline");
 
       const second = frame("2026-09-08T12:03:30.000Z", 210_000); // 210s offset
-      store.getState().onState(second.raw, second.push, 210_000);
+      store.getState().onState(second, 210_000);
       // Still timeline mode: target = 210s - 150s = 60s offset, outside the buffer's [200s, 210s] span.
       expect(store.getState().mode).toBe("timeline");
 
@@ -303,7 +302,7 @@ describe("live store", () => {
 
       store.getState().setDelayMs(0, 210_000);
       expect(store.getState().mode).toBe("edge");
-      expect(store.getState().displayed).toBe(second.push);
+      expect(store.getState().displayed).toBe(second);
     });
   });
 
@@ -313,8 +312,8 @@ describe("live store", () => {
 
     const first = frame("2026-09-08T12:00:00.000Z", 0);
     const second = frame("2026-09-08T12:00:20.000Z", 20_000);
-    store.getState().onState(first.raw, first.push, 0);
-    store.getState().onState(second.raw, second.push, 20_000);
+    store.getState().onState(first, 0);
+    store.getState().onState(second, 20_000);
 
     const selected = store.getState().displayed;
     expect(selected).not.toBeNull();
@@ -331,15 +330,15 @@ describe("live store", () => {
 
     const first = frame("2026-09-08T12:00:00.000Z", 0);
     const second = frame("2026-09-08T12:00:10.000Z", 10_000);
-    store.getState().onState(first.raw, first.push, 0);
-    store.getState().onState(second.raw, second.push, 10_000);
+    store.getState().onState(first, 0);
+    store.getState().onState(second, 10_000);
 
     // Immediately after the second push, target is 12:00:05 -> first entry.
-    expect(store.getState().displayed).toEqual(first.push);
+    expect(store.getState().displayed).toEqual(first);
 
     // 6s of wall-clock time pass with no new push: target advances to 12:00:11 -> second entry.
     store.getState().tick(16_000);
-    expect(store.getState().displayed).toEqual(second.push);
+    expect(store.getState().displayed).toEqual(second);
   });
 
   it("clears catchingUp when a state frame arrives", () => {
@@ -348,7 +347,7 @@ describe("live store", () => {
     expect(store.getState().catchingUp).toBe(true);
 
     const only = frame("2026-09-08T12:00:00.000Z", 0);
-    store.getState().onState(only.raw, only.push, 0);
+    store.getState().onState(only, 0);
     expect(store.getState().catchingUp).toBe(false);
   });
 
@@ -390,7 +389,7 @@ describe("live store", () => {
       source_timestamps: { lap: "2026-09-08T12:00:00.000Z" },
     };
     const push = racePush({ sourceTime: "2026-09-08T12:00:00.000Z", sentAt: 0, drivers: { "44": lap1Driver } });
-    store.getState().onState(JSON.stringify(push), push, 0);
+    store.getState().onState(push, 0);
 
     expect(store.getState().anchors).toEqual({
       lights_out: "2026-09-08T12:00:00.000Z",
@@ -427,7 +426,7 @@ describe("live store", () => {
       },
     });
 
-    storeA.getState().onState(JSON.stringify(push), push, 0);
+    storeA.getState().onState(push, 0);
 
     expect(storeA.getState().anchors.laps).toHaveLength(1);
     expect(storeB.getState().anchors).toEqual({ lights_out: null, laps: [], restarts: [] });
@@ -454,7 +453,7 @@ describe("headAxisOf", () => {
   });
 
   it("is the live push's axis time plus wall-clock time elapsed since it arrived", () => {
-    const { push } = frame("2026-09-08T12:00:00.000Z", 0);
+    const push = frame("2026-09-08T12:00:00.000Z", 0);
     expect(headAxisOf({ live: push, lastMessageAt: 1_000 }, 6_000)).toBe(Date.parse("2026-09-08T12:00:00.000Z") + 5_000);
   });
 });
@@ -464,8 +463,8 @@ describe("seekToAxis", () => {
     const store = createLiveStore();
     const first = frame("2026-09-08T12:00:00.000Z", 0);
     const second = frame("2026-09-08T12:00:10.000Z", 10_000);
-    store.getState().onState(first.raw, first.push, 0);
-    store.getState().onState(second.raw, second.push, 10_000);
+    store.getState().onState(first, 0);
+    store.getState().onState(second, 10_000);
 
     // head = axisOf(second) + (10_000 - 10_000) = 12:00:10; seek to 12:00:05 -> delay 5s.
     store.getState().seekToAxis(Date.parse("2026-09-08T12:00:05.000Z"), 10_000);

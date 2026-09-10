@@ -401,14 +401,14 @@ describe("TransportBar -- live, real useLiveTimeTarget (regression: stale range(
   it("Live sets the delay to exactly 0 even when clicked well after the last render, and the readout reflects it", async () => {
     const user = userEvent.setup();
 
-    // Real (parseable) pushes, not placeholder JSON -- a nonzero delay makes
-    // the store actually parse a buffered entry into `displayed`
+    // Real pushes, not placeholder objects -- a nonzero delay makes the
+    // store actually select a buffered entry into `displayed`
     // (`reselect` in `live/store.ts`), and this test's whole point is to
     // exercise that path under a stale delay reading.
     function bufferedPush(atMs: number) {
-      return JSON.stringify(makePush({ sent_at: atMs }, { latest_source_time: null }));
+      return makePush({ sent_at: atMs }, { latest_source_time: null });
     }
-    const bufferedSpan = { entries: [{ at: 0, raw: bufferedPush(0) }, { at: 1_000_000, raw: bufferedPush(1_000_000) }] };
+    const bufferedSpan = { entries: [{ at: 0, push: bufferedPush(0) }, { at: 1_000_000, push: bufferedPush(1_000_000) }] };
     let nowMs = 1_000_000;
     const now = () => nowMs;
 

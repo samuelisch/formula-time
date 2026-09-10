@@ -3,7 +3,7 @@ import { create, type StoreApi, type UseBoundStore } from "zustand";
 
 import { foldAt, type Timeline } from "../replay/timeline.ts";
 import { deriveAnchors, emptyAnchors, type Anchors } from "./anchors.ts";
-import { append, emptyBuffer, select, type BufferedPush, type PushBuffer } from "./buffer.ts";
+import { append, emptyBuffer, select, type PushBuffer } from "./buffer.ts";
 import { axisOf, type Connection, type LivePush, type RewindMode } from "./types.ts";
 
 /**
@@ -53,7 +53,7 @@ export interface LiveStore {
   onOpen(): void;
   onError(): void;
   onStatus(status: { catching_up: boolean }): void;
-  onState(raw: string, push: LivePush, now: number): void;
+  onState(push: LivePush, now: number): void;
   setDelayMs(ms: number, now: number): void;
   /** Sets the delay so the viewer sees source time `atMs`, reading the current head at call time -- never a snapshot from an earlier render -- so a push arriving between a render and this call cannot throw the result off. No-op before the first push (nothing to seek relative to). */
   seekToAxis(atMs: number, now: number): void;
@@ -73,7 +73,6 @@ interface Selection {
 
 /** Creates an isolated store instance with its own displayed-entry cache; the app uses the `useLiveStore` singleton below, tests create their own. */
 export function createLiveStore(): LiveStoreApi {
-  const parsedByEntry = new WeakMap<BufferedPush, LivePush>();
   const seenRestarts = new Set<string>();
 
   // One-entry cache for the timeline-mode synthesised push: `foldAt` clones
@@ -95,14 +94,6 @@ export function createLiveStore(): LiveStoreApi {
   // not be reused across two different `live` values; comparing `live` by
   // reference is enough, since every push is a fresh, immutable object).
   let lastTimelineDisplayed: { events: RaceEvent[]; sequence: number; live: LivePush; push: LivePush } | null = null;
-
-  function parseCached(entry: BufferedPush): LivePush {
-    const cached = parsedByEntry.get(entry);
-    if (cached !== undefined) return cached;
-    const parsed = JSON.parse(entry.raw) as LivePush;
-    parsedByEntry.set(entry, parsed);
-    return parsed;
-  }
 
   function timelineDisplayed(timeline: Timeline, atMs: number, live: LivePush): LivePush {
     const state = foldAt(timeline, atMs);
@@ -142,7 +133,7 @@ export function createLiveStore(): LiveStoreApi {
 
     const found = select(state.buffer, target);
     if (found !== null) {
-      return { displayed: parseCached(found), bufferShort: false, mode: "buffer" };
+      return { displayed: found.push, bufferShort: false, mode: "buffer" };
     }
 
     if (
@@ -156,7 +147,7 @@ export function createLiveStore(): LiveStoreApi {
 
     const oldest = state.buffer.entries[0];
     if (oldest === undefined) return { displayed: null, bufferShort: false, mode: "buffer" };
-    return { displayed: parseCached(oldest), bufferShort: true, mode: "buffer" };
+    return { displayed: oldest.push, bufferShort: true, mode: "buffer" };
   }
 
   return create<LiveStore>()((set, get) => ({
@@ -177,8 +168,8 @@ export function createLiveStore(): LiveStoreApi {
     onError: () => set({ connection: "reconnecting" }),
     onStatus: (status) => set({ catchingUp: status.catching_up, statusReceived: true }),
 
-    onState: (raw, push, now) => {
-      const buffer = append(get().buffer, { at: axisOf(push), raw });
+    onState: (push, now) => {
+      const buffer = append(get().buffer, { at: axisOf(push), push });
       const anchors = deriveAnchors(get().anchors, push, seenRestarts);
       const next = { live: push, buffer, lastMessageAt: now, catchingUp: false, anchors };
       const { displayed, bufferShort, mode } = reselect({ ...get(), ...next }, now);
