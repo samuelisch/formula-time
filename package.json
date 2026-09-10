@@ -11,6 +11,7 @@
     "typecheck": "pnpm db:generate && tsc -b && pnpm --filter @formula-time/web typecheck",
     "test:unit": "vitest run",
     "test:integration": "scripts/with-db-env.sh vitest run --config vitest.integration.config.ts --passWithNoTests",
+    "test:e2e": "pnpm --filter @formula-time/web test:e2e",
     "test": "pnpm typecheck && pnpm test:unit && pnpm test:integration",
     "lint": "eslint . --max-warnings 0",
     "dev:domain": "tsc -b packages/domain --watch",
