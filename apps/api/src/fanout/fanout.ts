@@ -3,7 +3,7 @@
 // block, identical bytes to every socket. A vote never triggers a push --
 // this class has no idea votes exist; it only ever sends what it is told to.
 //
-// Delta pushes (ADR-<N> "Delta pushes", issue #89): sockets are tagged with
+// Delta pushes (ADR-<N> "Delta pushes"): sockets are tagged with
 // a `format` in addition to `encoding`. A `state`-format socket gets the
 // full push every tick, unchanged. A `delta`-format socket gets one `state`
 // push at join (ADR point 2), then a `delta` push each tick -- a
@@ -31,9 +31,9 @@ export type FanoutLog = (msg: string, fields?: Record<string, unknown>) => void;
  * itself stays typed as `object` (existing callers, and tests, push
  * arbitrary shapes when they only exercise state-format delivery).
  *
- * `events`/`rebuilt` (issue #114): carried through to the delta frame
- * exactly like `polls` already is, unvalidated by `isStateLike` -- neither
- * is used to decide whether a payload is state-like, only read once it is. */
+ * `events`/`rebuilt`: carried through to the delta frame exactly like
+ * `polls` already is, unvalidated by `isStateLike` -- neither is used to
+ * decide whether a payload is state-like, only read once it is. */
 interface StateLike {
   seq: unknown;
   sent_at: unknown;
@@ -99,17 +99,17 @@ export class Fanout {
   private latestDelta: Frame | null = null;
 
   // The RaceState (and its seq) actually delivered by the last push --
-  // "the previous pushed RaceState is kept for the diff" (issue #89). Never
-  // patched in place; each push diffs against exactly this.
+  // the previous pushed RaceState is kept for the diff. Never patched in
+  // place; each push diffs against exactly this.
   private prevState: RaceState | null = null;
   private prevSeq: string | null = null;
   private deltaPushCount = 0;
 
   // Maintained incrementally in join()/remove() rather than scanned from
-  // `this.sockets` on every push (review round 1, PR #109): a per-tick scan
-  // over every socket just to answer "is any delta socket attached" would
-  // scale with viewer count, contrary to invariant 1 ("never per-viewer
-  // server work") -- the whole point of keeping this a plain counter.
+  // `this.sockets` on every push: a per-tick scan over every socket just to
+  // answer "is any delta socket attached" would scale with viewer count,
+  // contrary to invariant 1 ("never per-viewer server work") -- the whole
+  // point of keeping this a plain counter.
   private deltaSocketCount = 0;
 
   private pushing = false;
@@ -173,8 +173,8 @@ export class Fanout {
   }
 
   /** `GET /api/live/snapshot`: the newest `state` push's JSON, verbatim --
-   * "same bytes the fan-out holds" (issue #89). `null` before the first
-   * push (the route answers 503). */
+   * same bytes the fan-out holds. `null` before the first push (the route
+   * answers 503). */
   public snapshotJson(): string | null {
     return this.latestStateJson;
   }
@@ -268,9 +268,9 @@ export class Fanout {
         session_key: payload.session_key,
         patch,
         polls: payload.polls,
-        // Issue #114: straight through from the source payload, same as
-        // `polls` above -- `events` is the RaceEvent rows the tick applied
-        // (a client folds these into its timeline regardless of format);
+        // Straight through from the source payload, same as `polls` above --
+        // `events` is the RaceEvent rows the tick applied (a client folds
+        // these into its timeline regardless of format);
         // `rebuilt` is `undefined` on an ordinary tick, which
         // `JSON.stringify` omits from the wire entirely, so a delta client
         // only ever sees the key when a rebuild produced this push.
