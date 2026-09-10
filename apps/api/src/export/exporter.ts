@@ -182,28 +182,36 @@ export function createExporter(opts: ExporterOptions): Exporter {
 
   async function runOnce(): Promise<void> {
     // One query per tick, regardless of viewer count (ADR-0001 §2 invariant
-    // 2): `finished` sessions left-joined to `exports` and to
-    // `MAX(events.received_at)` grouped by `session_key`. A row comes back
-    // when there is no `exports` row yet (new) or when the max
-    // `received_at` is newer than `exported_at` (stale, a reload wrote
-    // events the file has not picked up). Two tables of a few rows plus one
-    // aggregate over `events`, which is indexed on `session_key`.
+    // 2), two halves unioned. New candidates: `finished` sessions with no
+    // `exports` row -- no need to look at `events` at all, since a missing
+    // row alone makes a session a candidate. Stale candidates: `finished`
+    // sessions that do have an `exports` row, where `events` holds at least
+    // one row received after that row's `exported_at` -- an `EXISTS` per
+    // `exports` row, not a `GROUP BY` aggregate over the whole table.
+    // `exports` holds only finished, already-exported sessions (a few
+    // rows), so this is a few short, per-session scans, not a table-wide
+    // one. `events_session_key_source_time_idx` (`session_key, source_time`)
+    // narrows each scan to that session's rows via its leading column; it
+    // does not cover `received_at` itself, so within one session's rows the
+    // `EXISTS` still has to check `received_at` row by row.
     const candidates = await db.$queryRaw<
       Array<{ session_key: string; exported_at: Date | null; path: string | null }>
     >`
-      SELECT
-        s.session_key::text AS session_key,
-        e.exported_at AS exported_at,
-        e.path AS path
+      SELECT s.session_key::text AS session_key, NULL::timestamp(3) AS exported_at, NULL::text AS path
       FROM sessions s
-      LEFT JOIN exports e ON e.session_key = s.session_key
-      LEFT JOIN (
-        SELECT session_key, MAX(received_at) AS max_received_at
-        FROM events
-        GROUP BY session_key
-      ) ev ON ev.session_key = s.session_key
       WHERE s.status = 'finished'
-        AND (e.session_key IS NULL OR ev.max_received_at > e.exported_at)
+        AND NOT EXISTS (SELECT 1 FROM exports e WHERE e.session_key = s.session_key)
+
+      UNION ALL
+
+      SELECT s.session_key::text AS session_key, e.exported_at AS exported_at, e.path AS path
+      FROM sessions s
+      JOIN exports e ON e.session_key = s.session_key
+      WHERE s.status = 'finished'
+        AND EXISTS (
+          SELECT 1 FROM events ev
+          WHERE ev.session_key = s.session_key AND ev.received_at > e.exported_at
+        )
     `;
 
     for (const candidate of candidates) {

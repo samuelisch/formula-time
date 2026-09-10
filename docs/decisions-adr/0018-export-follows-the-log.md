@@ -23,15 +23,22 @@ the reload, not the reloaded log.
 ## Decision
 
 The exporter's tick considers a session stale when it has an `exports` row
-and `MAX(events.received_at) > exports.exported_at` for that `session_key`.
-A stale session is re-exported exactly like a new one: compute
-`exported_at = now()` once, read the events by `seq`, write the file
-atomically, then `UPDATE exports SET exported_at, path` in one statement.
-One query per tick finds both new and stale candidates (`sessions`
-left-joined to `exports` and to `MAX(received_at)` grouped by session); it
-runs every 5 s against two tables of a few rows and one indexed aggregate,
-which is not per viewer and not per tick of the projector (invariant 2
-untouched).
+and `events` holds at least one row received after that row's
+`exported_at`, for that `session_key`. A stale session is re-exported
+exactly like a new one: compute `exported_at = now()` once, read the
+events by `seq`, write the file atomically, then `UPDATE exports SET
+exported_at, path` in one statement. One query per tick finds both kinds
+of candidate, as two halves unioned: `sessions` with no `exports` row
+(new -- no need to look at `events` at all), and `sessions` with an
+`exports` row where `events` has a row received after `exported_at`
+(stale, an `EXISTS` per `exports` row, not a `GROUP BY` aggregate over the
+whole table). It runs every 5 s, not per viewer and not per tick of the
+projector (invariant 2 untouched); `exports` holds only finished,
+already-exported sessions (a few rows), so the stale half is a few short,
+per-session scans. `events_session_key_source_time_idx` (`session_key,
+source_time`) narrows each such scan to that session's rows via its
+leading column; it does not cover `received_at` itself, so within one
+session's rows the check still has to look at `received_at` row by row.
 
 Serving is unchanged: `etag` already encodes `exported_at`; `cache-control:
 public, max-age=31536000, immutable` stays, because the URL becomes
