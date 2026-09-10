@@ -2,7 +2,7 @@
 // eventId, timestampValue, timestampMillis, LiveNormalizer, endpointConfigs),
 // with the MQTT envelope strip (`../f1-live-events-poc/poc/ts/mqtt_ingest.ts`
 // `stripMqttMeta`) folded into identity itself, so a REST row and its MQTT
-// twin (T6) hash to the same `eventId` no matter which lane computes it
+// twin hash to the same `eventId` no matter which lane computes it
 // first. Everything the POC's reducer needed per row (schema_version,
 // original_index, out_of_order, duplicate) is dropped: ingest never folds
 // (apps/ingest/AGENTS.md), and the `events` table has no columns for them.

@@ -1,5 +1,5 @@
 // ONE in-process queue (HLD §7 single writer): both
-// lanes (REST here, MQTT in T6) push onto it; the writer drains it in
+// lanes (REST and MQTT) push onto it; the writer drains it in
 // arrival order through the one connection, so `seq` order equals commit
 // order.
 
