@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { RawRecord } from "../openf1/types.js";
-import { computeSessionStatus, upsertSession } from "./sessions.js";
+import { computeSessionStatus, isRaceSession, upsertSession } from "./sessions.js";
 import type { SessionsDb } from "./sessions.js";
 
 function fakeDb(): SessionsDb & { rows: Map<string, unknown> } {
@@ -64,6 +64,24 @@ describe("computeSessionStatus", () => {
     expect(computeSessionStatus(invalid, end, START_MS)).toBe("upcoming");
     expect(computeSessionStatus(start, invalid, START_MS)).toBe("upcoming");
     expect(computeSessionStatus(invalid, invalid, START_MS)).toBe("upcoming");
+  });
+});
+
+describe("isRaceSession", () => {
+  test("session_name Race -> true", () => {
+    expect(isRaceSession({ session_name: "Race" })).toBe(true);
+  });
+
+  test("session_name Practice 1 -> false", () => {
+    expect(isRaceSession({ session_name: "Practice 1" })).toBe(false);
+  });
+
+  test("session_name Qualifying -> false", () => {
+    expect(isRaceSession({ session_name: "Qualifying" })).toBe(false);
+  });
+
+  test("a sprint has session_type Race but session_name Sprint -> false", () => {
+    expect(isRaceSession({ session_type: "Race", session_name: "Sprint" })).toBe(false);
   });
 });
 
