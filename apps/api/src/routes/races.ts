@@ -1,9 +1,9 @@
-// GET /api/races, GET /api/races/:session_key -- the historical-race
-// routes (ADR-0009 §4, issue #44 slice B). "Serving reads the file, not
-// Postgres.": the index route is the one query per request this plugin
-// makes against `exports`/`sessions`; the per-race route reads Postgres
-// only to find the `exports` row (never to fold events), then streams the
-// pre-gzipped file straight through -- "never gunzip on the server."
+// GET /api/races, GET /api/races/:session_key -- the historical-race routes
+// (ADR-0009 §4). "Serving reads the file, not Postgres.": the index route is
+// the one query per request this plugin makes against `exports`/`sessions`;
+// the per-race route reads Postgres only to find the `exports` row (never to
+// fold events), then streams the pre-gzipped file straight through -- "never
+// gunzip on the server."
 //
 // "Disk is a cache, the database is the record." (ADR-0009 §3): when the
 // row exists but the file is missing (Railway's disk is ephemeral), this
@@ -49,9 +49,9 @@ interface EventsQuery {
   limit?: string;
 }
 
-/** `since_seq` (issue #96): default `0`, must be a non-negative integer
- * that fits in a JS number (the acceptance criterion `next_seq` also
- * relies on). `null` means the raw value failed validation. */
+/** `since_seq`: default `0`, must be a non-negative integer that fits in a
+ * JS number (the acceptance criterion `next_seq` also relies on). `null`
+ * means the raw value failed validation. */
 function parseSinceSeq(raw: string | undefined): number | null {
   if (raw === undefined) return 0;
   if (!NON_NEGATIVE_INTEGER.test(raw)) return null;
@@ -147,12 +147,12 @@ export const racesRoutes: FastifyPluginCallback<RacesRoutesOptions> = (app: Fast
     return reply.send(createReadStream(path));
   });
 
-  // GET /api/races/:session_key/events (issue #96): the same RaceEvent
-  // rows for any session, live included, in bounded pages, so a browser
-  // can fold a live race from its start (HLD §7 rewind tier "minutes:
-  // keyframe + chunks folded in the browser"). Two queries per page --
-  // the session lookup (needed for `status`, and to 404 unknown sessions)
-  // and the events page -- never per tick.
+  // GET /api/races/:session_key/events: the same RaceEvent rows for any
+  // session, live included, in bounded pages, so a browser can fold a live
+  // race from its start (HLD §7 rewind tier "minutes: keyframe + chunks
+  // folded in the browser"). Two queries per page -- the session lookup
+  // (needed for `status`, and to 404 unknown sessions) and the events page
+  // -- never per tick.
   app.get<{ Params: { session_key: string }; Querystring: EventsQuery }>(
     "/races/:session_key/events",
     async (request, reply) => {
