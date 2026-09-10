@@ -9,7 +9,9 @@
 #
 # Never points at anything but the local compose Postgres (rehearse-race
 # skill): the simulator never touches the network, and ingest reads from
-# the simulator's own output directory, never OpenF1.
+# the simulator's own output directory, never OpenF1. The local
+# DATABASE_URL/DATABASE_DIRECT_URL are exported before any database command
+# runs, including the migration, overriding whatever the invoking shell had.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
