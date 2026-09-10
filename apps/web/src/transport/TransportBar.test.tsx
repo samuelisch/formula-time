@@ -330,6 +330,13 @@ describe("TransportBar -- replay", () => {
   });
 });
 
+describe("TransportBar -- shortcuts legend", () => {
+  it("shows the keyboard shortcuts as a visible legend rather than only a tooltip", () => {
+    renderBar(makeLiveFake());
+    expect(screen.getByText("Keys: [ and ] nudge 1 s · , and . nudge 5 s")).toBeInTheDocument();
+  });
+});
+
 describe("TransportBar -- notice()", () => {
   it("renders the target's notice under the row, and nothing when there is none", () => {
     // Fix round 4 on PR #87: the live store's `bufferShort` warning had no

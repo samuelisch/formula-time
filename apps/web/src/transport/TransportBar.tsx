@@ -114,7 +114,7 @@ export function TransportBar() {
         : `${syncOffsetMs > 0 ? "+" : ""}${formatSeconds(syncOffsetMs)}s`;
 
   return (
-    <div className={styles.transport} title="[ and ] nudge 1s, , and . nudge 5s">
+    <div className={styles.transport}>
       <div className={styles.row}>
         <button type="button" onClick={() => target.nudge(-HUGE_NUDGE_MS)}>
           −10s
@@ -182,6 +182,7 @@ export function TransportBar() {
       </div>
       {notice !== null && <div className={styles.warning}>{notice}</div>}
       {jumpMessage !== null && <div className={styles.warning}>{jumpMessage}</div>}
+      <div className={styles.legend}>Keys: [ and ] nudge 1 s · , and . nudge 5 s</div>
     </div>
   );
 }
