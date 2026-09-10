@@ -138,7 +138,6 @@ describe("vote burst", () => {
       await Promise.all(requests);
       const wallMs = Date.now() - startedAt;
       // Recorded in the PR body per the acceptance criteria.
-      // eslint-disable-next-line no-console
       console.log(`vote-burst wall time: ${wallMs}ms for ${requests.length} requests`);
 
       const rows = await db.vote.findMany({ where: { pollId: POLL_ID } });

@@ -12,7 +12,7 @@
     "test:unit": "vitest run",
     "test:integration": "scripts/with-db-env.sh vitest run --config vitest.integration.config.ts --passWithNoTests",
     "test": "pnpm typecheck && pnpm test:unit && pnpm test:integration",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "dev:domain": "tsc -b packages/domain --watch",
     "dev:api": "pnpm --filter @formula-time/api dev",
     "dev:ingest": "pnpm --filter @formula-time/ingest dev",

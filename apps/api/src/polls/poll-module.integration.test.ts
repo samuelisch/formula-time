@@ -20,7 +20,7 @@ const db = createDb();
 const SESSION_KEY = 9_100_001n;
 
 function fakeLog() {
-  return { info: (_msg: string) => {} };
+  return { info: () => {} };
 }
 
 function driver(overrides: Partial<DriverState> & { driver_number: number }): DriverState {

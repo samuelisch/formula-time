@@ -785,7 +785,7 @@ describe("RestLane: pre-race refresh (issue #39)", () => {
 describe("RestLane: drivers fetch budget (issue #39)", () => {
   test("a tick with a due drivers fetch makes no rotation request, and the rotation resumes at the same index next tick (nothing skipped)", async () => {
     let now = START;
-    let driversResponse: unknown = []; // forces the static fallback + a 5-minute retry cadence
+    const driversResponse: unknown = []; // forces the static fallback + a 5-minute retry cadence
     let calls: string[] = [];
     const fetcher = async (url: string): Promise<unknown> => {
       calls.push(url);

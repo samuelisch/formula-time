@@ -44,22 +44,4 @@ export default tseslint.config(
     },
     rules: reactHooksRules,
   },
-  {
-    // Rules that error on existing source today, downgraded to warn so
-    // this pass can land without touching any source file. See the PR
-    // body for counts and example files; a later pass fixes the source
-    // and raises these back to error.
-    rules: {
-      // Existing tests bind unused mock args (some already `_`-prefixed,
-      // which this rule's default config does not exempt).
-      "@typescript-eslint/no-unused-vars": "warn",
-      // One `let` in a test fixture that is never reassigned.
-      "prefer-const": "warn",
-      // One intermediate array reassigned but never read again.
-      "no-useless-assignment": "warn",
-      // Existing rethrows that drop the caught error instead of chaining
-      // it as `cause`.
-      "preserve-caught-error": "warn",
-    },
-  },
 );

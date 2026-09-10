@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import { eventId, LiveNormalizer } from "./normalize.js";
 import { MQTT_TOPICS, MqttLane, mqttBackoffDelayMs, mqttTopicEndpoint } from "./mqtt-lane.js";

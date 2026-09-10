@@ -24,7 +24,7 @@ function resetStore(): void {
 function capturingEventSource(): { EventSourceImpl: typeof EventSource; es(): FakeEventSource } {
   const constructed: FakeEventSource[] = [];
   class CapturingEventSource extends FakeEventSource {
-    public constructor(_url: string) {
+    public constructor() {
       super();
       constructed.push(this);
     }

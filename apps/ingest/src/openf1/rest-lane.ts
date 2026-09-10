@@ -481,7 +481,7 @@ export class RestLane {
     if (Number.isNaN(start)) return false;
     if (nowMs < start - 5 * 60_000 || nowMs >= start) return false;
 
-    let rows: RawRecord[] = [];
+    let rows: RawRecord[];
     try {
       const raw = await this.fetcher(`${OPENF1_BASE}/drivers?session_key=${key}`);
       rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];

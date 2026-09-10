@@ -45,9 +45,10 @@ Read `docs/` before doing anything. What each part holds:
   supersede it. A PreToolUse hook blocks edits to accepted ADRs.
 - Tests (ADR-0002): vitest for unit (in-memory fakes) and integration
   (real Postgres in Docker — dedup + vote upsert); Playwright for e2e.
-  `typecheck` + unit + the ADR check before a commit (the hook); the same
-  plus integration and build in CI on every PR, required for merge
-  (ADR-0006). The PR's Verified section is prose about what CI does not
+  `typecheck` + unit + the ADR check before a commit (the hook), plus
+  `pnpm lint` (ESLint, root `eslint.config.js`) in the hook and in CI
+  (ADR-0017); the same plus integration and build in CI on every PR,
+  required for merge (ADR-0006). The PR's Verified section is prose about what CI does not
   cover, never pasted output. `db:up`/`db:down`/`db:migrate:*`/
   `test:integration` derive a per-worktree compose project and Postgres port
   from `scripts/db-env.sh` (README "Local Postgres"), so concurrent worktrees
