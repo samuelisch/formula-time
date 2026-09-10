@@ -1,6 +1,6 @@
 # ADR-0018 — Export follows the log: a session is re-exported when its events are newer than its export
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-10
 Amends: ADR-0009 §2 (export once) and §3 (regenerate only a missing file)
 
