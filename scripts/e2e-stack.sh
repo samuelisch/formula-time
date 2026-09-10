@@ -26,6 +26,7 @@ LOG_DIR="$STATE_DIR/logs"
 LOCAL_DB_MARKER="$STATE_DIR/started-local-db"
 
 cmd="${1:-start}"
+echo "e2e-stack: invoked with cmd=$cmd"
 
 stop_stack() {
   if [ -f "$PID_FILE" ]; then

@@ -146,6 +146,16 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Build the packages the api and ingest import
+        # apps/api and apps/ingest run from source via tsx, but they import
+        # @formula-time/domain and @formula-time/db by their package.json
+        # `exports`, which point at each package's own built dist/ (and, for
+        # @formula-time/db, its Prisma client generated into src/generated/,
+        # gitignored) -- neither exists in a fresh checkout, so without this
+        # both processes fail to start and the stack never actually serves
+        # live data, even though the web dev server itself comes up fine.
+        run: pnpm --filter @formula-time/domain build && pnpm --filter @formula-time/db build
+
       - name: Install chromium
         run: pnpm --filter @formula-time/web exec playwright install --with-deps chromium
 
@@ -159,9 +169,22 @@ jobs:
           mkdir -p recordings
           tar -xzf recordings-11361.tar.gz -C recordings
           rm recordings-11361.tar.gz
+          ls -la recordings/11361
 
       - name: Migrate the test database
         run: pnpm db:migrate:deploy
 
       - name: e2e tests
         run: pnpm test:e2e
+
+      - name: Dump the rehearse-race stack's own logs on failure
+        # sim/ingest/api/web's stdout goes to .e2e/logs/*.log (e2e-stack.sh),
+        # never to this step's own output, so a failure otherwise gives no
+        # visibility into why the stack didn't come up correctly.
+        if: failure()
+        run: |
+          for f in .e2e/logs/*.log; do
+            echo "::group::$f"
+            cat "$f" || true
+            echo "::endgroup::"
+          done
