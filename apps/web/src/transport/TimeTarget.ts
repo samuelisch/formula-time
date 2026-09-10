@@ -17,6 +17,7 @@
 import { createContext, createElement, useContext, type ReactNode } from "react";
 
 import type { Anchors } from "../live/anchors.ts";
+import type { RewindMode } from "../live/types.ts";
 
 export interface TimeTarget {
   /** Source-time position the viewer sees, ms on the axis; null when unknown. */
@@ -45,6 +46,8 @@ export interface TimeTarget {
    * target exists.
    */
   syncOffsetMs(): number | null;
+  /** How the live target chose what it shows -- "edge", "buffer" or "timeline" (the full-race log); replay returns null. */
+  rewindMode(): RewindMode | null;
 }
 
 const TimeTargetContext = createContext<TimeTarget | null>(null);

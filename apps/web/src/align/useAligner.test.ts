@@ -423,6 +423,7 @@ function fakeLiveTarget(overrides: Partial<TimeTarget> = {}): TimeTarget {
     playback: () => null,
     notice: () => null,
     syncOffsetMs: () => 0,
+    rewindMode: () => "edge",
     ...overrides,
   };
 }
@@ -442,6 +443,7 @@ function fakeReplayTarget(overrides: Partial<TimeTarget> = {}): TimeTarget & {
     playback: () => ({ playing: false, play, pause }),
     notice: () => null,
     syncOffsetMs: () => 0,
+    rewindMode: () => null,
     play,
     pause,
     ...overrides,

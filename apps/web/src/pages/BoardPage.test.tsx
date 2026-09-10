@@ -3,14 +3,47 @@
 // delay/align controls that moved out of `Shell` in issue #57 fix round 5.
 // These tests cover that furniture and the fact that it is mounted here, not
 // in the shell and not on a replay.
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
 
 import { BoardSourceProvider } from "../board/useBoardState.ts";
+import { emptyAnchors } from "../live/anchors.ts";
+import { emptyBuffer } from "../live/buffer.ts";
+import { useLiveStore } from "../live/store.ts";
 import { makePush } from "../test/fixtures.ts";
 import { BoardPage } from "./BoardPage.tsx";
+
+// The loader itself is covered by its own test
+// (`live/LiveTimelineLoader.test.tsx`); here it is a spy so BoardPage.test's
+// mount-latch assertions don't also need to fake `../races/api.ts`'s
+// `fetchRaceEventsPage`.
+vi.mock("../live/LiveTimelineLoader.tsx", () => ({
+  LiveTimelineLoader: vi.fn(() => null),
+}));
+import { LiveTimelineLoader } from "../live/LiveTimelineLoader.tsx";
+
+function resetLiveStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>> = {}): void {
+  useLiveStore.setState({
+    connection: "connecting",
+    catchingUp: false,
+    lastMessageAt: null,
+    live: null,
+    buffer: emptyBuffer(),
+    delayMs: 0,
+    displayed: null,
+    bufferShort: false,
+    anchors: emptyAnchors(),
+    timeline: null,
+    mode: "edge",
+    ...overrides,
+  });
+}
+
+function liveSessionPush(status: "upcoming" | "live" | "finished"): ReturnType<typeof makePush> {
+  return makePush({}, { session: { session_key: "9999", name: "Race", country: "Italy", status } });
+}
 
 function renderWith(push: ReturnType<typeof makePush> | null): void {
   render(
@@ -43,6 +76,11 @@ function renderWithRouter(push: ReturnType<typeof makePush> | null) {
 }
 
 describe("BoardPage", () => {
+  beforeEach(() => {
+    resetLiveStore();
+    vi.mocked(LiveTimelineLoader).mockClear();
+  });
+
   it("mounts the board itself", () => {
     renderWith(makePush());
 
@@ -121,5 +159,47 @@ describe("BoardPage", () => {
     await user.keyboard("{Escape}");
     expect(router.state.location.search).toBe("");
     expect(screen.queryByText("Sector 1")).not.toBeInTheDocument();
+  });
+
+  // LiveTimelineLoader is keyed off the *live* push's own session (never
+  // the *displayed* one, which BoardSourceProvider supplies here and which
+  // stays the default "live" fixture throughout).
+  describe("LiveTimelineLoader mount latch", () => {
+    it("mounts when the live session's status is live", () => {
+      resetLiveStore({ live: liveSessionPush("live") });
+      renderWith(makePush());
+      expect(LiveTimelineLoader).toHaveBeenCalled();
+    });
+
+    it("does not mount for an upcoming live session", () => {
+      resetLiveStore({ live: liveSessionPush("upcoming") });
+      renderWith(makePush());
+      expect(LiveTimelineLoader).not.toHaveBeenCalled();
+    });
+
+    it("does not mount for a live session already finished when the page mounts", () => {
+      resetLiveStore({ live: liveSessionPush("finished") });
+      renderWith(makePush());
+      expect(LiveTimelineLoader).not.toHaveBeenCalled();
+    });
+
+    it("stays mounted when the live session's status goes live -> finished", () => {
+      resetLiveStore({ live: liveSessionPush("live") });
+      renderWith(makePush());
+      expect(LiveTimelineLoader).toHaveBeenCalled();
+      vi.mocked(LiveTimelineLoader).mockClear();
+
+      act(() => {
+        useLiveStore.setState({ live: liveSessionPush("finished") });
+      });
+
+      expect(LiveTimelineLoader).toHaveBeenCalled();
+    });
+
+    it("passes the live session's numeric key and current status", () => {
+      resetLiveStore({ live: liveSessionPush("live") });
+      renderWith(makePush());
+      expect(vi.mocked(LiveTimelineLoader).mock.calls[0]![0]).toEqual(expect.objectContaining({ sessionKey: 9999, status: "live" }));
+    });
   });
 });

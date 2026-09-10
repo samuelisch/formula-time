@@ -1,9 +1,11 @@
+import type { RaceEvent, RawRecord } from "@formula-time/domain";
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { emptyAnchors, type Anchors } from "../live/anchors.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
+import { appendEvents, createTimeline, foldAt, type Timeline } from "../replay/timeline.ts";
 import { makePush } from "../test/fixtures.ts";
 import { BUFFER_SHORT_NOTICE, useLiveTimeTarget } from "./useLiveTimeTarget.ts";
 
@@ -18,8 +20,39 @@ function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>>
     displayed: null,
     bufferShort: false,
     anchors: emptyAnchors(),
+    timeline: null,
+    mode: "edge",
     ...overrides,
   });
+}
+
+const TIMELINE_SESSION: RawRecord = {
+  session_key: 9999,
+  name: "Race",
+  country: "Italy",
+  circuit_key: 39,
+  date_start: "2026-09-08T12:00:00.000Z",
+  date_end: "2026-09-08T14:00:00.000Z",
+  total_laps: 58,
+  status: "live",
+};
+
+function isoAt(offsetSeconds: number): string {
+  return new Date(Date.parse("2026-09-08T12:00:00.000Z") + offsetSeconds * 1000).toISOString();
+}
+
+function timelineEvent(id: string, endpoint: string, offsetSeconds: number, payload: RawRecord): RaceEvent {
+  return { event_id: id, endpoint, source_time: isoAt(offsetSeconds), payload };
+}
+
+async function buildTimeline(): Promise<Timeline> {
+  const timeline = createTimeline(TIMELINE_SESSION);
+  await appendEvents(timeline, [
+    timelineEvent("t1", "position", 0, { driver_number: 1, position: 1 }),
+    timelineEvent("t2", "laps", 0, { driver_number: 1, lap_number: 1 }),
+    timelineEvent("t3", "laps", 40, { driver_number: 1, lap_number: 2 }),
+  ]);
+  return timeline;
 }
 
 const bufferedSpan = { entries: [{ at: 0, raw: "{}" }, { at: 180_000, raw: "{}" }] };
@@ -142,9 +175,135 @@ describe("useLiveTimeTarget", () => {
     expect(short.current.notice()).toBe(BUFFER_SHORT_NOTICE);
   });
 
-  it("anchors() returns the store's anchors", () => {
+  it("anchors() returns the store's anchors when there is no timeline", () => {
     resetStore({ buffer: bufferedSpan, anchors: anchorsWithLap5 });
     const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
     expect(result.current.anchors()).toEqual(anchorsWithLap5);
+  });
+
+  describe("timeline mode", () => {
+    const BASE_MS = Date.parse("2026-09-08T12:00:00.000Z");
+    const NOW_TL = BASE_MS + 200_000; // 200s offset
+
+    function pushAt(atMs: number): { at: number; raw: string } {
+      return { at: atMs, raw: JSON.stringify(makePush({ sent_at: atMs }, { latest_source_time: null })) };
+    }
+
+    it("range() is [timeline.firstSourceMs, now] once a timeline is loaded", async () => {
+      const timeline = await buildTimeline();
+      resetStore({ buffer: bufferedSpan, timeline, live: makePush({}, { latest_source_time: null }) }); // session_key "9999", matches the timeline
+      const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
+      expect(result.current.range()).toEqual({ startMs: timeline.firstSourceMs, endMs: NOW });
+    });
+
+    it("anchors() comes from the timeline when one is loaded, overriding the stream-derived anchors", async () => {
+      const timeline = await buildTimeline();
+      resetStore({ buffer: bufferedSpan, anchors: anchorsWithLap5, timeline, live: makePush({}, { latest_source_time: null }) });
+      const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
+      const anchors = result.current.anchors();
+      expect(anchors).not.toEqual(anchorsWithLap5);
+      expect(anchors.lights_out).toBe(isoAt(0));
+      expect(anchors.laps.map((a) => a.lap)).toEqual([1, 2]);
+    });
+
+    // A timeline for a session other than the *live* push's own must never
+    // feed anchors()/range() -- the same guard reselect() applies for
+    // `mode`/`displayed` in store.ts (timelineMatchesSession()), shared via
+    // useTimeline() in live/selectors.ts.
+    it("falls back to the buffer span and the store's anchors once the live session no longer matches the loaded timeline", async () => {
+      const timeline = await buildTimeline(); // session_key "9999"
+      resetStore({
+        buffer: bufferedSpan,
+        anchors: anchorsWithLap5,
+        timeline,
+        live: makePush({}, { latest_source_time: null }), // session_key "9999", matches
+      });
+      const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
+
+      expect(result.current.range()).toEqual({ startMs: timeline.firstSourceMs, endMs: NOW });
+      expect(result.current.anchors()).not.toEqual(anchorsWithLap5);
+
+      act(() => {
+        useLiveStore.setState({ live: makePush({ session_key: "8888" }, { latest_source_time: null }) });
+      });
+
+      expect(result.current.range()).toEqual({ startMs: NOW - 180_000, endMs: NOW });
+      expect(result.current.anchors()).toEqual(anchorsWithLap5);
+    });
+
+    it("seekTo() inside the buffer sets the delay and leaves mode buffer even with a timeline loaded", async () => {
+      const timeline = await buildTimeline();
+      resetStore({
+        buffer: { entries: [pushAt(BASE_MS + 190_000), pushAt(BASE_MS + 200_000)] },
+        live: makePush({ sent_at: NOW_TL }, { latest_source_time: null }),
+        timeline,
+      });
+      const { result } = renderHook(() => useLiveTimeTarget(() => NOW_TL));
+      act(() => result.current.seekTo(NOW_TL - 5_000));
+      expect(useLiveStore.getState().mode).toBe("buffer");
+      expect(result.current.rewindMode()).toBe("buffer");
+    });
+
+    it("seekTo() beyond the buffer enters timeline mode; displayedAt() matches the folded state", async () => {
+      const timeline = await buildTimeline();
+      resetStore({
+        buffer: { entries: [pushAt(BASE_MS + 190_000), pushAt(BASE_MS + 200_000)] },
+        live: makePush({ sent_at: NOW_TL }, { latest_source_time: null }),
+        timeline,
+      });
+      const { result } = renderHook(() => useLiveTimeTarget(() => NOW_TL));
+
+      act(() => result.current.seekTo(BASE_MS + 50_000)); // 50s offset, past the buffer's [190s, 200s] window
+
+      expect(result.current.rewindMode()).toBe("timeline");
+      const expected = foldAt(timeline, BASE_MS + 50_000);
+      expect(expected.latest_source_time).not.toBeNull();
+      expect(result.current.displayedAt()).toBe(Date.parse(expected.latest_source_time!));
+    });
+
+    it("nudging forward until the target re-enters the buffer returns mode to buffer", async () => {
+      const timeline = await buildTimeline();
+      resetStore({
+        buffer: { entries: [pushAt(BASE_MS + 190_000), pushAt(BASE_MS + 200_000)] },
+        live: makePush({ sent_at: NOW_TL }, { latest_source_time: null }),
+        timeline,
+      });
+      const { result } = renderHook(() => useLiveTimeTarget(() => NOW_TL));
+
+      act(() => result.current.seekTo(BASE_MS + 50_000)); // enters timeline mode, delay 150_000
+      expect(result.current.rewindMode()).toBe("timeline");
+
+      act(() => result.current.nudge(145_000)); // delay -> 5_000, target -> 195s offset, inside [190s, 200s]
+      expect(result.current.rewindMode()).toBe("buffer");
+    });
+
+    it("seekTo(range().endMs) (the Live button) resets to the live edge", async () => {
+      const timeline = await buildTimeline();
+      resetStore({ timeline, live: makePush({ sent_at: NOW_TL }, { latest_source_time: null }) });
+      const { result } = renderHook(() => useLiveTimeTarget(() => NOW_TL));
+
+      act(() => result.current.seekTo(result.current.range()!.endMs));
+      expect(result.current.rewindMode()).toBe("edge");
+    });
+
+    it("notice() is null in timeline mode even if the store's bufferShort is stale-true", () => {
+      resetStore({ mode: "timeline", bufferShort: true });
+      const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
+      expect(result.current.notice()).toBeNull();
+    });
+
+    it("rewindMode() mirrors the store's mode", () => {
+      resetStore({ mode: "buffer" });
+      const { result: buffer } = renderHook(() => useLiveTimeTarget(() => NOW));
+      expect(buffer.current.rewindMode()).toBe("buffer");
+
+      resetStore({ mode: "timeline" });
+      const { result: timeline } = renderHook(() => useLiveTimeTarget(() => NOW));
+      expect(timeline.current.rewindMode()).toBe("timeline");
+
+      resetStore({ mode: "edge" });
+      const { result: edge } = renderHook(() => useLiveTimeTarget(() => NOW));
+      expect(edge.current.rewindMode()).toBe("edge");
+    });
   });
 });

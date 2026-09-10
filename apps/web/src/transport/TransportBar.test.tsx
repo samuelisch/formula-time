@@ -12,6 +12,7 @@ import type { Anchors } from "../live/anchors.ts";
 import { emptyAnchors } from "../live/anchors.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
+import type { RewindMode } from "../live/types.ts";
 import { makePush } from "../test/fixtures.ts";
 import { TimeTargetProvider } from "./TimeTarget.ts";
 import type { TimeTarget } from "./TimeTarget.ts";
@@ -35,6 +36,7 @@ function makeLiveFake(overrides: {
   anchors?: Anchors;
   notice?: string | null;
   syncOffsetMs?: number | null;
+  rewindMode?: RewindMode | null;
 } = {}): TimeTarget & { seekTo: ReturnType<typeof vi.fn<(atMs: number) => void>>; nudge: ReturnType<typeof vi.fn<(deltaMs: number) => void>> } {
   const range = "range" in overrides ? overrides.range! : { startMs: 0, endMs: 180_000 };
   const displayedAtMs = "displayedAtMs" in overrides ? overrides.displayedAtMs! : (range?.endMs ?? null);
@@ -47,6 +49,7 @@ function makeLiveFake(overrides: {
     playback: () => null,
     notice: () => overrides.notice ?? null,
     syncOffsetMs: () => ("syncOffsetMs" in overrides ? overrides.syncOffsetMs! : 0),
+    rewindMode: () => overrides.rewindMode ?? "buffer",
   };
 }
 
@@ -78,6 +81,7 @@ function makeReplayFake(overrides: {
     playback: () => ({ playing, play, pause }),
     notice: () => null,
     syncOffsetMs: () => syncOffsetMs,
+    rewindMode: () => null,
     play,
     pause,
   };
@@ -128,6 +132,19 @@ describe("TransportBar -- live", () => {
     expect(slider.max).toBe("180000");
     expect(slider.value).toBe("175000");
     expect(screen.getByText("5.0s")).toBeInTheDocument(); // 180000 - 175000
+  });
+
+  it("shows the timeline-mode readout when rewindMode() is 'timeline'", () => {
+    const target = makeLiveFake({ range: { startMs: 0, endMs: 180_000 }, displayedAtMs: 168_000, rewindMode: "timeline" });
+    renderBar(target);
+    expect(screen.getByText("Rewound 12.0s · from the log")).toBeInTheDocument();
+  });
+
+  it("shows the plain seconds readout when rewindMode() is 'buffer', not the timeline wording", () => {
+    const target = makeLiveFake({ range: { startMs: 0, endMs: 180_000 }, displayedAtMs: 168_000, rewindMode: "buffer" });
+    renderBar(target);
+    expect(screen.getByText("12.0s")).toBeInTheDocument();
+    expect(screen.queryByText(/from the log/)).not.toBeInTheDocument();
   });
 
   it("disables the slider when range() is null", () => {
@@ -266,6 +283,7 @@ describe("TransportBar -- replay", () => {
       playback: () => ({ playing: false, play: vi.fn(), pause: vi.fn() }),
       notice: () => null,
       syncOffsetMs: () => null,
+      rewindMode: () => null,
     };
     renderBar(target);
     expect(screen.getByText("13:00:30 UTC")).toBeInTheDocument();
@@ -349,6 +367,8 @@ function resetLiveStore(overrides: Partial<ReturnType<typeof useLiveStore.getSta
     displayed: null,
     bufferShort: false,
     anchors: emptyAnchors(),
+    timeline: null,
+    mode: "edge",
     ...overrides,
   });
 }

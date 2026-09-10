@@ -1,19 +1,9 @@
-import type { RaceEvent } from "@formula-time/domain";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { FoldedRace, LapMarker } from "../replay/foldRace.ts";
 import type { ReplayPlayback } from "../replay/useReplayPlayback.ts";
-import { deriveReplayAnchors, useReplayTimeTarget } from "./useReplayTimeTarget.ts";
-
-function raceControlEvent(id: string, message: string, date: string): RaceEvent {
-  return {
-    event_id: id,
-    endpoint: "race_control",
-    source_time: date,
-    payload: { category: "SessionStatus", message, date },
-  };
-}
+import { useReplayTimeTarget } from "./useReplayTimeTarget.ts";
 
 function folded(overrides: Partial<FoldedRace> = {}): FoldedRace {
   const lapMarkers: LapMarker[] = overrides.lapMarkers ?? [
@@ -48,34 +38,8 @@ function fakePlayback(overrides: Partial<ReplayPlayback> = {}): ReplayPlayback {
   };
 }
 
-describe("deriveReplayAnchors", () => {
-  it("lap N's anchor is the lap marker's source time, and lights_out is lap 1's", () => {
-    const anchors = deriveReplayAnchors(folded());
-    expect(anchors.lights_out).toBe("2026-09-06T13:00:00.000Z");
-    expect(anchors.laps).toEqual([
-      { lap: 1, source_time: "2026-09-06T13:00:00.000Z" },
-      { lap: 2, source_time: "2026-09-06T13:01:30.000Z" },
-    ]);
-  });
-
-  it("lights_out is null when lap 1 was never reached", () => {
-    const anchors = deriveReplayAnchors(folded({ lapMarkers: [{ lap: 2, sourceMs: 1_000 }] }));
-    expect(anchors.lights_out).toBeNull();
-  });
-
-  it("restarts are SESSION STARTED race-control events, deduped and sorted", () => {
-    const events: RaceEvent[] = [
-      raceControlEvent("e1", "SESSION STARTED", "2026-09-06T13:05:00.000Z"),
-      raceControlEvent("e2", "SESSION STARTED", "2026-09-06T13:00:00.000Z"), // earlier, out of order
-      raceControlEvent("e3", "SESSION STARTED", "2026-09-06T13:00:00.000Z"), // duplicate date
-      raceControlEvent("e4", "SAFETY CAR DEPLOYED", "2026-09-06T13:02:00.000Z"), // not a restart
-      { event_id: "e5", endpoint: "laps", source_time: "2026-09-06T13:03:00.000Z", payload: { category: "SessionStatus", message: "SESSION STARTED", date: "2026-09-06T13:03:00.000Z" } }, // wrong endpoint
-    ];
-    const anchors = deriveReplayAnchors(folded({ events }));
-    expect(anchors.restarts).toEqual(["2026-09-06T13:00:00.000Z", "2026-09-06T13:05:00.000Z"]);
-  });
-});
-
+// The anchor-derivation tests live in `live/anchors.test.ts`, against
+// `deriveTimelineAnchors`, exported there.
 describe("useReplayTimeTarget", () => {
   it("displayedAt() is null when there is no fold, else the playback's sourceMs", () => {
     const { result: withoutFold } = renderHook(() => useReplayTimeTarget(fakePlayback({ sourceMs: 5_000 }), null));
@@ -128,6 +92,14 @@ describe("useReplayTimeTarget", () => {
 
     const { result: unfolded } = renderHook(() => useReplayTimeTarget(fakePlayback(), null));
     expect(unfolded.current.notice()).toBeNull();
+  });
+
+  it("rewindMode() is always null -- replay has no buffer/timeline distinction to report", () => {
+    const { result } = renderHook(() => useReplayTimeTarget(fakePlayback(), folded()));
+    expect(result.current.rewindMode()).toBeNull();
+
+    const { result: unfolded } = renderHook(() => useReplayTimeTarget(fakePlayback(), null));
+    expect(unfolded.current.rewindMode()).toBeNull();
   });
 
   it("anchors() is derived from the fold, empty when there is none", () => {
