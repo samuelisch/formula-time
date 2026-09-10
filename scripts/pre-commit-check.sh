@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse hook (matcher Bash). Acts only when the command runs `git commit`.
-# Gate: an install check, then typecheck, unit tests, and no edits to
+# Gate: an install check, then typecheck, lint, unit tests, and no edits to
 # Accepted ADRs. Non-zero exit blocks the commit.
 set -u
 cmd=$(jq -r '.tool_input.command // empty')
@@ -121,4 +121,4 @@ if [ ! -d "node_modules/.pnpm" ] || [ "pnpm-lock.yaml" -nt "node_modules/.pnpm" 
   exit 1
 fi
 
-pnpm typecheck && pnpm test:unit && scripts/check-adr-immutable.sh
+pnpm typecheck && pnpm lint && pnpm test:unit && scripts/check-adr-immutable.sh

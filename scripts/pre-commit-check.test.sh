@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Feeds scripts/pre-commit-check.sh the same JSON shape the PreToolUse hook
 # receives, for representative git commit invocations, and asserts which ones
-# trigger the gate (typecheck + unit tests + ADR check) and which do not.
+# trigger the gate (typecheck + lint + unit tests + ADR check) and which do
+# not.
 # Uses a stub pnpm on PATH so the gate never really runs typecheck: the stub
 # records that it was called, and from which directory, to a marker file.
 # Run from anywhere; resolves the repo root itself.
@@ -16,11 +17,20 @@ trap 'rm -rf "$stub_dir"' EXIT
 cat > "$stub_dir/pnpm" <<'STUB'
 #!/usr/bin/env bash
 echo "$(pwd)" >> "$MARKER_FILE"
+echo "$1" >> "$CALLS_FILE"
+if [ "${FAIL_CMD:-}" = "$1" ]; then
+  exit 1
+fi
 exit 0
 STUB
 chmod +x "$stub_dir/pnpm"
 
 export MARKER_FILE="$stub_dir/pnpm-called"
+# Records the pnpm subcommand ("typecheck", "lint", "test:unit", ...) from
+# each invocation, in call order, so a test can assert both that lint runs
+# between typecheck and the unit tests and that a failing lint stops the
+# chain before the unit tests run.
+export CALLS_FILE="$stub_dir/pnpm-calls"
 export PATH="$stub_dir:$PATH"
 
 fail=0
@@ -55,6 +65,31 @@ run_case "git --no-pager form" 'git --no-pager commit -m x' fire
 run_case "git commitlog is not a match" 'git commitlog' nofire
 run_case "echo of git commit is not a command start" 'echo "git commit"' nofire
 run_case "git commit chained after another command" 'pnpm test && git commit -m x' fire
+
+# --- the gate runs lint between typecheck and the unit tests, and a failing
+# lint blocks the commit before the unit tests run ---
+
+rm -f "$MARKER_FILE" "$CALLS_FILE"
+jq -cn --arg cmd 'git commit -m x' '{tool_input:{command:$cmd}}' | (cd "$repo_root" && "$hook") >/dev/null 2>&1
+calls=$(tr '\n' ' ' < "$CALLS_FILE")
+if [ "$calls" = "typecheck lint test:unit " ]; then
+  echo "PASS: the gate runs lint between typecheck and the unit tests"
+else
+  echo "FAIL: the gate called ($calls), expected 'typecheck lint test:unit '"
+  fail=1
+fi
+
+rm -f "$MARKER_FILE" "$CALLS_FILE"
+export FAIL_CMD=lint
+jq -cn --arg cmd 'git commit -m x' '{tool_input:{command:$cmd}}' | (cd "$repo_root" && "$hook") >/dev/null 2>&1
+unset FAIL_CMD
+calls=$(tr '\n' ' ' < "$CALLS_FILE")
+if [ "$calls" = "typecheck lint " ]; then
+  echo "PASS: a failing lint blocks the commit before the unit tests run"
+else
+  echo "FAIL: expected 'typecheck lint ' (unit tests never called) but got ($calls)"
+  fail=1
+fi
 
 # --- tree resolution: which tree does the gate actually run against? ---
 # Real git repos under mktemp -d, independent of the real main checkout or
