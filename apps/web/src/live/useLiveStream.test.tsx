@@ -22,16 +22,17 @@ function resetStore(): void {
 /** Captures the FakeEventSource `useLiveStream` constructs. `es()` is lazy: the hook must
  * have run its effect before it is called, so it must not be destructured up front. */
 function capturingEventSource(): { EventSourceImpl: typeof EventSource; es(): FakeEventSource } {
-  let captured: FakeEventSource | undefined;
+  const constructed: FakeEventSource[] = [];
   class CapturingEventSource extends FakeEventSource {
     public constructor(_url: string) {
       super();
-      captured = this;
+      constructed.push(this);
     }
   }
   return {
     EventSourceImpl: CapturingEventSource as unknown as typeof EventSource,
     es() {
+      const captured = constructed[constructed.length - 1];
       if (captured === undefined) throw new Error("EventSource was not constructed");
       return captured;
     },
