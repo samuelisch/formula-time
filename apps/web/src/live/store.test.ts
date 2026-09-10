@@ -254,6 +254,33 @@ describe("live store", () => {
       expect(store.getState().displayed).toEqual(live.push);
     });
 
+    // Review round 2 on PR #154: the round-1 cache keyed only on `timeline.events`
+    // and the folded `sequence`, so a second real push landing in the same
+    // fold interval (the common case -- pushes arrive roughly every second,
+    // event/keyframe spacing is much wider) returned the *first* push's
+    // stale envelope (`seq`/`sent_at`) instead of the new one.
+    it("updates the envelope on a new push even when the fold does not cross an event boundary, and does not reuse the stale reference", async () => {
+      const store = createLiveStore();
+      const timeline = await buildRewindTimeline();
+      store.getState().setTimeline(timeline, 0);
+      store.getState().setDelayMs(195_000, 0);
+
+      const first = frame("2026-09-08T12:03:20.000Z", 200_000); // 200s offset -> target 5s
+      store.getState().onState(first.raw, first.push, 200_000);
+      const firstDisplayed = store.getState().displayed;
+      expect(store.getState().mode).toBe("timeline");
+
+      const second = frame("2026-09-08T12:03:30.000Z", 210_000); // 210s offset -> target 15s, same fold interval (before the 40s marker)
+      store.getState().onState(second.raw, second.push, 210_000);
+      const secondDisplayed = store.getState().displayed;
+
+      expect(store.getState().mode).toBe("timeline");
+      expect(secondDisplayed!.state).toEqual(firstDisplayed!.state); // same fold content -- no boundary crossed
+      expect(secondDisplayed).not.toBe(firstDisplayed); // but a new push must not reuse the stale envelope
+      expect(secondDisplayed!.seq).toBe(second.push.seq);
+      expect(secondDisplayed!.sent_at).toBe(second.push.sent_at);
+    });
+
     it("returns to buffer mode when the target catches up into the buffer span, then to edge on setDelayMs(0)", async () => {
       const store = createLiveStore();
       const timeline = await buildRewindTimeline();
