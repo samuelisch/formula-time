@@ -155,7 +155,7 @@ jobs:
         # unpacks to recordings/11361/ directly (made with
         # `tar -czf recordings-11361.tar.gz -C recordings 11361`).
         run: |
-          curl -sSL -o recordings-11361.tar.gz https://github.com/samuelisch/formula-time/releases/download/recordings/recordings-11361.tar.gz
+          curl -sSLf -o recordings-11361.tar.gz https://github.com/samuelisch/formula-time/releases/download/recordings/recordings-11361.tar.gz
           mkdir -p recordings
           tar -xzf recordings-11361.tar.gz -C recordings
           rm recordings-11361.tar.gz
