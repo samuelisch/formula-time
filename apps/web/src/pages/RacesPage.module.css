@@ -39,6 +39,31 @@
   font-size: 0.95rem;
 }
 
+.finishedCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.finishedLabel {
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.finishedLinks {
+  display: flex;
+  gap: 1rem;
+}
+
+.finishedLinks a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.finishedLinks a:hover {
+  text-decoration: underline;
+}
+
 .heading {
   font-size: 1rem;
   margin: 0 0 0.75rem;

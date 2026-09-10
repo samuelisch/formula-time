@@ -18,6 +18,7 @@ export function RacesPage() {
   const status = useSessionStatus();
   const liveSession = displayed?.state.session ?? null;
   const liveTotalLaps = displayed?.total_laps ?? null;
+  const liveSessionKey = displayed?.session_key ?? null;
 
   const racesQuery = useQuery({
     queryKey: ["races"],
@@ -44,6 +45,20 @@ export function RacesPage() {
           Next race · {stringField(liveSession, "country") ?? "—"} · {stringField(liveSession, "name") ?? "—"} ·{" "}
           {date(stringField(liveSession, "date_start"))}
         </Link>
+      );
+    }
+
+    if (status === "finished" && liveSession !== null && liveSessionKey !== null) {
+      return (
+        <div className={styles.finishedCard}>
+          <span className={styles.finishedLabel}>
+            Last session · {stringField(liveSession, "country") ?? "—"} · {stringField(liveSession, "name") ?? "—"} · finished
+          </span>
+          <span className={styles.finishedLinks}>
+            <Link to="/live">Final state</Link>
+            <Link to={`/races/${liveSessionKey}`}>Watch the replay</Link>
+          </span>
+        </div>
       );
     }
 
