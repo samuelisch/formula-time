@@ -51,8 +51,11 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   typecheck` at the root must pass.
 - Unit tests are `*.test.ts` next to the source, vitest, in-memory fakes
   only. Integration tests (`*.integration.test.ts`, need Postgres) do not
-  apply here — this app has no database access. Playwright is e2e only;
-  none written yet.
+  apply here — this app has no database access. Playwright (chromium only,
+  `apps/web/e2e/`, `apps/web/playwright.config.ts`) is e2e: `pnpm test:e2e`
+  (root or this package) runs it against the rehearse-race stack, brought
+  up by `scripts/e2e-stack.sh` for Playwright's `webServer` option; each
+  spec skips when its `recordings/11361` fixture is absent.
 - `pnpm lint` (ESLint, root `eslint.config.js`, ADR-0017) runs over this
   app too, zero warnings allowed, same gate as `pnpm typecheck` and
   `pnpm test:unit`.

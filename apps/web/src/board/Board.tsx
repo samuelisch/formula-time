@@ -61,7 +61,9 @@ export function Board({ controls, transport, side }: BoardProps = {}) {
       <div className={styles.toolbar}>
         <div className={styles.row1}>
           <LapCounter />
-          <span className={styles.clock}>{clock(sourceTime)}</span>
+          <span className={styles.clock} data-testid="source-clock">
+            {clock(sourceTime)}
+          </span>
           {controls}
         </div>
         {transport !== undefined && <div className={styles.row2}>{transport}</div>}

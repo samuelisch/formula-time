@@ -26,3 +26,10 @@ live-logs/
 
 # api export files (EXPORT_DIR default ./exports, ADR-0009); regenerated from Postgres, not repo content
 /exports/
+
+# e2e-stack.sh's pid file and logs for the rehearse-race stack it drives
+/.e2e/
+
+# Playwright's own run output (traces, the HTML report)
+apps/web/test-results/
+apps/web/playwright-report/
