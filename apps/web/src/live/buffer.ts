@@ -1,8 +1,9 @@
-// Pure push ring buffer (no React). Stores each push already parsed --
-// `applyPatch` (packages/domain) is pure and returns a new RaceState
-// sharing untouched sub-objects by reference, so an older buffer entry is
-// never mutated by a later delta application. The entry count / age cap
-// below is the memory bound.
+// Pure push ring buffer (no React). Stores each push already parsed by
+// reference. A buffered entry is never mutated: the delta path
+// (`live/deltas.ts`) builds each next push's state from `applyPatch`
+// (packages/domain), which clones the state it starts from (one clone per
+// delta at push rate) rather than writing through it. The entry count /
+// age cap below is the memory bound.
 import type { LivePush } from "./types.ts";
 
 export interface BufferedPush {

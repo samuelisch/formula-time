@@ -79,7 +79,9 @@ export function createLiveStore(): LiveStoreApi {
   // on every call, so without this, `displayed` would get a new reference
   // on every 250ms tick even when the fold did not cross an event
   // boundary -- breaking the referential-stability guarantee the buffer
-  // path gets from `parsedByEntry` above. A cached entry is reused only
+  // path gets for free (it returns the stored push object itself, so
+  // `displayed` keeps the same reference across ticks that select the same
+  // entry). A cached entry is reused only
   // when all three of its keys still match the current call: `events`
   // (the mutable array `appendEvents` pushes onto in place -- unchanged by
   // `useSessionTimeline` publishing a new shallow *copy* of the `Timeline`
