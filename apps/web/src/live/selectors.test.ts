@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { emptyAnchors } from "./anchors.ts";
 import { emptyBuffer } from "./buffer.ts";
-import { useSessionStatus } from "./selectors.ts";
+import { useRewindMode, useSessionStatus } from "./selectors.ts";
 import { useLiveStore } from "./store.ts";
 import type { LivePush } from "./types.ts";
 
@@ -73,5 +73,13 @@ describe("useSessionStatus", () => {
     resetStore({ displayed: pushWithSession(null) });
     const { result } = renderHook(() => useSessionStatus());
     expect(result.current).toBeNull();
+  });
+});
+
+describe("useRewindMode", () => {
+  it("reads the store's mode", () => {
+    resetStore({ mode: "timeline" });
+    const { result } = renderHook(() => useRewindMode());
+    expect(result.current).toBe("timeline");
   });
 });
