@@ -21,6 +21,7 @@ import { useCallback, useMemo } from "react";
 
 import { deriveTimelineAnchors } from "../live/anchors.ts";
 import { useAnchors, useDelay, useDisplayed, useLastMessageAt, useLivePush, useRewindMode, useTimeline } from "../live/selectors.ts";
+import { headAxisOf } from "../live/store.ts";
 import { axisOf } from "../live/types.ts";
 import type { TimeTarget } from "./TimeTarget.ts";
 
@@ -33,7 +34,7 @@ export const BUFFER_SHORT_NOTICE = "Delay exceeds what this tab has buffered; sh
  * parameter for the same reason (`live/store.ts`).
  */
 export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
-  const { delayMs, spanMs, bufferShort, setDelayMs } = useDelay();
+  const { delayMs, spanMs, bufferShort, seekToAxis, nudgeDelay } = useDelay();
   const displayed = useDisplayed();
   const streamAnchors = useAnchors();
   const timeline = useTimeline();
@@ -43,16 +44,18 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
 
   const displayedAtMs = displayed === null ? null : axisOf(displayed);
 
-  // The live edge on the source axis: the newest push's own axis time, plus
-  // however much wall-clock time has elapsed since it arrived. Computed
-  // fresh on every call (not memoised to a render) for the same reason
-  // `range()`/`seekTo()` already call `now()` at call time rather than
-  // reading a captured value -- real time keeps passing between a render
-  // and a click. Before the first push there is nothing to seek relative
-  // to, so this falls back to the wall clock, matching `range()`'s
-  // pre-first-push `{ startMs: endMs, endMs }`.
+  // The live edge on the source axis, for display only (the slider's
+  // bounds): the newest push's own axis time, plus however much wall-clock
+  // time has elapsed since it arrived, or `now()` before the first push --
+  // the exact formula the store's `headAxisOf` computes internally, so
+  // `range()` can never disagree with where the store actually is.
+  // `seekTo`/`nudge` do not use this: they hand the source time straight to
+  // the store's own `seekToAxis`/`nudgeDelay`, which read the store's
+  // current state at call time rather than this render's snapshot of
+  // `livePush`/`lastMessageAt`/`delayMs` -- a push (or several) landing
+  // between a render and a click must not throw the result off.
   const headMs = useCallback(
-    () => (livePush !== null && lastMessageAt !== null ? axisOf(livePush) + (now() - lastMessageAt) : now()),
+    () => headAxisOf({ live: livePush, lastMessageAt }, now()) ?? now(),
     [livePush, lastMessageAt, now],
   );
 
@@ -70,18 +73,18 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
       // store's own `bufferShort`/timeline-mode fold is for -- `reselect`
       // (`live/store.ts`) decides buffer vs. timeline vs. the oldest-entry
       // fallback; this only ever sets the delay (`setDelayMs` floors at 0).
-      // The delay is measured from `headMs`, the source axis, not the wall
-      // clock: `reselect` positions the viewer as
-      // `axisOf(live) + elapsed - delayMs`, so a seek to source time `atMs`
-      // must set `delayMs = headMs - atMs` for the store to land exactly on
-      // it, regardless of how far the feed's own timestamps trail (or, for
-      // a replayed recording, precede) the wall clock.
+      // Delegates to the store's `seekToAxis`, which measures the delay
+      // from its own current head (the source axis, not the wall clock) at
+      // the moment it runs, not from this render's `headMs` snapshot.
       seekTo: (atMs: number) => {
-        setDelayMs(Math.max(0, headMs() - atMs));
+        seekToAxis(atMs, now());
       },
 
+      // Delegates to the store's `nudgeDelay`, which reads the current
+      // delay at call time so repeated nudges compound correctly even when
+      // none of them triggers a render in between.
       nudge: (deltaMs: number) => {
-        setDelayMs(Math.max(0, delayMs - deltaMs));
+        nudgeDelay(deltaMs, now());
       },
 
       anchors: () => anchors,
@@ -112,6 +115,6 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
 
       rewindMode: () => mode,
     }),
-    [displayedAtMs, delayMs, spanMs, bufferShort, anchors, timeline, mode, headMs, setDelayMs],
+    [displayedAtMs, delayMs, spanMs, bufferShort, anchors, timeline, mode, headMs, seekToAxis, nudgeDelay, now],
   );
 }

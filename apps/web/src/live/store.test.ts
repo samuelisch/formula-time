@@ -1,7 +1,7 @@
 import type { DriverState, RaceEvent, RawRecord } from "@formula-time/domain";
 import { describe, expect, it } from "vitest";
 import { appendEvents, createTimeline, foldAt, type Timeline } from "../replay/timeline.ts";
-import { createLiveStore, timelineMatchesSession } from "./store.ts";
+import { createLiveStore, headAxisOf, timelineMatchesSession } from "./store.ts";
 import type { LivePush } from "./types.ts";
 
 const TIMELINE_SESSION: RawRecord = {
@@ -433,8 +433,8 @@ describe("live store", () => {
   });
 });
 
-// Exported (PR #157 review round 1) so `live/selectors.ts`'s `useTimeline()`
-// can apply the identical session guard `reselect()` uses here.
+// `live/selectors.ts`'s `useTimeline()` applies this identical session
+// guard so a timeline for the wrong session never reaches a caller either.
 describe("timelineMatchesSession", () => {
   it("is true when the timeline's normalised session_key equals the live push's", () => {
     const timeline = createTimeline(TIMELINE_SESSION); // session_key: 9999 (number), normalised to "9999"
@@ -444,5 +444,46 @@ describe("timelineMatchesSession", () => {
   it("is false for a different session", () => {
     const timeline = createTimeline({ ...TIMELINE_SESSION, session_key: 1111 });
     expect(timelineMatchesSession(timeline, "9999")).toBe(false);
+  });
+});
+
+describe("headAxisOf", () => {
+  it("is null before the first push", () => {
+    expect(headAxisOf({ live: null, lastMessageAt: null }, 0)).toBeNull();
+  });
+
+  it("is the live push's axis time plus wall-clock time elapsed since it arrived", () => {
+    const { push } = frame("2026-09-08T12:00:00.000Z", 0);
+    expect(headAxisOf({ live: push, lastMessageAt: 1_000 }, 6_000)).toBe(Date.parse("2026-09-08T12:00:00.000Z") + 5_000);
+  });
+});
+
+describe("seekToAxis", () => {
+  it("sets the delay from the store's current push after two onState calls, not a stale one", () => {
+    const store = createLiveStore();
+    const first = frame("2026-09-08T12:00:00.000Z", 0);
+    const second = frame("2026-09-08T12:00:10.000Z", 10_000);
+    store.getState().onState(first.raw, first.push, 0);
+    store.getState().onState(second.raw, second.push, 10_000);
+
+    // head = axisOf(second) + (10_000 - 10_000) = 12:00:10; seek to 12:00:05 -> delay 5s.
+    store.getState().seekToAxis(Date.parse("2026-09-08T12:00:05.000Z"), 10_000);
+    expect(store.getState().delayMs).toBe(5_000);
+  });
+
+  it("is a no-op before the first push", () => {
+    const store = createLiveStore();
+    store.getState().seekToAxis(1_000, 0);
+    expect(store.getState().delayMs).toBe(0);
+  });
+});
+
+describe("nudgeDelay", () => {
+  it("applied twice in a row moves the delay by the sum, not by a snapshot from the first call", () => {
+    const store = createLiveStore();
+    store.getState().setDelayMs(20_000, 0);
+    store.getState().nudgeDelay(5_000, 0);
+    store.getState().nudgeDelay(5_000, 0);
+    expect(store.getState().delayMs).toBe(10_000);
   });
 });

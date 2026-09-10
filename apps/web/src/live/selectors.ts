@@ -37,6 +37,10 @@ export interface DelayInfo {
   spanMs: number;
   bufferShort: boolean;
   setDelayMs(ms: number): void;
+  /** Sets the delay so the viewer sees source time `atMs`, reading the store's current head at call time rather than a value captured at the last render. `now` is injectable (default `Date.now`) so a caller can drive it deterministically in a test, the same way `useLiveTimeTarget`'s own `now` parameter works. */
+  seekToAxis(atMs: number, now?: number): void;
+  /** Moves the delay by `deltaMs` (forward = less delay), reading the store's current delay at call time so repeated calls compound correctly even with no render in between. `now` is injectable for the same reason as `seekToAxis`. */
+  nudgeDelay(deltaMs: number, now?: number): void;
 }
 
 export function useDelay(): DelayInfo {
@@ -44,10 +48,14 @@ export function useDelay(): DelayInfo {
   const spanMs = useLiveStore((state) => span(state.buffer));
   const bufferShort = useLiveStore((state) => state.bufferShort);
   const setDelayMs = useLiveStore((state) => state.setDelayMs);
+  const seekToAxis = useLiveStore((state) => state.seekToAxis);
+  const nudgeDelay = useLiveStore((state) => state.nudgeDelay);
   return {
     delayMs,
     spanMs,
     bufferShort,
+    seekToAxis: (atMs: number, now: number = Date.now()) => seekToAxis(atMs, now),
+    nudgeDelay: (deltaMs: number, now: number = Date.now()) => nudgeDelay(deltaMs, now),
     setDelayMs: (ms: number) => setDelayMs(ms, Date.now()),
   };
 }
