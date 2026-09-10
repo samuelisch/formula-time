@@ -147,6 +147,47 @@ describe("BoardPage", () => {
     expect(screen.getByText("Race starts 2026-09-08. Timing appears when the session goes live.")).toBeInTheDocument();
   });
 
+  // The transport bar and align button act on the live push buffer, which
+  // is frozen (finished) or empty (upcoming) in those states -- only a
+  // live session gets row 2. F3.
+  describe("transport bar and align button, live-only", () => {
+    it("shows the transport bar and align button while the session is live", () => {
+      renderWith(makePush());
+
+      expect(screen.getByRole("slider", { name: "Playback position" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Align with my screen/ })).toBeInTheDocument();
+    });
+
+    it("hides the transport bar and align button when the session has finished, and shows the replay banner", () => {
+      renderWith(
+        makePush({ session_key: "11361" }, { session: { session_key: "11361", name: "Race", country: "Italy", status: "finished" } }),
+      );
+
+      expect(screen.queryByRole("slider", { name: "Playback position" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Align with my screen/ })).not.toBeInTheDocument();
+      expect(screen.getByText("This race has finished. Showing its final state.")).toBeInTheDocument();
+    });
+
+    it("hides the transport bar when the session is upcoming, and shows the upcoming banner", () => {
+      renderWith(
+        makePush(
+          {},
+          { session: { session_key: "11361", name: "Race", country: "Italy", status: "upcoming", date_start: "2026-09-08T12:00:00.000Z" } },
+        ),
+      );
+
+      expect(screen.queryByRole("slider", { name: "Playback position" })).not.toBeInTheDocument();
+      expect(screen.getByText("Race starts 2026-09-08. Timing appears when the session goes live.")).toBeInTheDocument();
+    });
+
+    it("keeps the polls button mounted on every session status", () => {
+      renderWith(
+        makePush({ session_key: "11361" }, { session: { session_key: "11361", name: "Race", country: "Italy", status: "finished" } }),
+      );
+      expect(screen.getByRole("button", { name: "Polls" })).toBeInTheDocument();
+    });
+  });
+
   // The driver panel's selection lives in the URL (issue #90): a row click
   // sets `?driver=`, clicking the same row again clears it, and Escape
   // clears it regardless of which row was clicked.

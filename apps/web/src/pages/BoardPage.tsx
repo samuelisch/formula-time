@@ -79,6 +79,7 @@ export function BoardPage() {
   const status = useBoardSessionStatus();
   const { sessionKey, session } = useBoardSessionMeta();
   const target = useLiveTimeTarget();
+  const isLive = status === "live";
 
   const liveSessionKey = useLiveSessionKey();
   const liveSessionStatus = useLiveSessionStatus();
@@ -103,10 +104,10 @@ export function BoardPage() {
             <>
               <ConnectionPill />
               <PollsButton />
-              <AlignPanel />
+              {isLive && <AlignPanel />}
             </>
           }
-          transport={<TransportBar />}
+          transport={isLive ? <TransportBar /> : undefined}
           side={<DriverPanel />}
         />
       </TimeTargetProvider>
