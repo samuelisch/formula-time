@@ -33,9 +33,9 @@ interface SessionFields {
 const LIVE_WINDOW_MS = 30 * 60 * 1000;
 
 // Only race sessions are captured: practice, qualifying and sprint are
-// scrubbed off (owner decision 2026-09-10). A sprint carries
-// `session_type: "Race"` but `session_name: "Sprint"`, so the filter is on
-// `session_name`, exact and case-sensitive, matching OpenF1's own value.
+// scrubbed off. A sprint carries `session_type: "Race"` but
+// `session_name: "Sprint"`, so the filter is on `session_name`, exact and
+// case-sensitive, matching OpenF1's own value.
 export function isRaceSession(raw: RawRecord): boolean {
   return raw["session_name"] === "Race";
 }
