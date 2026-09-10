@@ -1,8 +1,7 @@
 // The replay `TimeTarget`: wraps `useReplayPlayback`'s clock and derives
 // jump anchors from the folded race rather than from pushes accumulated
-// since connecting, via `deriveTimelineAnchors` (`live/anchors.ts`, moved
-// there in issue #97 so the live `TimeTarget` can share it once a full-race
-// timeline is loaded there too).
+// since connecting, via `deriveTimelineAnchors` (`live/anchors.ts`), shared
+// with the live `TimeTarget` once a full-race timeline is loaded there too.
 import { useMemo, useState } from "react";
 
 import { deriveTimelineAnchors, type Anchors } from "../live/anchors.ts";

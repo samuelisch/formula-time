@@ -15,7 +15,7 @@ import { useLiveStore } from "../live/store.ts";
 import { makePush } from "../test/fixtures.ts";
 import { BoardPage } from "./BoardPage.tsx";
 
-// Issue #97: the loader itself is covered by its own test
+// The loader itself is covered by its own test
 // (`live/LiveTimelineLoader.test.tsx`); here it is a spy so BoardPage.test's
 // mount-latch assertions don't also need to fake `../races/api.ts`'s
 // `fetchRaceEventsPage`.
@@ -161,9 +161,9 @@ describe("BoardPage", () => {
     expect(screen.queryByText("Sector 1")).not.toBeInTheDocument();
   });
 
-  // Issue #97: LiveTimelineLoader is keyed off the *live* push's own
-  // session (never the *displayed* one, which BoardSourceProvider supplies
-  // here and which stays the default "live" fixture throughout).
+  // LiveTimelineLoader is keyed off the *live* push's own session (never
+  // the *displayed* one, which BoardSourceProvider supplies here and which
+  // stays the default "live" fixture throughout).
   describe("LiveTimelineLoader mount latch", () => {
     it("mounts when the live session's status is live", () => {
       resetLiveStore({ live: liveSessionPush("live") });

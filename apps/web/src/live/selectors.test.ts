@@ -94,9 +94,6 @@ describe("useTimeline", () => {
     expect(result.current).toBeNull();
   });
 
-  // PR #157 review round 1: useLiveTimeTarget's anchors()/range() must never
-  // see a timeline for a session other than the live push's own -- the same
-  // guard reselect() applies in store.ts (timelineMatchesSession()).
   it("is null when the timeline's session does not match the live push's, even though one is loaded", () => {
     const mismatchedTimeline = createTimeline({ session_key: 1111 }); // live push's session_key is "9999"
     resetStore({ live: pushWithSession({ status: "live" }), timeline: mismatchedTimeline });

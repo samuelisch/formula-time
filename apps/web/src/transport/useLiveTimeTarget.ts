@@ -4,7 +4,7 @@
 // the shared `TransportBar`. `playback()` is always null: live has no
 // play/pause concept, only a delay.
 //
-// Issue #97: once a full-race timeline is loaded (`LiveTimelineLoader`
+// Once a full-race timeline is loaded (`LiveTimelineLoader`
 // hands it to the store), `range()` spans the whole race from
 // `timeline.firstSourceMs`, and `anchors()` comes from the timeline's lap
 // markers rather than only the laps seen since this tab connected -- so a

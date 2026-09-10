@@ -181,7 +181,7 @@ describe("useLiveTimeTarget", () => {
     expect(result.current.anchors()).toEqual(anchorsWithLap5);
   });
 
-  describe("issue #97: timeline mode", () => {
+  describe("timeline mode", () => {
     const BASE_MS = Date.parse("2026-09-08T12:00:00.000Z");
     const NOW_TL = BASE_MS + 200_000; // 200s offset
 
@@ -206,11 +206,10 @@ describe("useLiveTimeTarget", () => {
       expect(anchors.laps.map((a) => a.lap)).toEqual([1, 2]);
     });
 
-    // PR #157 review round 1: a timeline for a session other than the *live*
-    // push's own must never feed anchors()/range() -- the same guard
-    // reselect() applies for `mode`/`displayed` in store.ts
-    // (timelineMatchesSession()), now shared via useTimeline() in
-    // live/selectors.ts.
+    // A timeline for a session other than the *live* push's own must never
+    // feed anchors()/range() -- the same guard reselect() applies for
+    // `mode`/`displayed` in store.ts (timelineMatchesSession()), shared via
+    // useTimeline() in live/selectors.ts.
     it("falls back to the buffer span and the store's anchors once the live session no longer matches the loaded timeline", async () => {
       const timeline = await buildTimeline(); // session_key "9999"
       resetStore({

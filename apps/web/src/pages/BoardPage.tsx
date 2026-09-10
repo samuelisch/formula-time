@@ -68,10 +68,10 @@ function useShouldMountTimelineLoader(sessionKey: number | null, status: Session
 // a replay (`ReplayPage.tsx`) -- one `TimeTargetProvider` wraps the whole
 // `Board`, not just `TransportBar`, so both slots read the same target.
 //
-// `LiveTimelineLoader` (issue #97) is mounted here, keyed off the *live*
-// push's own session key/status (`useLiveSessionKey`/`useLiveSessionStatus`)
-// -- never the *displayed* session, which in timeline mode is the
-// synthesised push and would feed the loader its own output back in.
+// `LiveTimelineLoader` is mounted here, keyed off the *live* push's own
+// session key/status (`useLiveSessionKey`/`useLiveSessionStatus`) -- never
+// the *displayed* session, which in timeline mode is the synthesised push
+// and would feed the loader its own output back in.
 export function BoardPage() {
   const polls = usePolls();
   const status = useBoardSessionStatus();

@@ -38,8 +38,8 @@ function fakePlayback(overrides: Partial<ReplayPlayback> = {}): ReplayPlayback {
   };
 }
 
-// deriveReplayAnchors's own tests moved to `live/anchors.test.ts` (issue
-// #97): it is now `deriveTimelineAnchors`, exported from `live/anchors.ts`.
+// The anchor-derivation tests live in `live/anchors.test.ts`, against
+// `deriveTimelineAnchors`, exported there.
 describe("useReplayTimeTarget", () => {
   it("displayedAt() is null when there is no fold, else the playback's sourceMs", () => {
     const { result: withoutFold } = renderHook(() => useReplayTimeTarget(fakePlayback({ sourceMs: 5_000 }), null));

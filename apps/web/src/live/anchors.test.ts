@@ -210,9 +210,9 @@ function folded(overrides: Partial<FoldedRace> = {}): FoldedRace {
   };
 }
 
-// Moved from useReplayTimeTarget.test.ts (issue #97): deriveReplayAnchors ->
-// deriveTimelineAnchors, now taking a `Timeline` (a `FoldedRace` satisfies
-// that shape unchanged) instead of only a `FoldedRace`.
+// deriveTimelineAnchors takes a `Timeline` (a `FoldedRace` satisfies that
+// shape unchanged) rather than only a `FoldedRace`, so the replay fold and
+// the live timeline share one anchor derivation.
 describe("deriveTimelineAnchors", () => {
   it("lap N's anchor is the lap marker's source time, and lights_out is lap 1's", () => {
     const anchors = deriveTimelineAnchors(folded());

@@ -66,12 +66,12 @@ export function deriveAnchors(previous: Anchors, push: LivePush, seen: Set<strin
  * `Timeline.lapMarkers` (already "the first source time the leader reached
  * this lap" -- see `replay/timeline.ts`); lights-out is lap 1's anchor;
  * restarts come from "SESSION STARTED" race-control events across the whole
- * timeline rather than a rolling 100-row window. Moved here (issue #97) from
- * `useReplayTimeTarget.ts`'s `deriveReplayAnchors`, which took a `FoldedRace`
- * -- `FoldedRace` is `Timeline & { finalState }`, so that call site passes
- * its fold unchanged. The live `TimeTarget` uses this too, once a full-race
- * timeline is loaded, so a late joiner's "Race start" and lap jumps are not
- * limited to laps seen since the tab connected.
+ * timeline rather than a rolling 100-row window. Takes a `Timeline` rather
+ * than only a `FoldedRace` -- `FoldedRace` is `Timeline & { finalState }`,
+ * so a replay's fold passes unchanged -- so the live `TimeTarget` can use
+ * it too once a full-race timeline is loaded, and a late joiner's "Race
+ * start" and lap jumps are not limited to laps seen since the tab
+ * connected.
  */
 export function deriveTimelineAnchors(timeline: Timeline): Anchors {
   const laps = timeline.lapMarkers.map((marker) => ({

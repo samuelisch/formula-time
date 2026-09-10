@@ -1,4 +1,4 @@
-// Issue #97: hands a full-race browser-side timeline to the live store so
+// Hands a full-race browser-side timeline to the live store so
 // `reselect()` (`live/store.ts`) can fold past the push ring buffer once a
 // viewer rewinds further back than the buffer covers ("timeline mode").
 //
