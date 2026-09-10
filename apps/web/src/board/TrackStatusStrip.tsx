@@ -61,7 +61,7 @@ export function TrackStatusStrip() {
 
   return (
     <div className={`${styles.strip} ${styles[strip.kind]}`} role="status">
-      {strip.text}
+      <span className={styles.plate}>{strip.text}</span>
     </div>
   );
 }
