@@ -47,7 +47,10 @@ One process holding:
   least one event whose endpoint is not `drivers` (timing data to replay):
   write the immutable file once. Idempotent; retried by the same check. A
   finished session with only `drivers` events (or none) is skipped, logged
-  once per process, and re-checked on later ticks.
+  once per process, and re-checked on later ticks. An already-exported
+  session is stale, and re-exported the same way, once its events log holds
+  a row received after the export's timestamp — a reload is picked up on
+  the next tick rather than served stale forever.
 
 This service is the sole writer of `polls` and `votes`. It reads `sessions`
 and `events`; it never writes `events`. Vote acknowledgement: acknowledge
@@ -57,7 +60,9 @@ row.
 
 ADR-0009: `exports` is a fifth table, written only by the api (the
 exporter). It does not write `sessions` — `sessions.exported_at` was
-dropped in the same migration that added `exports`.
+dropped in the same migration that added `exports`. ADR-0017: `exported_at`
+is the file's version, not a one-time stamp — it moves on a re-export, and
+the route's etag and the web's cache-busting `?v=` both key off it.
 
 `apps/api/src/export/prune-exports.ts` is a one-off maintenance command,
 not part of the running service: it removes `exports` rows (and their
