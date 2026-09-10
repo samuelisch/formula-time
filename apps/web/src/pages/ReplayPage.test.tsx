@@ -161,13 +161,23 @@ describe("ReplayPage", () => {
   });
 
   it("shows an error state when the file fetch fails", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ error: "not found" }), { status: 404 })),
-    );
+    // The index resolves fine (an entry with a version exists); only the
+    // file request itself 404s, so this exercises `fileQuery.isError`
+    // rather than the missing-index-entry path above.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/races") {
+        return new Response(JSON.stringify([makeIndexEntry()]), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Could not load this race.")).toBeInTheDocument());
+
+    const fileUrl = fetchMock.mock.calls.map(([url]) => String(url)).find((url) => url.startsWith("/api/races/11361"));
+    expect(fileUrl).toContain("?v=");
   });
 
   // Polls are live-only by product stance: a replay must never show or open
