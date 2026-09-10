@@ -63,8 +63,8 @@ export function deriveAnchors(previous: Anchors, push: LivePush, seen: Set<strin
 /**
  * The same `Anchors` shape the live store folds from accumulated pushes, but
  * built from a full-race `Timeline` instead: lap N's anchor is
- * `Timeline.lapMarkers` (already "the first source time the leader reached
- * this lap" -- see `replay/timeline.ts`); lights-out is lap 1's anchor;
+ * `Timeline.lapMarkers` (already "the lap's own earliest non-null source
+ * time across drivers" -- see `replay/timeline.ts`); lights-out is lap 1's anchor;
  * restarts come from "SESSION STARTED" race-control events across the whole
  * timeline rather than a rolling 100-row window. Takes a `Timeline` rather
  * than only a `FoldedRace` -- `FoldedRace` is `Timeline & { finalState }`,

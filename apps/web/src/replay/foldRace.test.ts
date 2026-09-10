@@ -81,7 +81,7 @@ describe("foldRace", () => {
     }
   });
 
-  it("records a lap marker at the first source time the leader reaches each lap", async () => {
+  it("records a lap marker at the lap's own earliest source time across drivers (was leaderLap-based; the marker now comes from the laps rows for that lap, not the leader's current lap)", async () => {
     const folded = await foldRace(tenEventFixture(), SESSION);
     expect(folded.lapMarkers).toEqual([
       { lap: 1, sourceMs: Date.parse(isoAt(0)) },

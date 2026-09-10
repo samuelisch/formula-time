@@ -50,7 +50,7 @@
 // (`foldRace.ts` defines `FoldedRace` as `Timeline & { finalState }`), so
 // `foldAt` accepts either one unchanged.
 import type { RawRecord, RaceEvent, RaceState } from "@formula-time/domain";
-import { createInitialState, leaderLap, RaceStateReducer } from "@formula-time/domain";
+import { createInitialState, RaceStateReducer } from "@formula-time/domain";
 
 export const KEYFRAME_EVENT_INTERVAL = 500;
 export const KEYFRAME_SOURCE_TIME_MS = 30_000;
@@ -68,7 +68,7 @@ export interface Keyframe {
 
 export interface LapMarker {
   lap: number;
-  /** The first source time (epoch ms) the leader reached this lap. */
+  /** The earliest non-null source time (epoch ms) any driver's `laps` row reported for this lap. */
   sourceMs: number;
 }
 
@@ -77,6 +77,15 @@ export interface Timeline {
   /** Deduped by `event_id` (first occurrence, in `seq` order), in append order. */
   events: RaceEvent[];
   keyframes: Keyframe[];
+  /**
+   * Earliest non-null `source_time` (epoch ms) seen so far for each lap
+   * number, across drivers -- keyed by lap so it survives across
+   * `appendEvents` calls even when a lap's null-time row (OpenF1 sends
+   * `date_start: null` for the formation lap before lights out) and its
+   * later, timed row land on different pages. `lapMarkers` is this, sorted
+   * by lap.
+   */
+  lapStartsMs: Record<number, number>;
   lapMarkers: LapMarker[];
   /** Epoch ms of the first event carrying a source time, or null if none did (yet). */
   firstSourceMs: number | null;
@@ -135,6 +144,7 @@ export function createTimeline(rawSession: RawRecord): Timeline {
     session,
     events: [],
     keyframes: [{ eventIndex: 0, sourceMs: null, state: reducer.snapshot() }],
+    lapStartsMs: {},
     lapMarkers: [],
     firstSourceMs: null,
     lastSourceMs: null,
@@ -176,7 +186,6 @@ export async function appendEvents(timeline: Timeline, rawEvents: RaceEvent[]): 
 
   let eventsSinceKeyframe = timeline.events.length - lastKeyframe.eventIndex;
   let keyframeSourceMs = lastKeyframe.sourceMs ?? timeline.firstSourceMs;
-  let lastMarkedLap = timeline.lapMarkers.length > 0 ? timeline.lapMarkers[timeline.lapMarkers.length - 1]!.lap : 0;
   let firstSourceMs = timeline.firstSourceMs;
   let lastSourceMs = timeline.lastSourceMs;
 
@@ -197,13 +206,22 @@ export async function appendEvents(timeline: Timeline, rawEvents: RaceEvent[]): 
       if (keyframeSourceMs === null) keyframeSourceMs = incoming;
     }
 
-    // `state` is the object `reducer` mutates in place, so this reads the
-    // current leader lap with no clone -- cheap enough to check every event.
-    if (lastSourceMs !== null) {
-      const currentLap = leaderLap(state);
-      if (currentLap > lastMarkedLap) {
-        timeline.lapMarkers.push({ lap: currentLap, sourceMs: lastSourceMs });
-        lastMarkedLap = currentLap;
+    // A lap marker is the lap's own earliest non-null source time, not the
+    // time of whatever event happened to be last applied: a `laps` row can
+    // arrive with `source_time: null` (the formation lap, before lights
+    // out) and only later mutate to carry it, so only `laps` rows for this
+    // lap number, and only once one of them carries a source time, ever
+    // move its marker.
+    if (raceEvent.endpoint === "laps" && incoming !== null) {
+      const lapNumber = raceEvent.payload["lap_number"];
+      if (typeof lapNumber === "number") {
+        const existingStart = timeline.lapStartsMs[lapNumber];
+        if (existingStart === undefined || incoming < existingStart) {
+          timeline.lapStartsMs[lapNumber] = incoming;
+          timeline.lapMarkers = Object.entries(timeline.lapStartsMs)
+            .map(([lap, sourceMs]) => ({ lap: Number(lap), sourceMs }))
+            .sort((a, b) => a.lap - b.lap);
+        }
       }
     }
 
@@ -252,7 +270,7 @@ export function foldAt(timeline: Timeline, targetSourceMs: number): RaceState {
   return reducer.snapshot();
 }
 
-/** The lap markers recorded so far -- the first source time (epoch ms) the leader reached each lap. */
+/** The lap markers recorded so far -- each lap's own earliest non-null source time (epoch ms), across drivers. */
 export function lapMarkers(timeline: Timeline): LapMarker[] {
   return timeline.lapMarkers;
 }

@@ -101,6 +101,80 @@ describe("timeline.ts appendEvents", () => {
     ]);
   });
 
+  it("stamps a lap marker from the lap's own timed row, not an unrelated earlier event's source time", async () => {
+    // Same shape as the 11361 export: a weather row precedes the formation
+    // lap, whose lap-1 row for each driver first arrives with a null
+    // source_time (OpenF1 has not sent date_start yet) and only later
+    // mutates to carry it.
+    const weather: RaceEvent = {
+      event_id: "w1",
+      endpoint: "weather",
+      source_time: "2026-09-06T12:59:51.000Z",
+      payload: { air_temperature: 24 },
+    };
+    const lap1NullTime: RaceEvent = {
+      event_id: "l1a",
+      endpoint: "laps",
+      source_time: null,
+      payload: { driver_number: 1, lap_number: 1 },
+    };
+    const lap1Timed: RaceEvent = {
+      event_id: "l1b",
+      endpoint: "laps",
+      source_time: "2026-09-06T13:03:30.936Z",
+      payload: { driver_number: 1, lap_number: 1 },
+    };
+
+    const timeline = createTimeline(SESSION);
+    await appendEvents(timeline, [weather, lap1NullTime]);
+    expect(timeline.lapMarkers.find((marker) => marker.lap === 1)).toBeUndefined();
+
+    await appendEvents(timeline, [lap1Timed]);
+    expect(timeline.lapMarkers).toEqual([{ lap: 1, sourceMs: Date.parse("2026-09-06T13:03:30.936Z") }]);
+  });
+
+  it("keeps the earlier source time when a later-arriving row for the same lap reports an earlier one", async () => {
+    const lap2First: RaceEvent = {
+      event_id: "l2a",
+      endpoint: "laps",
+      source_time: "2026-09-06T13:05:00.000Z",
+      payload: { driver_number: 1, lap_number: 2 },
+    };
+    const lap2SecondEarlier: RaceEvent = {
+      event_id: "l2b",
+      endpoint: "laps",
+      source_time: "2026-09-06T13:04:50.000Z",
+      payload: { driver_number: 2, lap_number: 2 },
+    };
+
+    const timeline = createTimeline(SESSION);
+    await appendEvents(timeline, [lap2First]);
+    expect(timeline.lapMarkers).toEqual([{ lap: 2, sourceMs: Date.parse("2026-09-06T13:05:00.000Z") }]);
+
+    await appendEvents(timeline, [lap2SecondEarlier]);
+    expect(timeline.lapMarkers).toEqual([{ lap: 2, sourceMs: Date.parse("2026-09-06T13:04:50.000Z") }]);
+  });
+
+  it("produces one marker for a lap whose null-time rows and timed row land in different appendEvents pages", async () => {
+    const nullTimeRows: RaceEvent[] = [
+      { event_id: "l1a", endpoint: "laps", source_time: null, payload: { driver_number: 1, lap_number: 1 } },
+      { event_id: "l1b", endpoint: "laps", source_time: null, payload: { driver_number: 2, lap_number: 1 } },
+    ];
+    const timedRow: RaceEvent = {
+      event_id: "l1c",
+      endpoint: "laps",
+      source_time: "2026-09-06T13:03:30.936Z",
+      payload: { driver_number: 1, lap_number: 1 },
+    };
+
+    const timeline = createTimeline(SESSION);
+    await appendEvents(timeline, nullTimeRows);
+    expect(timeline.lapMarkers).toEqual([]);
+
+    await appendEvents(timeline, [timedRow]);
+    expect(timeline.lapMarkers).toEqual([{ lap: 1, sourceMs: Date.parse("2026-09-06T13:03:30.936Z") }]);
+  });
+
   it("foldAt on a paged timeline equals a fresh full fold truncated to the same boundary, at several points", async () => {
     const events = tenEventFixture();
     const pagedTimeline = await buildPaged(events, 3);

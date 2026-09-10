@@ -202,6 +202,7 @@ function folded(overrides: Partial<FoldedRace> = {}): FoldedRace {
     session: {},
     events: [],
     keyframes: [],
+    lapStartsMs: {},
     finalState: {} as never,
     firstSourceMs: Date.parse("2026-09-06T13:00:00.000Z"),
     lastSourceMs: Date.parse("2026-09-06T13:01:30.000Z"),
