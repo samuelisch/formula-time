@@ -104,8 +104,8 @@ export function ReplayPage() {
     return <Card>Loading race…</Card>;
   }
 
-  // The replay always opens at the recording's first row (owner decision
-  // D2, option C), which can sit well before lights-out -- this notice
+  // The replay always opens at the recording's first row, which can sit
+  // well before lights-out -- this notice
   // tells the viewer where the race actually starts instead of leaving them
   // to find "Race start" on their own. It shows only before lights-out, only
   // when there is a lights-out anchor to jump to, and only until the viewer

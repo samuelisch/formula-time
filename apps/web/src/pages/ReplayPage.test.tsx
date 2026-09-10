@@ -106,11 +106,10 @@ describe("ReplayPage", () => {
   // Polls are live-only by product stance: a replay must never show or open
   // them. `Shell` holds the live SSE connection open on every route, so the
   // live store can hold an open poll while a replay is mounted. Two
-  // independent guards, both fixed on this branch: the replay mounts the
-  // pure `Board`, so no polls UI is mounted at all (round 5), and
-  // `usePolls()`/`PollModal` read the push through `useBoardPush()` rather
-  // than the live store, so even mounted they would see `polls: []` (round
-  // 4, pinned directly by polls/usePolls.test.tsx).
+  // independent guards: the replay mounts the pure `Board`, so no polls UI
+  // is mounted at all, and `usePolls()`/`PollModal` read the push through
+  // `useBoardPush()` rather than the live store, so even mounted they would
+  // see `polls: []` (pinned directly by polls/usePolls.test.tsx).
   it("shows no polls UI and never pops the modal while the live store holds an open poll", async () => {
     useLiveStore.setState({
       displayed: makePush({ session_key: "9999", polls: [makePoll({ poll_id: "9999:winner", status: "open" })] }),
@@ -124,13 +123,13 @@ describe("ReplayPage", () => {
     expect(screen.queryByRole("dialog", { name: "Race polls" })).not.toBeInTheDocument();
   });
 
-  // Round 5: a replay mounts the pure `Board`, never `BoardPage`. The live
-  // route's furniture all reads the live session or the live store, and on a
-  // replay every piece of it is wrong: the finished banner always fires (the
-  // exporter only exports finished sessions) and would link the replay back
-  // to itself, and the delay control (before issue #67) acted on a push
-  // buffer the replay does not use. `AlignPanel` is the one live-only piece
-  // issue #67 promotes to both routes -- see the dedicated test below.
+  // A replay mounts the pure `Board`, never `BoardPage`. The live route's
+  // furniture all reads the live session or the live store, and on a
+  // replay every piece of it is wrong: the finished banner always fires
+  // (the exporter only exports finished sessions) and would link the
+  // replay back to itself, and the delay control acted on a push buffer
+  // the replay does not use. `AlignPanel` is the one live-only piece that
+  // mounts on both routes -- see the dedicated test below.
   it("mounts none of the live route's session furniture: no banner, no polls button, no Live button", async () => {
     stubFetch();
     renderPage();
@@ -145,9 +144,9 @@ describe("ReplayPage", () => {
     expect(screen.queryByRole("button", { name: "Live" })).not.toBeInTheDocument(); // DelayControl/TransportBar's live-only button
   });
 
-  // Issue #67: alignment on a replay drives the same `useAligner`, now
-  // routed through `useTimeTarget()` instead of the live store directly, so
-  // the align button mounts in the replay toolbar next to the transport bar.
+  // Alignment on a replay drives the same `useAligner`, routed through
+  // `useTimeTarget()` instead of the live store directly, so the align
+  // button mounts in the replay toolbar next to the transport bar.
   it("mounts the align button in the toolbar, next to the transport bar", async () => {
     stubFetch();
     renderPage();
@@ -169,7 +168,7 @@ describe("ReplayPage -- start notice", () => {
   // The recording in this fixture starts 54 minutes before the leader
   // reaches lap 1 -- a position event with no lap yet, then the lap-1 event
   // 54 minutes later -- matching how a real recording opens well before
-  // lights-out (owner decision D2, option C: keep the recording start).
+  // lights-out.
   const GAP_MINUTES = 54;
   const RACE_FILE_WITH_GAP: RaceFile = {
     schema: 1,

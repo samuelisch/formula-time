@@ -1,4 +1,4 @@
-/* Dark palette lifted from the POC (apps/web/AGENTS.md, issue #45). */
+/* Dark palette lifted from the POC (apps/web/AGENTS.md). */
 :root {
   --color-bg: #0b0e13;
   --color-surface: #131923;
@@ -9,7 +9,7 @@
   --color-accent: #e10600;
   --color-green: #66d18f;
 
-  /* Track-status colours (issue #92): red flag, safety car / VSC, yellow sectors. */
+  /* Track-status colours: red flag, safety car / VSC, yellow sectors. */
   --flag-red: #e10600;
   --flag-amber: #ffb400;
   --flag-yellow: #ffe600;

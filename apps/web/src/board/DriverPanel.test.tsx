@@ -48,11 +48,10 @@ describe("DriverPanel", () => {
     expect(screen.getByText("L7 · 2.4s")).toBeInTheDocument(); // the one pit stop, from latest_pit_stop-shaped fixture data
   });
 
-  // Fix round 1: gap/interval rendered "—s" (a literal "s" appended outside
-  // number()'s own fallback) for a null value instead of the issue's
-  // verbatim "missing values render —". VER (the fixture's leader) has a
-  // null gap_to_leader and interval, so this is the case that must not
-  // regress.
+  // gap/interval must render the em dash "—" for a null value, not "—s" (a
+  // literal "s" appended outside number()'s own fallback). VER (the
+  // fixture's leader) has a null gap_to_leader and interval, so this is
+  // the case that must not regress.
   it("renders the em dash, not '—s', for the leader's null gap and interval", () => {
     renderWith(makePush());
 

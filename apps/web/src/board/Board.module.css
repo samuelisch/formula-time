@@ -1,12 +1,12 @@
-/* One grid for the whole board (issue #90 fix round 1): below ~860px, a
-   single column in DOM order (strip, toolbar, side, cards, table) -- the
-   side slot is a full-width card directly under the toolbar, per the
-   issue's acceptance criterion. The wide breakpoint below only reassigns
-   grid areas; it never reorders the DOM, so `side` stays a single element
-   in the tree and reading/tab order is unaffected by which layout is
-   active. Every direct child of `.board` needs a named area (`strip` and
-   `side` included, even though both can render empty) -- an unnamed grid
-   child auto-places into an implicit row instead of respecting DOM order. */
+/* One grid for the whole board: below ~860px, a single column in DOM
+   order (strip, toolbar, side, cards, table) -- the side slot is a
+   full-width card directly under the toolbar. The wide breakpoint below
+   only reassigns grid areas; it never reorders the DOM, so `side` stays a
+   single element in the tree and reading/tab order is unaffected by which
+   layout is active. Every direct child of `.board` needs a named area
+   (`strip` and `side` included, even though both can render empty) -- an
+   unnamed grid child auto-places into an implicit row instead of
+   respecting DOM order. */
 .board {
   display: grid;
   grid-template-areas:

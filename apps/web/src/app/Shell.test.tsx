@@ -104,10 +104,8 @@ describe("Shell", () => {
     expect(screen.getByText("Italy · Race · upcoming")).toBeInTheDocument();
   });
 
-  // Issue #57 fix round 5: DelayControl and AlignPanel used to mount here,
-  // under the header on every route -- so a replay carried live delay and
-  // alignment controls. They now mount in BoardPage's toolbar (the live
-  // route only); alignment on a replay is #67.
+  // DelayControl and AlignPanel mount in BoardPage's toolbar, the live
+  // route only; the shell itself carries no alignment controls.
   it("mounts no alignment controls of its own -- they belong to the live board", () => {
     resetStore({ connection: "open", lastMessageAt: Date.now(), displayed: displayedWithSession({ status: "live" }) });
     renderShell();
@@ -151,7 +149,7 @@ describe("Shell", () => {
     expect(screen.getByText("Italy · Race")).toBeInTheDocument();
   });
 
-  // The connection pill moved to the live page only (ConnectionPill.tsx,
+  // The connection pill lives on the live page only (ConnectionPill.tsx,
   // mounted by BoardPage): the shell itself is not a live-session view, so
   // it never shows connection wording on any route.
   it("shows no connection pill in the header, on any route or session status", () => {

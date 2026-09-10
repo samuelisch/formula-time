@@ -1,7 +1,6 @@
-// Issue #97 PR1, reworked per the owner's decision 2026-09-09 (issue #114):
-// no head polling -- the live store's push stream carries the events
-// applied each tick, and this hook backfills once per join then keeps
-// itself current from the stream alone.
+// No head polling: the live store's push stream carries the events applied
+// each tick, and this hook backfills once per join then keeps itself
+// current from the stream alone.
 import type { RaceEvent, RaceState } from "@formula-time/domain";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { useLayoutEffect } from "react";
@@ -17,8 +16,8 @@ import { useLiveStore } from "./store.ts";
 import { PAGE_LIMIT, RETRY_BACKOFF_MS, useSessionTimeline } from "./timeline.ts";
 import type { LivePush } from "./types.ts";
 
-// Review round 2 regression tests need to observe (and, for one test,
-// briefly pause) `appendEvents` calls on the shared `Timeline` -- so
+// Some regression tests need to observe (and, for one test, briefly
+// pause) `appendEvents` calls on the shared `Timeline` -- so
 // `appendEvents` is mocked here, but wired by default to delegate to the
 // real implementation (captured via `vi.hoisted`, since `vi.mock`'s
 // factory is itself hoisted above ordinary top-level variables) so every
@@ -88,7 +87,7 @@ function minimalRaceState(): RaceState {
   };
 }
 
-/** A push as it would arrive on the live store, carrying issue #114's `events` (and optionally `rebuilt`). */
+/** A push as it would arrive on the live store, carrying `events` (and optionally `rebuilt`). */
 function streamPush(seq: string, events: RaceEvent[], rebuilt?: boolean): LivePush {
   const push: LivePush = {
     type: "state",
@@ -355,10 +354,10 @@ describe("useSessionTimeline", () => {
   it("serializes appendEvents calls: a push arriving mid pending-merge does not run concurrently with it (review round 2)", async () => {
     // Backfill's one page is appendEvents call 0; the pending-merge (an
     // empty pending list here, since no push lands during backfill) is
-    // call 1 -- pause exactly that call to reproduce the window review
-    // round 2 found unsafe: `backfilling` flips before this call
-    // resolves, so a push arriving right here used to take the
-    // direct-append branch and run a second, concurrent appendEvents.
+    // call 1 -- pause exactly that call to reproduce the unsafe window:
+    // `backfilling` flips before this call resolves, so a push arriving
+    // right here would take the direct-append branch and run a second,
+    // concurrent appendEvents.
     let activeCalls = 0;
     let maxConcurrent = 0;
     let callIndex = 0;
@@ -440,8 +439,8 @@ describe("useSessionTimeline", () => {
 
   it("stops with an error instead of looping forever when a full page comes back with next_seq: null", async () => {
     // A full page (events.length === limit) must always carry a non-null
-    // next_seq per the api's contract (PR #102) -- this malformed
-    // response is the defensive guard's target.
+    // next_seq per the api's contract -- this malformed response is the
+    // defensive guard's target.
     const malformedFullPage: RaceEventsPage = { ...fullPage("p1", PAGE_LIMIT), next_seq: null };
     const fetchStub = queuedFetch([malformedFullPage]);
     vi.stubGlobal("fetch", fetchStub);

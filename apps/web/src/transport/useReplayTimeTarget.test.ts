@@ -110,11 +110,11 @@ describe("useReplayTimeTarget", () => {
     expect(withFold.current.anchors().lights_out).toBe("2026-09-06T13:00:00.000Z");
   });
 
-  // Un-nudged sync offset (issue #67): a net accumulator over every
-  // `seekTo`/`nudge` call, not a wall-clock computation -- ticking while
-  // playing moves `playback.sourceMs` (simulated here by re-rendering with
-  // an updated fake) without ever calling `seekTo`/`nudge`, so it must never
-  // move the offset.
+  // Un-nudged sync offset: a net accumulator over every `seekTo`/`nudge`
+  // call, not a wall-clock computation -- ticking while playing moves
+  // `playback.sourceMs` (simulated here by re-rendering with an updated
+  // fake) without ever calling `seekTo`/`nudge`, so it must never move the
+  // offset.
   describe("syncOffsetMs()", () => {
     it("is null with no fold, 0 for a fold that has never been seeked", () => {
       const { result: unfolded } = renderHook(() => useReplayTimeTarget(fakePlayback(), null));

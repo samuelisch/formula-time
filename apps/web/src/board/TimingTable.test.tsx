@@ -8,7 +8,7 @@ import { BoardSourceProvider } from "./useBoardState.ts";
 
 // Wrapped in a MemoryRouter: DriverRow reads/writes the driver selection
 // through useDriverSelection() (useSearchParams), which needs a Router
-// context even when a row's click is never simulated (issue #90).
+// context even when a row's click is never simulated.
 function tree(push: ReturnType<typeof makePush> | null) {
   return (
     <MemoryRouter>
@@ -88,9 +88,9 @@ describe("TimingTable row formatting", () => {
   });
 });
 
-// TimingTable wires useBoardPositionDeltas() (issue #91) to each DriverRow.
-// A single render never has a previous push to compare against, so these
-// cases render once and then push a second, changed state.
+// TimingTable wires useBoardPositionDeltas() to each DriverRow. A single
+// render never has a previous push to compare against, so these cases
+// render once and then push a second, changed state.
 describe("TimingTable position cues", () => {
   function pushWithPosition(position: number) {
     const driver = makeDriver({ driver_number: 1, name_acronym: "VER", position });
@@ -115,9 +115,8 @@ describe("TimingTable position cues", () => {
     expect(screen.queryByText(/^[▲▼]/)).not.toBeInTheDocument();
   });
 
-  // Fix round 1 (issue #91 review): the issue asks for the arrow/number cue
-  // "plus a subtle row highlight on the change" -- a second, row-level
-  // signal, not only the small cell.
+  // A row-level highlight is a second signal alongside the arrow/number
+  // cue, not a replacement for it.
   it("adds a row-highlight class on a position change", () => {
     const { rerender } = renderWith(pushWithPosition(3));
     rerender(tree(pushWithPosition(1)));

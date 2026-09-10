@@ -208,10 +208,10 @@ describe("live store", () => {
       expect(Date.parse(after!)).toBeGreaterThan(Date.parse(before!));
     });
 
-    // Review round 1 on PR #154: `foldAt` clones on every call, so without a
-    // cache `displayed` got a new reference on every 250ms tick even when
-    // the fold did not cross an event boundary -- `useDisplayed()` would
-    // re-render every tick while a viewer sat parked in timeline mode.
+    // `foldAt` clones on every call, so without a cache `displayed` would
+    // get a new reference on every 250ms tick even when the fold does not
+    // cross an event boundary -- `useDisplayed()` would re-render every
+    // tick while a viewer sits parked in timeline mode.
     it("keeps displayed referentially stable across ticks that do not cross an event boundary, and returns a new reference once one is crossed", async () => {
       const store = createLiveStore();
       const timeline = await buildRewindTimeline();
@@ -235,9 +235,9 @@ describe("live store", () => {
       expect(third).not.toBe(second);
     });
 
-    // Review round 1 on PR #154 (Note): a timeline for a different session
-    // than the live push's must never be folded from -- fall through to the
-    // oldest-entry fallback exactly as if no timeline were loaded.
+    // A timeline for a different session than the live push's must never be
+    // folded from -- fall through to the oldest-entry fallback exactly as
+    // if no timeline were loaded.
     it("ignores a timeline for a different session, falling through to the oldest-entry fallback", async () => {
       const store = createLiveStore();
       const otherSessionTimeline = createTimeline({ ...TIMELINE_SESSION, session_key: 1111 });
@@ -254,11 +254,12 @@ describe("live store", () => {
       expect(store.getState().displayed).toEqual(live.push);
     });
 
-    // Review round 2 on PR #154: the round-1 cache keyed only on `timeline.events`
-    // and the folded `sequence`, so a second real push landing in the same
-    // fold interval (the common case -- pushes arrive roughly every second,
-    // event/keyframe spacing is much wider) returned the *first* push's
-    // stale envelope (`seq`/`sent_at`) instead of the new one.
+    // The cache key must include more than `timeline.events` and the folded
+    // `sequence`: keying on just those, a second real push landing in the
+    // same fold interval (the common case -- pushes arrive roughly every
+    // second, event/keyframe spacing is much wider) would return the
+    // *first* push's stale envelope (`seq`/`sent_at`) instead of the new
+    // one.
     it("updates the envelope on a new push even when the fold does not cross an event boundary, and does not reuse the stale reference", async () => {
       const store = createLiveStore();
       const timeline = await buildRewindTimeline();

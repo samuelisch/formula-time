@@ -1,8 +1,8 @@
-// Round 3 regression test: useReplayPlayback wires the fixed PlaybackClock
-// (playbackClock.test.ts covers the clock's own math) to React's
-// requestAnimationFrame. This mounts the hook, waits (an idle gap), plays,
-// ticks exactly one frame, and asserts the position moved by that one
-// frame's worth -- not by the mount-to-play gap (the bug this round fixes).
+// useReplayPlayback wires PlaybackClock (playbackClock.test.ts covers the
+// clock's own math) to React's requestAnimationFrame. This mounts the
+// hook, waits (an idle gap), plays, ticks exactly one frame, and asserts
+// the position moved by that one frame's worth -- not by the
+// mount-to-play gap.
 import type { RaceEvent, RawRecord } from "@formula-time/domain";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

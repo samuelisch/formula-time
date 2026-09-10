@@ -1,13 +1,13 @@
 // PollsPage: race selection (URL-driven, RaceSelect), the current session's
-// polls from the push (or the pre-push initial fill, issue #51's fallback),
-// a stubbed fetch for any other race, both empty states, and the live lap
-// line. Also carries the fix-round-3 regression for issue #51: a vote cast
-// during the initial-fill window (GET /api/polls, before the first SSE push
-// -- the session key is not yet known) must still show as "your pick" once
-// the first push lands and the page switches to rendering the displayed
-// push's polls. votes.ts keys by poll_id alone (poll ids already embed the
-// session key server-side), so this holds regardless of what, if anything,
-// changes about the session between the two renders.
+// polls from the push (or the pre-push initial fill), a stubbed fetch for
+// any other race, both empty states, and the live lap line. Also covers a
+// vote cast during the initial-fill window (GET /api/polls, before the
+// first SSE push -- the session key is not yet known), which must still
+// show as "your pick" once the first push lands and the page switches to
+// rendering the displayed push's polls. votes.ts keys by poll_id alone
+// (poll ids already embed the session key server-side), so this holds
+// regardless of what, if anything, changes about the session between the
+// two renders.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
@@ -35,7 +35,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>>
   });
 }
 
-/** Settled: the SSE connection is open and has delivered a status frame, but (per the test) not necessarily a push yet -- the state fix round 2 on PR #85 needs before it will show anything but "Connecting…". */
+/** Settled: the SSE connection is open and has delivered a status frame, but not necessarily a push yet -- the state needed before the page shows anything but "Connecting…". */
 function settledConnection(): Partial<ReturnType<typeof useLiveStore.getState>> {
   return { connection: "open", statusReceived: true };
 }
@@ -242,11 +242,11 @@ describe("PollsPage", () => {
     expect(screen.queryByText(/^LAP /)).not.toBeInTheDocument();
   });
 
-  // Fix round 2 on PR #85: the previous (round 1) fix inferred "no current
-  // session" straight from `sessionKey === null`, which raced GET /api/races
-  // against the first SSE push -- a fast-resolving races fetch could show an
-  // unrelated race's polls moments before the real push landed. These four
-  // cases pin the settled-connection design that replaced it.
+  // Inferring "no current session" straight from `sessionKey === null`
+  // races GET /api/races against the first SSE push -- a fast-resolving
+  // races fetch could show an unrelated race's polls moments before the
+  // real push landed. These four cases pin the settled-connection design
+  // that avoids that.
   describe("default selection when no current session is known yet (fix round 2)", () => {
     it("shows Connecting… while settling, even once GET /api/races has already resolved", async () => {
       resetStore(); // connection: "connecting" (default) -- never settles in this test.
