@@ -152,12 +152,18 @@ function fakeDb(): LoaderDb & {
   };
 }
 
-function sessionJson(fields: { sessionKey: number; dateStart: string; dateEnd: string }): string {
+function sessionJson(fields: {
+  sessionKey: number;
+  dateStart: string;
+  dateEnd: string;
+  sessionName?: string;
+  sessionType?: string;
+}): string {
   return JSON.stringify({
     session: {
       session_key: fields.sessionKey,
-      session_type: "Race",
-      session_name: "Race",
+      session_type: fields.sessionType ?? "Race",
+      session_name: fields.sessionName ?? "Race",
       date_start: fields.dateStart,
       date_end: fields.dateEnd,
       circuit_key: 39,
@@ -401,6 +407,36 @@ describe("loadRecordings: ADR-0010 — refuses a live session, writes nothing fo
       expect(totals.sessionsSkipped).toBe(0);
       expect(db.sessions.get("9601")?.status).toBe("finished");
       expect(logs.some((line) => line.includes("9601") && line.includes("window not closed"))).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("loadRecordings: issue #168 — refuses a non-race session, writes nothing for it", () => {
+  test("a recording whose session.json says Qualifying is refused before any write", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "load-recording-non-race-test-"));
+    try {
+      await writeFile(
+        path.join(dir, "session.json"),
+        sessionJson({
+          sessionKey: 9701,
+          dateStart: "2026-01-01T13:00:00+00:00",
+          dateEnd: "2026-01-01T15:00:00+00:00",
+          sessionName: "Qualifying",
+          sessionType: "Qualifying",
+        }),
+      );
+      await mkdir(path.join(dir, "raw"), { recursive: true });
+      const db = fakeDb();
+      const logs: string[] = [];
+      const totals = await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: (line) => logs.push(line) });
+
+      expect(totals.inserted).toBe(0);
+      expect(totals.sessionsSkipped).toBe(1);
+      expect(db.sessions.has("9701")).toBe(false);
+      expect(db.callLog).toEqual([]); // no upsert, no createMany: refused before any write
+      expect(logs).toContain('load: refused 9701: session_name is "Qualifying", only "Race" is loaded');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
