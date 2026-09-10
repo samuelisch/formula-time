@@ -3,7 +3,7 @@
 // `pnpm test:integration`. Connection pattern from
 // `projector.integration.test.ts`.
 //
-// Issue #89 acceptance: "three events -> one `state`, then a delta whose
+// Tests delta push behavior: "three events -> one `state`, then a delta whose
 // patch touches only the changed driver." Wires a real RaceStateProjector
 // (real Postgres fold) to a real Fanout, exactly as session-lifecycle.ts
 // does, and drives a delta-format socket through both a first-ever push
@@ -22,8 +22,8 @@ import { Fanout } from "./fanout.js";
 const db: PrismaClient = createDb();
 // A distinctive, unlikely-to-collide key: this Postgres is shared across
 // concurrent worktrees/agents (no isolated per-test database), and a
-// nearby value (9_000_089) was seen collide with another agent's own
-// issue-89 work in this same shared instance during development.
+// nearby value (9_000_089) was seen collide with another agent's concurrent
+// test work in this same shared instance during development.
 const SESSION_KEY = 9_178_920_089n;
 
 function sleep(ms: number): Promise<void> {
