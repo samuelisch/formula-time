@@ -22,7 +22,7 @@
 //
 // Not exercised against the real broker (no network in tests, ever) —
 // `isAuthRejection`'s CONNACK-error-code guess (MQTT 3.1.1 codes 4/5, MQTT5
-// reason codes 0x86/0x87) is unverified until the day-3 rehearsal.
+// reason codes 0x86/0x87) is unverified until a live run against the broker.
 
 import mqtt from "mqtt";
 
