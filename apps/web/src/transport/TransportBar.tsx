@@ -5,6 +5,7 @@
 // (`board/Board.tsx`).
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
+import { cx } from "../lib/classNames.ts";
 import { clock } from "../lib/format.ts";
 import { jumpToRaceStart } from "./raceStart.ts";
 import { SliderWithTicks, type TickMark } from "./SliderWithTicks.tsx";
@@ -116,17 +117,17 @@ export function TransportBar() {
   return (
     <div className={styles.transport}>
       <div className={styles.row}>
-        <button type="button" onClick={() => target.nudge(-HUGE_NUDGE_MS)}>
+        <button type="button" className={styles.control} onClick={() => target.nudge(-HUGE_NUDGE_MS)}>
           −10s
         </button>
-        <button type="button" onClick={() => target.nudge(-BIG_NUDGE_MS)}>
+        <button type="button" className={styles.control} onClick={() => target.nudge(-BIG_NUDGE_MS)}>
           −5s
         </button>
 
         {playback === null ? (
           <button
             type="button"
-            className={styles.live}
+            className={cx(styles.control, styles.live)}
             onClick={() => {
               // Fresh at click time, not the `range` captured at the last
               // render: `range().endMs` is `now()` when live, and time keeps
@@ -140,15 +141,15 @@ export function TransportBar() {
             Live
           </button>
         ) : (
-          <button type="button" onClick={playback.playing ? playback.pause : playback.play}>
+          <button type="button" className={styles.control} onClick={playback.playing ? playback.pause : playback.play}>
             {playback.playing ? "Pause" : "Play"}
           </button>
         )}
 
-        <button type="button" onClick={() => target.nudge(BIG_NUDGE_MS)}>
+        <button type="button" className={styles.control} onClick={() => target.nudge(BIG_NUDGE_MS)}>
           +5s
         </button>
-        <button type="button" onClick={() => target.nudge(HUGE_NUDGE_MS)}>
+        <button type="button" className={styles.control} onClick={() => target.nudge(HUGE_NUDGE_MS)}>
           +10s
         </button>
 
@@ -165,19 +166,22 @@ export function TransportBar() {
 
         <span className={styles.clock}>{positionLabel}</span>
 
-        <button type="button" onClick={handleRaceStart}>
+        <button type="button" className={styles.control} onClick={handleRaceStart}>
           Race start
         </button>
 
         <form className={styles.jump} onSubmit={handleGoToLap}>
           <input
             type="number"
+            className={styles.control}
             aria-label="Lap number"
             placeholder="Lap"
             value={lapInput}
             onChange={(event) => setLapInput(event.target.value)}
           />
-          <button type="submit">Go</button>
+          <button type="submit" className={styles.control}>
+            Go
+          </button>
         </form>
       </div>
       {notice !== null && <div className={styles.warning}>{notice}</div>}

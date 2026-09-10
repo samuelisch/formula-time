@@ -63,11 +63,11 @@ export const DriverRow = memo(function DriverRow({ number: driverNumber, delta =
       <td>
         <strong>{text(driver.name_acronym)}</strong>
         <br />
-        <span className={styles.muted}>{text(driver.full_name)}</span>
+        <span className={cx(styles.muted, styles.fullName)}>{text(driver.full_name)}</span>
       </td>
       <td>
         <TeamDot teamColour={driver.team_colour} />
-        {text(driver.team_name)}
+        <span className={styles.teamName}>{text(driver.team_name)}</span>
       </td>
       <td>{gapText(driver.gap_to_leader)}</td>
       <td>{gapText(driver.interval)}</td>

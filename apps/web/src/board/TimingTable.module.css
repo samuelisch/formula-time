@@ -86,3 +86,13 @@
   color: var(--color-muted);
   padding: 1rem;
 }
+
+@media (max-width: 640px) {
+  /* Narrow width: the Team column collapses to just the colour dot, and
+     the full name under the driver acronym is hidden -- the acronym and
+     the dot carry enough identity without the extra row height. */
+  .fullName,
+  .teamName {
+    display: none;
+  }
+}

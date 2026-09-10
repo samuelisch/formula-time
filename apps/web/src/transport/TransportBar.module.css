@@ -16,7 +16,7 @@
   flex-wrap: wrap;
 }
 
-.row button {
+.control {
   background: var(--color-raised);
   color: var(--color-text);
   border: 1px solid var(--color-border);
@@ -69,4 +69,16 @@
 .legend {
   color: var(--color-muted);
   font-size: 0.75rem;
+}
+
+@media (max-width: 640px) {
+  /* Thumb-reachable controls: every button and the lap-jump input grow to
+     a 40px tap target instead of the desktop compact sizing. */
+  .control {
+    min-height: 40px;
+  }
+
+  .jump input {
+    flex: 1;
+  }
 }
