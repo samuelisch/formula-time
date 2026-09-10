@@ -16,6 +16,14 @@
 // whatever is already held (`seq` compared as numbers); an older snapshot
 // is discarded rather than regressing the board back past a push that has
 // already arrived.
+//
+// A gap is recorded (`pendingGap`) the instant it is detected and cleared
+// only once some push actually reaches `onState` afterward -- the fetched
+// snapshot, if it was accepted above, or a `state` frame that got there
+// first and made the fetch moot. Whichever push clears it is marked
+// `rebuilt: true` (`types.ts`): the client's own local timeline has a hole
+// across the gap, the same condition the server's late-commit rebuild flag
+// signals, and `timeline.ts` already discards and re-backfills on it.
 import { useEffect } from "react";
 
 import { apiFetch, apiUrl } from "../api.ts";
@@ -44,6 +52,10 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
     // arriving before it resolves is unambiguously seen as "already
     // fetching" and dropped, never starting a second, overlapping fetch.
     let fetchingSnapshot = false;
+    // True from the moment a gap is detected until some push actually
+    // resolves it (see the module comment above).
+    let pendingGap = false;
+
     const fetchSnapshot = (): void => {
       fetchingSnapshot = true;
       apiFetch("/api/live/snapshot")
@@ -54,9 +66,13 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
           if (held !== null && !seqIsNewer(push.seq, held.seq)) {
             // A state frame already landed and moved `live` past this
             // fetch's snapshot while it was in flight -- applying it now
-            // would silently regress the board.
+            // would silently regress the board. Leave `pendingGap` as-is:
+            // if that state frame already resolved the gap it is already
+            // false; if not, the next delta retries the fetch.
             return;
           }
+          push.rebuilt = true;
+          pendingGap = false;
           useLiveStore.getState().onState(push, Date.now());
         })
         .catch(() => {
@@ -69,6 +85,10 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
 
     const handleState = (event: MessageEvent<string>): void => {
       const push = JSON.parse(event.data) as LivePush;
+      if (pendingGap) {
+        push.rebuilt = true;
+        pendingGap = false;
+      }
       useLiveStore.getState().onState(push, Date.now());
     };
     const handleDelta = (event: MessageEvent<string>): void => {
@@ -76,6 +96,7 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
       const frame = JSON.parse(event.data) as DeltaPush;
       const next = applyDelta(useLiveStore.getState().live, frame);
       if (next === null) {
+        pendingGap = true;
         fetchSnapshot();
         return;
       }

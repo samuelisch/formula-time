@@ -38,10 +38,15 @@ export interface LivePush {
    */
   events?: RaceEvent[];
   /**
-   * Set when this push is a rebuild-from-log after a late-commit alarm:
-   * `events` is `[]` regardless, and a client timeline built from the
-   * stream must be discarded and re-backfilled, since the rebuild may have
-   * changed rows the client already folded.
+   * Set when the client's local event-log timeline
+   * (`apps/web/src/live/timeline.ts`'s `useSessionTimeline`) has a hole
+   * and must be discarded and re-backfilled. Two causes mean the same
+   * thing to that timeline: the server rebuilt RaceState from the log
+   * after a late-commit alarm (`events` is `[]` regardless, since the
+   * rebuild may have changed rows the client already folded); or the
+   * client itself detected a delta-stream gap (`useLiveStream.ts`) and
+   * marks the push that resolves it, since the events from the skipped
+   * ticks were never delivered either.
    */
   rebuilt?: boolean;
 }

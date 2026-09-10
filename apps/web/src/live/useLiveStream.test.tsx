@@ -202,7 +202,11 @@ describe("useLiveStream", () => {
 
     es().emit("delta", JSON.stringify(deltaFrame("49", "50", 50))); // base_seq "49" != held seq "1" -- a gap
 
-    await waitFor(() => expect(useLiveStore.getState().live).toEqual(snapshot));
+    // The client marks the push that resolves a gap `rebuilt: true` (the
+    // same meaning as the server's own late-commit rebuild flag): the
+    // client's local timeline has a hole across the gap and must
+    // re-backfill.
+    await waitFor(() => expect(useLiveStore.getState().live).toEqual({ ...snapshot, rebuilt: true }));
     expect(apiFetch).toHaveBeenCalledTimes(1);
     expect(apiFetch).toHaveBeenCalledWith("/api/live/snapshot");
   });
@@ -228,7 +232,7 @@ describe("useLiveStream", () => {
     const snapshot = statePush("50", 50);
     resolveFetch!(jsonResponse(snapshot));
 
-    await waitFor(() => expect(useLiveStore.getState().live).toEqual(snapshot));
+    await waitFor(() => expect(useLiveStore.getState().live).toEqual({ ...snapshot, rebuilt: true }));
     expect(apiFetch).toHaveBeenCalledTimes(1);
   });
 
@@ -249,11 +253,11 @@ describe("useLiveStream", () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(snapshot));
     es().emit("delta", JSON.stringify(deltaFrame("49", "50", 50)));
 
-    await waitFor(() => expect(useLiveStore.getState().live).toEqual(snapshot));
+    await waitFor(() => expect(useLiveStore.getState().live).toEqual({ ...snapshot, rebuilt: true }));
     expect(apiFetch).toHaveBeenCalledTimes(2);
   });
 
-  it("discards a stale fetched snapshot when a newer state frame already landed while the fetch was in flight", async () => {
+  it("discards a stale fetched snapshot when a newer state frame already landed while the fetch was in flight, marking that frame rebuilt instead", async () => {
     const { EventSourceImpl, es } = capturingEventSource();
     renderHook(() => useLiveStream({ EventSourceImpl }));
 
@@ -265,13 +269,15 @@ describe("useLiveStream", () => {
     });
     vi.mocked(apiFetch).mockReturnValueOnce(pending);
 
-    es().emit("delta", JSON.stringify(deltaFrame("49", "50", 50))); // gap: starts the fetch
+    es().emit("delta", JSON.stringify(deltaFrame("49", "50", 50))); // gap: starts the fetch, pendingGap set
 
     // A keyframe (or a fresh join snapshot from the stream's own reconnect)
-    // lands and advances `live` while the fetch is still in flight.
+    // lands and advances `live` while the fetch is still in flight -- it
+    // resolves the pending gap client-side, marked rebuilt even though the
+    // server sent it as an ordinary keyframe.
     const keyframe = statePush("200", 200);
     es().emit("state", JSON.stringify(keyframe));
-    expect(useLiveStore.getState().live).toEqual(keyframe);
+    expect(useLiveStore.getState().live).toEqual({ ...keyframe, rebuilt: true });
 
     // The stale fetch resolves with an older snapshot than what's now held
     // -- it must not overwrite the newer keyframe.
@@ -281,6 +287,20 @@ describe("useLiveStream", () => {
     // Give the fetch's .then chain every chance to (wrongly) apply the
     // stale snapshot before asserting it did not.
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useLiveStore.getState().live).toEqual({ ...keyframe, rebuilt: true });
+  });
+
+  it("leaves rebuilt absent on an ordinary keyframe when there was no gap", () => {
+    const { EventSourceImpl, es } = capturingEventSource();
+    renderHook(() => useLiveStream({ EventSourceImpl }));
+
+    es().emit("state", JSON.stringify(statePush("1", 1)));
+    es().emit("delta", JSON.stringify(deltaFrame("1", "2", 2))); // matches -- no gap
+
+    const keyframe = statePush("200", 200);
+    es().emit("state", JSON.stringify(keyframe));
+
     expect(useLiveStore.getState().live).toEqual(keyframe);
+    expect(useLiveStore.getState().live?.rebuilt).toBeUndefined();
   });
 });
