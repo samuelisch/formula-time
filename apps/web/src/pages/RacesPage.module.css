@@ -97,3 +97,11 @@
 .raceMeta {
   color: var(--color-muted);
 }
+
+@media (max-width: 640px) {
+  .liveCard,
+  .finishedLinks,
+  .raceRow {
+    flex-wrap: wrap;
+  }
+}

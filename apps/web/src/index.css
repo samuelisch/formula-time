@@ -16,6 +16,10 @@
 
   color-scheme: dark;
   font: 16px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
+
+  /* The one responsive breakpoint (apps/web/AGENTS.md scope rule: no
+     library) -- phone-width layouts switch below this. */
+  --bp-narrow: 640px;
 }
 
 * {
@@ -26,6 +30,9 @@ body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-text);
+  /* A phone-width layout must never scroll sideways; any element that
+     overflows this is a bug, not a feature that needs its own scrollbar. */
+  overflow-x: hidden;
 }
 
 a {
