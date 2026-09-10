@@ -460,8 +460,8 @@ describe("applyOffsetToTarget", () => {
 
   it("live, through the real useLiveTimeTarget: ends with delayMs exactly ms (the setDelayMs path, unchanged)", () => {
     // sent_at/lastMessageAt both 0 so headMs lands exactly on the hook's now() (300_000): seekTo needs a live push to measure against. Buffer entries are real pushes (not "{}") since the selected one becomes `displayed`, which the hook parses.
-    function pushAt(atMs: number): { at: number; raw: string } {
-      return { at: atMs, raw: JSON.stringify(makePush({ sent_at: atMs }, { latest_source_time: null })) };
+    function pushAt(atMs: number): { at: number; push: ReturnType<typeof makePush> } {
+      return { at: atMs, push: makePush({ sent_at: atMs }, { latest_source_time: null }) };
     }
     resetStore({
       buffer: { entries: [pushAt(0), pushAt(300_000)] },
@@ -539,8 +539,8 @@ describe("applyOffsetToTarget", () => {
 
   it("live: the delay set is exactly the tracker's measured offset", () => {
     // sent_at/lastMessageAt both 0 so headMs (axisOf(live) + (now - lastMessageAt)) lands exactly on the hook's now() (500_000): seekTo needs a live push to measure against. Buffer entries are real pushes (not "{}") since the selected one becomes `displayed`, which the hook parses.
-    function pushAt(atMs: number): { at: number; raw: string } {
-      return { at: atMs, raw: JSON.stringify(makePush({ sent_at: atMs }, { latest_source_time: null })) };
+    function pushAt(atMs: number): { at: number; push: ReturnType<typeof makePush> } {
+      return { at: atMs, push: makePush({ sent_at: atMs }, { latest_source_time: null }) };
     }
     resetStore({
       buffer: { entries: [pushAt(0), pushAt(1_000_000)] },

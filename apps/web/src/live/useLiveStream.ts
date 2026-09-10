@@ -20,7 +20,7 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
 
     const handleState = (event: MessageEvent<string>): void => {
       const push = JSON.parse(event.data) as LivePush;
-      useLiveStore.getState().onState(event.data, push, Date.now());
+      useLiveStore.getState().onState(push, Date.now());
     };
     const handleStatus = (event: MessageEvent<string>): void => {
       const status = JSON.parse(event.data) as { catching_up: boolean };

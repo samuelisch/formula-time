@@ -55,7 +55,7 @@ async function buildTimeline(): Promise<Timeline> {
   return timeline;
 }
 
-const bufferedSpan = { entries: [{ at: 0, raw: "{}" }, { at: 180_000, raw: "{}" }] };
+const bufferedSpan = { entries: [{ at: 0, push: makePush() }, { at: 180_000, push: makePush() }] };
 
 const anchorsWithLap5: Anchors = {
   lights_out: "2000-01-01T00:00:00.000Z",
@@ -141,12 +141,12 @@ describe("useLiveTimeTarget", () => {
   it("seekTo() past the buffered span sets the full delay and lets the store fall back to the oldest push", () => {
     // `live` (`reselect`'s liveAxis) must be set for the store to actually
     // fall back rather than short-circuit to `{ displayed: null,
-    // bufferShort: false }`, and the fallback entry's `raw` must be a real
-    // encoded push -- once it becomes `displayed`, this hook's own
-    // `axisOf(displayed)` parses it on every render -- axis pinned to NOW
-    // via `sent_at` (no source time), matching `bufferedSpan`'s own axis.
-    function pushAt(atMs: number): { at: number; raw: string } {
-      return { at: atMs, raw: JSON.stringify(makePush({ sent_at: atMs }, { latest_source_time: null })) };
+    // bufferShort: false }`, and the fallback entry's `push` must be a real
+    // push -- once it becomes `displayed`, this hook's own `axisOf(displayed)`
+    // reads it on every render -- axis pinned to NOW via `sent_at` (no
+    // source time), matching `bufferedSpan`'s own axis.
+    function pushAt(atMs: number): { at: number; push: ReturnType<typeof makePush> } {
+      return { at: atMs, push: makePush({ sent_at: atMs }, { latest_source_time: null }) };
     }
     resetStore({
       buffer: { entries: [pushAt(0), pushAt(180_000)] },
@@ -249,8 +249,8 @@ describe("useLiveTimeTarget", () => {
     const BASE_MS = Date.parse("2026-09-08T12:00:00.000Z");
     const NOW_TL = BASE_MS + 200_000; // 200s offset
 
-    function pushAt(atMs: number): { at: number; raw: string } {
-      return { at: atMs, raw: JSON.stringify(makePush({ sent_at: atMs }, { latest_source_time: null })) };
+    function pushAt(atMs: number): { at: number; push: ReturnType<typeof makePush> } {
+      return { at: atMs, push: makePush({ sent_at: atMs }, { latest_source_time: null }) };
     }
 
     it("range() is [timeline.firstSourceMs, now] once a timeline is loaded", async () => {
