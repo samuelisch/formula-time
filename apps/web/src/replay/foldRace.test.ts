@@ -45,7 +45,7 @@ function tenEventFixture(): RaceEvent[] {
  * The reference for "what a scrub to `targetMs` should show": fold `folded`'s
  * own (already-deduped) events truncated at the same `truncationBoundary`
  * `foldAt` itself uses, so this and `foldAt` can never disagree about where
- * the cut falls (review round 1 fix).
+ * the cut falls.
  */
 async function foldTruncated(
   folded: Awaited<ReturnType<typeof foldRace>>,

@@ -38,8 +38,8 @@
   font-weight: 700;
 }
 
-/* Position-change cue (issue #91): green for a gain, red for a loss, via the
-   existing palette variables (--color-accent is the site's F1 red). */
+/* Position-change cue: green for a gain, red for a loss, via the existing
+   palette variables (--color-accent is the site's F1 red). */
 .cueGain {
   color: var(--color-green);
   font-weight: 700;
@@ -50,8 +50,8 @@
   font-weight: 700;
 }
 
-/* The row itself, subtly tinted on a position change (issue #91's "plus a
-   subtle row highlight on the change") -- a low-opacity wash of the same
+/* The row itself, subtly tinted on a position change -- a second, row-level
+   signal alongside the arrow/number cue: a low-opacity wash of the same
    green/red as the cue cell, not a solid fill, so it reads as secondary to
    the arrow/number. Values are --color-green (#66d18f) and --color-accent
    (#e10600) at 12% opacity; CSS custom properties can't be partially

@@ -72,10 +72,10 @@ describe("useBoardState", () => {
   });
 });
 
-// useBoardPositionDeltas() cases (issue #91): gain, loss, a new session
-// resets silently, a backwards axis (replay rewind/scrub) resets silently,
-// and a cue expires 8s after it was set, checked on the next render rather
-// than a per-row timer.
+// useBoardPositionDeltas() cases: gain, loss, a new session resets
+// silently, a backwards axis (replay rewind/scrub) resets silently, and a
+// cue expires 8s after it was set, checked on the next render rather than
+// a per-row timer.
 function pushAt(sessionKey: string, sourceTimeIso: string, positions: Record<number, number>): LivePush {
   const drivers = Object.fromEntries(
     Object.entries(positions).map(([driverNumber, position]) => [

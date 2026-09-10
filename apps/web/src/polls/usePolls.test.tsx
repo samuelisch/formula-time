@@ -1,9 +1,9 @@
-// Pins the seam fix from issue #57 fix round 4: polls come off the board
-// push (`useBoardPush()`), not the live store directly, so a mounted
-// `BoardSourceProvider` (a replay) sees that provider's polls -- always
-// `polls: []` for a folded race -- while the live SSE connection the shell
-// keeps open on every route is ignored. With no provider, the hook falls
-// back to the live store, so the live route is unchanged.
+// Polls come off the board push (`useBoardPush()`), not the live store
+// directly, so a mounted `BoardSourceProvider` (a replay) sees that
+// provider's polls -- always `polls: []` for a folded race -- while the
+// live SSE connection the shell keeps open on every route is ignored. With
+// no provider, the hook falls back to the live store, so the live route is
+// unchanged.
 import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ReactNode } from "react";

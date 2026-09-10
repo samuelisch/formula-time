@@ -1,7 +1,6 @@
-// The board composition cases that used to live in pages/BoardPage.test.tsx:
-// they exercise the pure board (lap counter, clock, cards, table, toolbar
-// slot), which is `Board` since issue #57 fix round 5. BoardPage's own tests
-// now cover only what the live route adds on top.
+// The board composition cases: they exercise the pure board (lap counter,
+// clock, cards, table, toolbar slot), `Board`. BoardPage's own tests cover
+// only what the live route adds on top.
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
@@ -11,7 +10,7 @@ import { Board } from "./Board.tsx";
 import { BoardSourceProvider } from "./useBoardState.ts";
 
 // Wrapped in a MemoryRouter: TimingTable's rows read/write the driver
-// selection via useSearchParams() (issue #90), which needs a Router context.
+// selection via useSearchParams(), which needs a Router context.
 function renderWith(
   push: ReturnType<typeof makePush> | null,
   controls?: React.ReactNode,
@@ -50,8 +49,8 @@ describe("Board", () => {
     expect(screen.getByText("Driver detail")).toBeInTheDocument();
   });
 
-  // The narrow-breakpoint placement bug (issue #90 fix round 1): the panel
-  // must land "under the toolbar", not after the table. `Board.module.css`
+  // The narrow-breakpoint placement: the panel must land "under the
+  // toolbar", not after the table. `Board.module.css`
   // achieves the two different visual arrangements (stacked full-width vs.
   // beside the table) from one `grid-template-areas` swap on a single
   // `.board` grid, without ever moving `side` in the DOM -- so the one

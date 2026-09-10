@@ -1,4 +1,4 @@
-// Issue #97 PR1: timeline.ts is the incremental fold extracted out of
+// timeline.ts is the incremental fold extracted out of
 // foldRace.ts (which is now a thin wrapper: `createTimeline` +
 // `appendEvents` in one call, see foldRace.test.ts for the fold's own
 // behaviour -- keyframe cadence, dedupe, null-source truncation). These

@@ -18,11 +18,10 @@ describe("createPlaybackClock", () => {
     expect(clock.tick(2_500)).toBe(2_500);
   });
 
-  // Round 3 regression test: the real wiring (useReplayPlayback's
-  // requestAnimationFrame loop) never calls tick() while paused, so this
-  // deliberately does not either -- a clock that relied on a paused tick to
-  // keep its wall-clock baseline fresh would jump by the whole idle gap on
-  // the next tick after play(), which is exactly the bug this round fixes.
+  // The real wiring (useReplayPlayback's requestAnimationFrame loop) never
+  // calls tick() while paused, so this deliberately does not either -- a
+  // clock that relied on a paused tick to keep its wall-clock baseline
+  // fresh would jump by the whole idle gap on the next tick after play().
   it("pause holds the source time; play() after an idle gap does not jump on the first tick", () => {
     const clock = createPlaybackClock({ ...BOUNDS, initialWallMs: 0 });
     clock.play(0);

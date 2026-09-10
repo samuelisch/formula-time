@@ -133,12 +133,11 @@ describe("useLiveTimeTarget", () => {
     expect(useLiveStore.getState().delayMs).toBe(0);
   });
 
-  // Fix round 1 on PR #110: no upper clamp to the buffered span (removed --
-  // the pre-#67 direct `setDelayMs` call had none either). A delay asking
-  // for older history than this tab has buffered is exactly what the
-  // store's own `bufferShort`/`reselect` is for: it falls back to the
-  // oldest buffered entry and `notice()` surfaces the warning, rather than
-  // `seekTo` silently capping the delay to the span.
+  // No upper clamp to the buffered span. A delay asking for older history
+  // than this tab has buffered is exactly what the store's own
+  // `bufferShort`/`reselect` is for: it falls back to the oldest buffered
+  // entry and `notice()` surfaces the warning, rather than `seekTo`
+  // silently capping the delay to the span.
   it("seekTo() past the buffered span sets the full delay and lets the store fall back to the oldest push", () => {
     // `live` (`reselect`'s liveAxis) must be set for the store to actually
     // fall back rather than short-circuit to `{ displayed: null,
@@ -163,9 +162,9 @@ describe("useLiveTimeTarget", () => {
   });
 
   it("notice() carries the buffered-delay warning exactly when the store reports bufferShort", () => {
-    // The warning the deleted `DelayControl` rendered; without a slot on the
-    // seam it went dead (fix round 4 on PR #87), so a delay past the buffered
-    // span silently showed the oldest entry as if it were what was asked for.
+    // Without a slot on the seam for this warning, a delay past the
+    // buffered span would silently show the oldest entry as if it were
+    // what was asked for.
     resetStore({ buffer: bufferedSpan, bufferShort: false });
     const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
     expect(result.current.notice()).toBeNull();

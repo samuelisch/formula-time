@@ -1,9 +1,8 @@
-// Migrated from the live `DelayControl.test.tsx` (deleted -- issue #81
-// folded `DelayControl` and the replay-only `TransportBar` into this shared
-// bar) plus the replay playback assertions `ReplayPage.test.tsx` used to
-// cover indirectly. Both platforms are exercised through hand-rolled
-// `TimeTarget` fakes rather than the real live store or playback clock, so
-// this file only pins `TransportBar`'s own behavior against the seam.
+// `TransportBar` is the one control surface for both platforms (live and
+// replay), driven through the `TimeTarget` seam. Both platforms are
+// exercised through hand-rolled `TimeTarget` fakes rather than the real
+// live store or playback clock, so this file only pins `TransportBar`'s
+// own behavior against the seam.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -268,10 +267,10 @@ describe("TransportBar -- replay", () => {
     expect(slider.max).toBe(String(Date.parse("2026-09-06T13:01:30.000Z")));
   });
 
-  // Replay-only wording (issue #67): the readout is the sync offset in
-  // seconds relative to the un-nudged clock, not the absolute source clock
-  // -- 0 for a fold that has only ever played straight through, signed once
-  // a nudge or auto-align has moved it.
+  // Replay-only wording: the readout is the sync offset in seconds
+  // relative to the un-nudged clock, not the absolute source clock -- 0
+  // for a fold that has only ever played straight through, signed once a
+  // nudge or auto-align has moved it.
   it("shows the sync offset in seconds relative to the un-nudged clock, signed", () => {
     const atRest = makeReplayFake({ syncOffsetMs: 0 });
     renderBar(atRest);
@@ -289,9 +288,9 @@ describe("TransportBar -- replay", () => {
   it("falls back to the absolute source clock when syncOffsetMs() returns null (no fold loaded yet)", () => {
     const range = { startMs: 0, endMs: 90_000 };
     const displayedAtMs = Date.parse("2026-09-06T13:00:30.000Z");
-    // `syncOffsetMs` is non-optional on `TimeTarget` (fix round 1 on PR
-    // #110), but a replay before its fold has loaded still returns null
-    // (`useReplayTimeTarget`) -- the fallback this test covers.
+    // `syncOffsetMs` is non-optional on `TimeTarget`, but a replay before
+    // its fold has loaded still returns null (`useReplayTimeTarget`) --
+    // the fallback this test covers.
     const target: TimeTarget = {
       displayedAt: () => displayedAtMs,
       seekTo: vi.fn(),
@@ -339,8 +338,6 @@ describe("TransportBar -- shortcuts legend", () => {
 
 describe("TransportBar -- notice()", () => {
   it("renders the target's notice under the row, and nothing when there is none", () => {
-    // Fix round 4 on PR #87: the live store's `bufferShort` warning had no
-    // slot on the seam, so deleting `DelayControl` dropped it silently.
     const { unmount } = render(
       <TimeTargetProvider value={makeLiveFake({ notice: "Delay exceeds what this tab has buffered; showing the oldest" })}>
         <TransportBar />
@@ -364,14 +361,14 @@ describe("TransportBar -- notice()", () => {
   });
 });
 
-// Regression (fix round 1 on PR #87): the Live button and the position
-// readout must read `target.range()`/`target.displayedAt()` fresh at click
-// time, not the value `TransportBar` captured in its own render scope --
-// that closure goes stale the instant real time keeps passing without a
-// re-render, which nothing forces here between mount and the click. Uses
-// the real `useLiveTimeTarget` (not a fake) precisely because the bug lived
-// in the integration between the hook's always-fresh `range()`/`seekTo()`
-// and TransportBar's own closures, not in the hook alone.
+// The Live button and the position readout must read
+// `target.range()`/`target.displayedAt()` fresh at click time, not the
+// value `TransportBar` captured in its own render scope -- that closure
+// goes stale the instant real time keeps passing without a re-render,
+// which nothing forces here between mount and the click. Uses the real
+// `useLiveTimeTarget` (not a fake) precisely because the bug lived in the
+// integration between the hook's always-fresh `range()`/`seekTo()` and
+// TransportBar's own closures, not in the hook alone.
 function LiveTransportBar({ now }: { now: () => number }) {
   const target = useLiveTimeTarget(now);
   return (

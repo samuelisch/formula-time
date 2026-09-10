@@ -1,8 +1,7 @@
 // The `/live` route = the pure `Board` (covered by board/Board.test.tsx)
-// plus the live-only furniture: the finished/upcoming banner, polls, and the
-// delay/align controls that moved out of `Shell` in issue #57 fix round 5.
-// These tests cover that furniture and the fact that it is mounted here, not
-// in the shell and not on a replay.
+// plus the live-only furniture: the finished/upcoming banner, polls, and
+// the delay/align controls. These tests cover that furniture and the fact
+// that it is mounted here, not in the shell and not on a replay.
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -88,8 +87,8 @@ describe("BoardPage", () => {
     expect(screen.getByText("2 drivers")).toBeInTheDocument();
   });
 
-  // Moved out of Shell (where they sat under the header on every route,
-  // replay included) into the board's own toolbar.
+  // These live-only controls mount in the board's own toolbar, not under
+  // the header on every route.
   it("mounts the live-only controls in the board toolbar: polls, delay, align", () => {
     renderWith(makePush());
 
@@ -188,17 +187,17 @@ describe("BoardPage", () => {
     });
   });
 
-  // The driver panel's selection lives in the URL (issue #90): a row click
-  // sets `?driver=`, clicking the same row again clears it, and Escape
-  // clears it regardless of which row was clicked.
+  // The driver panel's selection lives in the URL: a row click sets
+  // `?driver=`, clicking the same row again clears it, and Escape clears
+  // it regardless of which row was clicked.
   it("clicking a row selects the driver (?driver=), clicking it again clears it, and Escape clears it", async () => {
     const user = userEvent.setup();
     const router = renderWithRouter(makePush());
 
     // Once the panel is open, "VER" also appears in the panel itself. The
-    // side slot sits ahead of the table in DOM order (issue #90 fix round
-    // 1, Board.tsx), so the table's own match is not reliably the first
-    // one; find the "VER" that is actually inside a table row instead.
+    // side slot sits ahead of the table in DOM order (`Board.tsx`), so the
+    // table's own match is not reliably the first one; find the "VER" that
+    // is actually inside a table row instead.
     const clickDriverRow = () =>
       user.click(screen.getAllByText("VER").find((el) => el.closest("tr") !== null)!);
 
