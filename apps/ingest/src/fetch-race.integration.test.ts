@@ -1,5 +1,5 @@
-// Integration test (issue #88): needs the real Postgres from the
-// throwaway container on port 5441 the issue describes (not the
+// Integration test: needs the real Postgres from the
+// throwaway container on port 5441 (not the
 // docker-compose one at 5433 — this is deliberately a separate, disposable
 // database). Pins the facts only Postgres enforces: a fake-fetcher session
 // ends `finished`, its events land in the expected `seq` order (drivers
@@ -108,7 +108,7 @@ test(
       "position",
     ]);
 
-    // Round 1 review fix: the laps row's *stored* `source_time` must be the
+    // The laps row's *stored* `source_time` must be the
     // same adjusted instant (date_start + lap_duration) as its order key —
     // not the raw `date_start` — or the browser fold's scrub could reveal
     // the lap's final time before the lap actually finished.

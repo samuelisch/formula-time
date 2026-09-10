@@ -1,4 +1,4 @@
-// Unit tests (issue #88): rate spacing, 429 retry, the ordering rule
+// Unit tests: rate spacing, 429 retry, the ordering rule
 // (lap/stint exceptions, drivers first), and the ADR-0010 live guard.
 // Fakes only; no network, no filesystem, no Postgres — see
 // fetch-race.integration.test.ts for the real-Postgres end-to-end case.
@@ -415,10 +415,10 @@ describe("fetchRaces: happy path — fake fetcher, drivers-then-events, finished
   });
 });
 
-// Round 1 review fix: a laps row's persisted `source_time` must be the same
-// adjusted instant (`date_start + lap_duration`) as its emission order key,
-// not the raw `date_start` — otherwise the browser fold's scrub can reveal
-// the lap's final time before the lap actually finished (see
+// A laps row's persisted `source_time` must be the same adjusted instant
+// (`date_start + lap_duration`) as its emission order key, not the raw
+// `date_start` — otherwise the browser fold's scrub can reveal the lap's
+// final time before the lap actually finished (see
 // `lapsEffectiveSourceTimeIso`'s comment in fetch-race.ts for the full
 // reasoning).
 describe("fetchRaces: round 1 fix — a laps row's stored source_time matches its order key", () => {
@@ -447,10 +447,10 @@ describe("fetchRaces: round 1 fix — a laps row's stored source_time matches it
   });
 });
 
-// Round 1 review fix: `writeSessionThroughLoader` hands `emitAll` a brand
-// new `LiveNormalizer` per call, so every fetched row looks "new" to it
-// again on a rerun — without a guard, the jsonl recording (unlike the
-// idempotent DB write) would duplicate its content on every rerun.
+// `writeSessionThroughLoader` hands `emitAll` a brand new `LiveNormalizer`
+// per call, so every fetched row looks "new" to it again on a rerun —
+// without a guard, the jsonl recording (unlike the idempotent DB write)
+// would duplicate its content on every rerun.
 describe("fetchRaces: round 1 fix — the jsonl recording is not duplicated on a rerun", () => {
   test("writeSession/appendRows are called on the first run only, not on a rerun of the same (already-finished) session", async () => {
     const fetcher = endpointResponses({
