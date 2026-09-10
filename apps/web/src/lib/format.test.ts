@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clock, lapTime, number, pitStopText, text } from "./format.ts";
+import { clock, duration, gapText, lapTime, number, pitStopText, text } from "./format.ts";
 
 describe("text", () => {
   it("falls back on null, undefined, and empty string", () => {
@@ -54,6 +54,38 @@ describe("lapTime", () => {
   });
 });
 
+describe("gapText", () => {
+  it("renders the em dash for a null gap", () => {
+    expect(gapText(null)).toBe("—");
+  });
+
+  it("renders a lapped string gap as-is", () => {
+    expect(gapText("+1 LAP")).toBe("+1 LAP");
+    expect(gapText("+2 LAPS")).toBe("+2 LAPS");
+  });
+
+  it("formats a numeric gap to 3 decimals with an s suffix", () => {
+    expect(gapText(4.338)).toBe("4.338s");
+  });
+});
+
+describe("duration", () => {
+  it("renders the em dash for anything not a number", () => {
+    expect(duration(null)).toBe("—");
+    expect(duration(undefined)).toBe("—");
+    expect(duration("24.9")).toBe("—");
+  });
+
+  it("formats a sub-minute value as SS.S with no unit", () => {
+    expect(duration(24.9)).toBe("24.9s");
+  });
+
+  it("formats a value at or above 60s as M:SS.S with no unit suffix", () => {
+    expect(duration(1840.7)).toBe("30:40.7");
+    expect(duration(60)).toBe("1:00.0");
+  });
+});
+
 describe("pitStopText", () => {
   it("renders the em dash for no pit stop", () => {
     expect(pitStopText(null)).toBe("—");
@@ -61,6 +93,10 @@ describe("pitStopText", () => {
 
   it("formats lap and duration from a pit-stop record", () => {
     expect(pitStopText({ lap_number: 7, pit_duration: 2.4 })).toBe("L7 · 2.4s");
+  });
+
+  it("formats a pit duration over a minute as m:ss.s", () => {
+    expect(pitStopText({ lap_number: 3, pit_duration: 1840.7 })).toBe("L3 · 30:40.7");
   });
 });
 

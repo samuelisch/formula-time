@@ -75,9 +75,16 @@ describe("TimingTable row formatting", () => {
     renderWith(makePush({}, { drivers: { "7": driver }, driver_order: [] }));
 
     expect(screen.getByText("XYZ")).toBeInTheDocument();
-    expect(screen.getAllByText("—s")).toHaveLength(2); // gap and interval
-    // position, full name, team name, tyre, and last pit all fall back to "—"
-    expect(screen.getAllByText("—")).toHaveLength(5);
+    expect(screen.queryByText("—s")).not.toBeInTheDocument();
+    // position, full name, team name, gap, interval, tyre, and last pit all fall back to "—"
+    expect(screen.getAllByText("—")).toHaveLength(7);
+  });
+
+  it("renders a lapped gap as its own string, not a number with a unit", () => {
+    const driver = makeDriver({ driver_number: 16, name_acronym: "LEC", position: 5, gap_to_leader: "+1 LAP" });
+    renderWith(makePush({}, { drivers: { "16": driver }, driver_order: [16] }));
+
+    expect(screen.getByText("+1 LAP")).toBeInTheDocument();
   });
 });
 
