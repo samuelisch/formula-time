@@ -46,9 +46,14 @@ export interface RaceFile {
  * `GET /api/races/:session_key`. The response is gzip-encoded (`content-encoding: gzip`);
  * `fetch` decodes it transparently, so this reads a plain JSON body. Throws
  * on a 404 (no export for this session) or any other non-2xx status.
+ *
+ * The file route is served `cache-control: immutable`, so the URL itself
+ * must change when the file does. `exportedAt` (the index entry's
+ * `exported_at`) becomes a `v` query param the api ignores -- it exists
+ * only to make a re-exported race's URL distinct from the cached one.
  */
-export async function fetchRaceFile(sessionKey: number): Promise<RaceFile> {
-  return fetchJson<RaceFile>(`/api/races/${sessionKey}`);
+export async function fetchRaceFile(sessionKey: number, exportedAt: string): Promise<RaceFile> {
+  return fetchJson<RaceFile>(`/api/races/${sessionKey}?v=${Date.parse(exportedAt)}`);
 }
 
 /**

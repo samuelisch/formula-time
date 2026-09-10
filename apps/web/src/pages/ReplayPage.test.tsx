@@ -8,7 +8,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { useLiveStore } from "../live/store.ts";
 import { makePoll } from "../polls/pollFixtures.ts";
 import { usePollModalUiStore } from "../polls/pollModalStore.ts";
-import type { RaceFile } from "../races/api.ts";
+import type { RaceFile, RaceIndexEntry } from "../races/api.ts";
 import { makePush } from "../test/fixtures.ts";
 import { ReplayPage } from "./ReplayPage.tsx";
 
@@ -44,15 +44,44 @@ const RACE_FILE: RaceFile = {
   events: EVENTS,
 };
 
-function stubFetch(file: RaceFile = RACE_FILE): void {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => new Response(JSON.stringify(file), { status: 200 })),
-  );
+/** The index entry for the fixture session; defaults line up with `RACE_FILE` so a plain `stubFetch()` serves a self-consistent index + file pair. */
+function makeIndexEntry(overrides: Partial<RaceIndexEntry> = {}): RaceIndexEntry {
+  return {
+    session_key: 11361,
+    name: "Race",
+    country: "Italy",
+    date_start: "2026-09-06T13:00:00.000Z",
+    date_end: "2026-09-06T15:00:00.000Z",
+    total_laps: 2,
+    exported_at: RACE_FILE.exported_at,
+    ...overrides,
+  };
 }
 
-function renderPage(): void {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+/** Routes a fetch mock's calls to the index or the file response by URL, the same way the real api does. */
+function routeFetch(file: RaceFile, index: RaceIndexEntry[]) {
+  return async (input: RequestInfo | URL): Promise<Response> => {
+    const url = String(input);
+    if (url === "/api/races") {
+      return new Response(JSON.stringify(index), { status: 200 });
+    }
+    if (url.startsWith("/api/races/")) {
+      return new Response(JSON.stringify(file), { status: 200 });
+    }
+    throw new Error(`ReplayPage test: unexpected fetch ${url}`);
+  };
+}
+
+function stubFetch(
+  file: RaceFile = RACE_FILE,
+  index: RaceIndexEntry[] = [makeIndexEntry({ exported_at: file.exported_at })],
+) {
+  const fetchMock = vi.fn(routeFetch(file, index));
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function renderPage(queryClient: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })): QueryClient {
   const router = createMemoryRouter([{ path: "/races/:session_key", element: <ReplayPage /> }], {
     initialEntries: ["/races/11361"],
   });
@@ -61,6 +90,7 @@ function renderPage(): void {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 function resetStores(): void {
@@ -93,14 +123,61 @@ describe("ReplayPage", () => {
     expect(screen.getByRole("button", { name: "Race start" })).toBeInTheDocument();
   });
 
-  it("shows an error state when the file fetch fails", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ error: "not found" }), { status: 404 })),
-    );
+  it("requests the file with a version query built from the index entry's exported_at", async () => {
+    const fetchMock = stubFetch();
+    renderPage();
+
+    await waitFor(() => screen.getByRole("slider", { name: "Playback position" }));
+
+    const fileUrl = fetchMock.mock.calls.map(([url]) => String(url)).find((url) => url.startsWith("/api/races/11361"));
+    expect(fileUrl).toBe(`/api/races/11361?v=${Date.parse(RACE_FILE.exported_at)}`);
+  });
+
+  it("requests a new file when the index's exported_at changes", async () => {
+    const fetchMock = stubFetch();
+    const queryClient = renderPage();
+
+    await waitFor(() => screen.getByRole("slider", { name: "Playback position" }));
+    const firstVersion = `?v=${Date.parse(RACE_FILE.exported_at)}`;
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes(firstVersion))).toBe(true);
+
+    const reExportedAt = "2026-09-07T00:00:00.000Z";
+    fetchMock.mockImplementation(routeFetch(RACE_FILE, [makeIndexEntry({ exported_at: reExportedAt })]));
+    await queryClient.refetchQueries({ queryKey: ["races"] });
+
+    const secondVersion = `?v=${Date.parse(reExportedAt)}`;
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes(secondVersion))).toBe(true);
+    });
+  });
+
+  it("shows the error card and never requests the file when the session is missing from the index", async () => {
+    const fetchMock = stubFetch(RACE_FILE, []);
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Could not load this race.")).toBeInTheDocument());
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/races/11361"))).toBe(false);
+  });
+
+  it("shows an error state when the file fetch fails", async () => {
+    // The index resolves fine (an entry with a version exists); only the
+    // file request itself 404s, so this exercises `fileQuery.isError`
+    // rather than the missing-index-entry path above.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/races") {
+        return new Response(JSON.stringify([makeIndexEntry()]), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Could not load this race.")).toBeInTheDocument());
+
+    const fileUrl = fetchMock.mock.calls.map(([url]) => String(url)).find((url) => url.startsWith("/api/races/11361"));
+    expect(fileUrl).toContain("?v=");
   });
 
   // Polls are live-only by product stance: a replay must never show or open
