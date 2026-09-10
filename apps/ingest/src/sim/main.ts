@@ -1,4 +1,4 @@
-// CLI entry for the drip simulator (issue #56). Run: `pnpm sim -- [flags]`
+// CLI entry for the drip simulator. Run: `pnpm sim -- [flags]`
 // (root) or `pnpm sim [flags]` inside `apps/ingest`. Flags match the POC's
 // `poc/live-recorder/simulator.ts` exactly:
 //   --recording <dir>   default ./live-logs/11361

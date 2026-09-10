@@ -1,5 +1,4 @@
-// Ported from `../f1-live-events-poc/poc/live-recorder/simulator_test.ts`
-// (issue #56: "port the POC's cases to vitest").
+// Ported from `../f1-live-events-poc/poc/live-recorder/simulator_test.ts`.
 
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
