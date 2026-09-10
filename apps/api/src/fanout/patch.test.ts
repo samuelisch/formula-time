@@ -155,6 +155,27 @@ describe("diffState / applyPatch", () => {
     expect(driverPaths.length).toBeGreaterThan(0);
   });
 
+  it("round-trips a driver's gap_to_leader through a lapped string and back to a number", () => {
+    const prev = fixtureState();
+    const reducer = new RaceStateReducer(structuredClone(prev));
+
+    reducer.apply(
+      event("lap-3", "intervals", "2026-09-06T13:00:20Z", { driver_number: 3, interval: 1.5, gap_to_leader: "+1 LAP" }),
+    );
+    const lapped = reducer.snapshot();
+    const lappedOps = diffState(prev, lapped);
+    expect(lapped.drivers["3"]?.gap_to_leader).toBe("+1 LAP");
+    expect(applyPatch(prev, lappedOps)).toEqual(lapped);
+
+    reducer.apply(
+      event("lap-3-back", "intervals", "2026-09-06T13:00:21Z", { driver_number: 3, interval: 1.6, gap_to_leader: 22.1 }),
+    );
+    const unlapped = reducer.snapshot();
+    const unlappedOps = diffState(lapped, unlapped);
+    expect(unlapped.drivers["3"]?.gap_to_leader).toBe(22.1);
+    expect(applyPatch(lapped, unlappedOps)).toEqual(unlapped);
+  });
+
   it("adds a whole driver object when a new driver key appears", () => {
     const prev = fixtureState();
     const reducer = new RaceStateReducer(structuredClone(prev));

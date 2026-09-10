@@ -197,3 +197,99 @@ describe("RaceStateReducer (drivers as events)", () => {
     expect(state.driver_order).toEqual([]);
   });
 });
+
+// Real rows from the Italian GP recording (recordings/11361/raw/intervals.jsonl),
+// pasted verbatim: a lapped car's interval/gap_to_leader arrive as strings.
+describe("RaceStateReducer (lapped gaps)", () => {
+  it("keeps a string gap for a lapped car on both interval and gap_to_leader", () => {
+    const reducer = new RaceStateReducer(createInitialState({ sessions: [], drivers: [] }));
+
+    reducer.apply(
+      event("lap-16", "intervals", "2026-09-06T13:18:32.034000+00:00", {
+        date: "2026-09-06T13:18:32.034000+00:00",
+        session_key: 11361,
+        meeting_key: 1293,
+        interval: "+1 LAP",
+        gap_to_leader: "+1 LAP",
+        driver_number: 16,
+      }),
+    );
+
+    const state = reducer.snapshot();
+    expect(state.drivers["16"]?.interval).toBe("+1 LAP");
+    expect(state.drivers["16"]?.gap_to_leader).toBe("+1 LAP");
+  });
+
+  it("keeps a numeric interval alongside a string gap_to_leader in the same row", () => {
+    const reducer = new RaceStateReducer(createInitialState({ sessions: [], drivers: [] }));
+
+    reducer.apply(
+      event("lap-77", "intervals", "2026-09-06T14:51:50.681000+00:00", {
+        date: "2026-09-06T14:51:50.681000+00:00",
+        session_key: 11361,
+        meeting_key: 1293,
+        interval: 27.399,
+        gap_to_leader: "+2 LAPS",
+        driver_number: 77,
+      }),
+    );
+
+    const state = reducer.snapshot();
+    expect(state.drivers["77"]?.interval).toBe(27.399);
+    expect(state.drivers["77"]?.gap_to_leader).toBe("+2 LAPS");
+  });
+
+  it("treats any other non-number gap as null", () => {
+    const reducer = new RaceStateReducer(createInitialState({ sessions: [], drivers: [] }));
+
+    reducer.apply(
+      event("garbage-1", "intervals", "2026-01-01T00:00:00Z", {
+        driver_number: 5,
+        interval: 1.1,
+        gap_to_leader: "garbage",
+      }),
+    );
+
+    const state = reducer.snapshot();
+    expect(state.drivers["5"]?.gap_to_leader).toBeNull();
+  });
+
+  it("replaces a lapped string gap with a later numeric row", () => {
+    const reducer = new RaceStateReducer(createInitialState({ sessions: [], drivers: [] }));
+
+    reducer.apply(
+      event("lap-16-a", "intervals", "2026-01-01T00:00:00Z", {
+        driver_number: 16,
+        interval: "+1 LAP",
+        gap_to_leader: "+1 LAP",
+      }),
+    );
+    reducer.apply(
+      event("lap-16-b", "intervals", "2026-01-01T00:00:01Z", {
+        driver_number: 16,
+        interval: 4.2,
+        gap_to_leader: 4.2,
+      }),
+    );
+
+    const state = reducer.snapshot();
+    expect(state.drivers["16"]?.interval).toBe(4.2);
+    expect(state.drivers["16"]?.gap_to_leader).toBe(4.2);
+  });
+
+  it("reads interval and gap_to_leader field by field, never row-wise", () => {
+    const reducer = new RaceStateReducer(createInitialState({ sessions: [], drivers: [] }));
+
+    reducer.apply(
+      event("mixed-1", "intervals", "2026-01-01T00:00:00Z", {
+        driver_number: 8,
+        interval: "+1 LAP",
+        gap_to_leader: 12.5,
+      }),
+    );
+
+    const state = reducer.snapshot();
+    expect(state.drivers["8"]?.interval).toBe("+1 LAP");
+    expect(state.drivers["8"]?.gap_to_leader).toBe(12.5);
+  });
+});
