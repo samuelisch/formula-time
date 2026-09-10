@@ -21,6 +21,19 @@ export function timelineMatchesSession(timeline: Timeline, liveSessionKey: strin
   return typeof key === "string" && key === liveSessionKey;
 }
 
+/**
+ * The live edge on the source axis: the newest push's own axis time, plus
+ * however much wall-clock time has elapsed since it arrived. Null before
+ * the first push, since there is nothing to measure from yet. Exported so
+ * a caller that only needs this value for display (a render, not an
+ * action) -- `useLiveTimeTarget`'s `range()` -- can compute the identical
+ * formula `reselect` uses internally, so the two can never disagree.
+ */
+export function headAxisOf(state: Pick<LiveStore, "live" | "lastMessageAt">, now: number): number | null {
+  if (state.live === null) return null;
+  return axisOf(state.live) + (state.lastMessageAt === null ? 0 : now - state.lastMessageAt);
+}
+
 export interface LiveStore {
   connection: Connection;
   catchingUp: boolean;
@@ -42,6 +55,10 @@ export interface LiveStore {
   onStatus(status: { catching_up: boolean }): void;
   onState(raw: string, push: LivePush, now: number): void;
   setDelayMs(ms: number, now: number): void;
+  /** Sets the delay so the viewer sees source time `atMs`, reading the current head at call time -- never a snapshot from an earlier render -- so a push arriving between a render and this call cannot throw the result off. No-op before the first push (nothing to seek relative to). */
+  seekToAxis(atMs: number, now: number): void;
+  /** Moves the delay by `deltaMs` (forward = less delay), reading the current delay at call time -- never a snapshot from an earlier render -- so repeated calls compound correctly even when none of them triggers a render in between. */
+  nudgeDelay(deltaMs: number, now: number): void;
   setTimeline(timeline: Timeline | null, now: number): void;
   tick(now: number): void;
 }
@@ -121,9 +138,7 @@ export function createLiveStore(): LiveStoreApi {
       return { displayed: null, bufferShort: false, mode: "edge" };
     }
 
-    const liveAxis = axisOf(state.live);
-    const elapsed = state.lastMessageAt === null ? 0 : now - state.lastMessageAt;
-    const target = liveAxis + elapsed - state.delayMs;
+    const target = headAxisOf(state, now)! - state.delayMs; // state.live checked non-null above
 
     const found = select(state.buffer, target);
     if (found !== null) {
@@ -174,6 +189,16 @@ export function createLiveStore(): LiveStoreApi {
       const delayMs = Math.max(0, ms);
       const { displayed, bufferShort, mode } = reselect({ ...get(), delayMs }, now);
       set({ delayMs, displayed, bufferShort, mode });
+    },
+
+    seekToAxis: (atMs, now) => {
+      const head = headAxisOf(get(), now);
+      if (head === null) return;
+      get().setDelayMs(Math.max(0, head - atMs), now);
+    },
+
+    nudgeDelay: (deltaMs, now) => {
+      get().setDelayMs(Math.max(0, get().delayMs - deltaMs), now);
     },
 
     setTimeline: (timeline, now) => {

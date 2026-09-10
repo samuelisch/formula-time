@@ -119,7 +119,8 @@ describe("useLiveTimeTarget", () => {
   });
 
   it("seekTo() sets the delay from the target source time, floored at zero", () => {
-    resetStore({ buffer: bufferedSpan });
+    // sent_at/lastMessageAt both 0 so headMs (axisOf(live) + (now - lastMessageAt)) lands exactly on NOW: seekTo needs a live push to measure against.
+    resetStore({ buffer: bufferedSpan, live: makePush({ sent_at: 0 }, { latest_source_time: null }), lastMessageAt: 0 });
     const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
 
     result.current.seekTo(NOW - 5_000);
@@ -181,6 +182,70 @@ describe("useLiveTimeTarget", () => {
     expect(result.current.anchors()).toEqual(anchorsWithLap5);
   });
 
+  it("range() is { now, now } before the first push", () => {
+    const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
+    expect(result.current.range()).toEqual({ startMs: NOW, endMs: NOW });
+  });
+
+  describe("head derives from the source axis, not the wall clock", () => {
+    const S = Date.parse("2026-09-08T12:00:00.000Z"); // the live push's own source-time axis
+    const M = 500_000; // wall-clock time the push arrived (lastMessageAt)
+
+    it("range().endMs is headMs = axisOf(live) + (now - lastMessageAt), not now", () => {
+      resetStore({ live: makePush({}, { latest_source_time: new Date(S).toISOString() }), lastMessageAt: M });
+      const { result } = renderHook(() => useLiveTimeTarget(() => M + 10_000));
+      // No buffer entries -> spanMs is 0, so startMs === endMs === headMs.
+      expect(result.current.range()).toEqual({ startMs: S + 10_000, endMs: S + 10_000 });
+    });
+
+    // A push that "just arrived" (lastMessageAt === now()) always yields
+    // headMs === its own axisOf(live), whatever the wall clock actually
+    // reads -- exactly the case a replayed recording exercises, where every
+    // push's own source_time trails (or, live, is a few seconds behind) the
+    // moment it is received, no matter how far the wall clock itself has
+    // drifted from the feed's timestamps.
+    it("seekTo(atMs) sets the delay from headMs, unaffected by how far the wall clock has drifted from the feed's own timestamps", () => {
+      resetStore({ live: makePush({}, { latest_source_time: new Date(S).toISOString() }), lastMessageAt: M });
+      const { result: near } = renderHook(() => useLiveTimeTarget(() => M));
+      act(() => near.current.seekTo(S - 60_000));
+      expect(useLiveStore.getState().delayMs).toBe(60_000); // headMs === S (elapsed 0) - (S - 60_000)
+
+      const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
+      const farM = M + FOUR_DAYS_MS; // the same push "arrives" four wall-clock days later, still carrying source time S
+      resetStore({ live: makePush({}, { latest_source_time: new Date(S).toISOString() }), lastMessageAt: farM });
+      const { result: far } = renderHook(() => useLiveTimeTarget(() => farM));
+      act(() => far.current.seekTo(S - 60_000));
+      expect(useLiveStore.getState().delayMs).toBe(60_000); // identical delay, even though the wall clock reads four days later
+    });
+
+    it("seekTo(range().endMs) (the Live button) sets the delay to exactly 0 regardless of wall-clock drift", () => {
+      resetStore({ live: makePush({}, { latest_source_time: new Date(S).toISOString() }), lastMessageAt: M });
+      const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
+      const { result } = renderHook(() => useLiveTimeTarget(() => M + FOUR_DAYS_MS));
+
+      act(() => result.current.seekTo(result.current.range()!.endMs));
+      expect(useLiveStore.getState().delayMs).toBe(0);
+    });
+
+    // seekTo/nudge delegate to the store's own seekToAxis/nudgeDelay, which
+    // read the store's current state at call time -- so even a `seekTo`
+    // reference captured before a later push still measures against that
+    // later push, not the render that produced the reference.
+    it("a push landing after the hook rendered and before seekTo is called is what the delay is computed against", () => {
+      resetStore({ live: makePush({}, { latest_source_time: new Date(S).toISOString() }), lastMessageAt: M });
+      const { result } = renderHook(() => useLiveTimeTarget(() => M));
+      const staleSeekTo = result.current.seekTo; // captured before the next push arrives
+
+      const S2 = S + 300_000; // 5 minutes later on the source axis
+      act(() => {
+        useLiveStore.setState({ live: makePush({}, { latest_source_time: new Date(S2).toISOString() }), lastMessageAt: M });
+      });
+
+      act(() => staleSeekTo(S2 - 30_000));
+      expect(useLiveStore.getState().delayMs).toBe(30_000); // measured against S2, not the S the stale reference was captured with
+    });
+  });
+
   describe("timeline mode", () => {
     const BASE_MS = Date.parse("2026-09-08T12:00:00.000Z");
     const NOW_TL = BASE_MS + 200_000; // 200s offset
@@ -191,7 +256,8 @@ describe("useLiveTimeTarget", () => {
 
     it("range() is [timeline.firstSourceMs, now] once a timeline is loaded", async () => {
       const timeline = await buildTimeline();
-      resetStore({ buffer: bufferedSpan, timeline, live: makePush({}, { latest_source_time: null }) }); // session_key "9999", matches the timeline
+      // session_key "9999" matches the timeline; sent_at/lastMessageAt both 0 so headMs (axisOf(live) + (now - lastMessageAt)) lands exactly on NOW.
+      resetStore({ buffer: bufferedSpan, timeline, live: makePush({ sent_at: 0 }, { latest_source_time: null }), lastMessageAt: 0 });
       const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
       expect(result.current.range()).toEqual({ startMs: timeline.firstSourceMs, endMs: NOW });
     });
@@ -216,7 +282,8 @@ describe("useLiveTimeTarget", () => {
         buffer: bufferedSpan,
         anchors: anchorsWithLap5,
         timeline,
-        live: makePush({}, { latest_source_time: null }), // session_key "9999", matches
+        live: makePush({ sent_at: 0 }, { latest_source_time: null }), // session_key "9999", matches
+        lastMessageAt: 0, // sent_at/lastMessageAt both 0 so headMs lands exactly on NOW
       });
       const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
 
@@ -224,7 +291,7 @@ describe("useLiveTimeTarget", () => {
       expect(result.current.anchors()).not.toEqual(anchorsWithLap5);
 
       act(() => {
-        useLiveStore.setState({ live: makePush({ session_key: "8888" }, { latest_source_time: null }) });
+        useLiveStore.setState({ live: makePush({ session_key: "8888", sent_at: 0 }, { latest_source_time: null }) });
       });
 
       expect(result.current.range()).toEqual({ startMs: NOW - 180_000, endMs: NOW });

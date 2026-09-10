@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyAnchors, type Anchors } from "../live/anchors.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
+import { makePush } from "../test/fixtures.ts";
 import { TimeTargetProvider, type TimeTarget, type TimeTargetProviderProps } from "../transport/TimeTarget.ts";
 import { useLiveTimeTarget } from "../transport/useLiveTimeTarget.ts";
 import type { OcrWorker, TesseractModule } from "./capture.ts";
@@ -458,7 +459,15 @@ describe("applyOffsetToTarget", () => {
   });
 
   it("live, through the real useLiveTimeTarget: ends with delayMs exactly ms (the setDelayMs path, unchanged)", () => {
-    resetStore({ buffer: { entries: [{ at: 0, raw: "{}" }, { at: 300_000, raw: "{}" }] } });
+    // sent_at/lastMessageAt both 0 so headMs lands exactly on the hook's now() (300_000): seekTo needs a live push to measure against. Buffer entries are real pushes (not "{}") since the selected one becomes `displayed`, which the hook parses.
+    function pushAt(atMs: number): { at: number; raw: string } {
+      return { at: atMs, raw: JSON.stringify(makePush({ sent_at: atMs }, { latest_source_time: null })) };
+    }
+    resetStore({
+      buffer: { entries: [pushAt(0), pushAt(300_000)] },
+      live: makePush({ sent_at: 0 }, { latest_source_time: null }),
+      lastMessageAt: 0,
+    });
     const { result } = renderHook(() => useLiveTimeTarget(() => 300_000));
 
     applyOffsetToTarget(result.current, 7_500, () => 300_000);
@@ -529,7 +538,15 @@ describe("applyOffsetToTarget", () => {
   });
 
   it("live: the delay set is exactly the tracker's measured offset", () => {
-    resetStore({ buffer: { entries: [{ at: 0, raw: "{}" }, { at: 1_000_000, raw: "{}" }] } });
+    // sent_at/lastMessageAt both 0 so headMs (axisOf(live) + (now - lastMessageAt)) lands exactly on the hook's now() (500_000): seekTo needs a live push to measure against. Buffer entries are real pushes (not "{}") since the selected one becomes `displayed`, which the hook parses.
+    function pushAt(atMs: number): { at: number; raw: string } {
+      return { at: atMs, raw: JSON.stringify(makePush({ sent_at: atMs }, { latest_source_time: null })) };
+    }
+    resetStore({
+      buffer: { entries: [pushAt(0), pushAt(1_000_000)] },
+      live: makePush({ sent_at: 0 }, { latest_source_time: null }),
+      lastMessageAt: 0,
+    });
     const { result } = renderHook(() => useLiveTimeTarget(() => 500_000));
 
     const anchorIso = "2026-09-06T13:00:00.000Z";
