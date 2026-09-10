@@ -86,6 +86,101 @@ test("loading the same fixture twice: row count unchanged on the second run, ses
   expect(countAfterSecond).toBe(24);
 }, 30_000);
 
+// --replace (issue #165): a session whose events were written in the wrong
+// order can be reloaded in place. Real Postgres, so this also proves the
+// `db.$transaction` interactive transaction actually works over the
+// loader's single-connection pool (`createDb(url, { max: 1 })`).
+test("--replace: 3 stale rows in endpoint order end up replaced by exactly the recording's rows, with a fresh seq range", async () => {
+  await db.session.create({
+    data: {
+      sessionKey: SESSION_KEY,
+      name: SESSION_JSON.session.session_name,
+      country: SESSION_JSON.session.country_name,
+      circuitKey: SESSION_JSON.session.circuit_key,
+      dateStart: new Date(SESSION_JSON.session.date_start),
+      dateEnd: new Date(SESSION_JSON.session.date_end),
+      totalLaps: null,
+      status: "finished",
+    },
+  });
+  // Stale rows in endpoint order, not received_at order — the shape a
+  // pre-#78 load left behind.
+  await db.event.createMany({
+    data: [
+      { eventId: "stale:1", sessionKey: SESSION_KEY, endpoint: "laps", sourceTime: new Date("2026-01-01T13:05:00Z"), payload: {} },
+      { eventId: "stale:2", sessionKey: SESSION_KEY, endpoint: "laps", sourceTime: new Date("2026-01-01T13:06:00Z"), payload: {} },
+      { eventId: "stale:3", sessionKey: SESSION_KEY, endpoint: "position", sourceTime: new Date("2026-01-01T13:00:01Z"), payload: {} },
+    ],
+  });
+  const staleRows = await db.event.findMany({ where: { sessionKey: SESSION_KEY }, orderBy: { seq: "desc" }, take: 1 });
+  const staleMaxSeq = staleRows[0]!.seq;
+
+  const logs: string[] = [];
+  const result = await loadRecordings([dir], db, { onLog: (line) => logs.push(line), replace: true });
+
+  expect(result.sessionsSkipped).toBe(0);
+  const remaining = await db.event.findMany({ where: { sessionKey: SESSION_KEY }, orderBy: { seq: "asc" } });
+  // 22 static entry-list drivers + 2 position rows from the recording — the
+  // 3 stale rows are gone.
+  expect(remaining).toHaveLength(24);
+  expect(remaining.some((row) => row.eventId.startsWith("stale:"))).toBe(false);
+  expect(remaining.every((row) => row.seq > staleMaxSeq)).toBe(true);
+  expect(logs.some((line) => line.startsWith(`load: verify ${SESSION_KEY} rows=24 `))).toBe(true);
+}, 30_000);
+
+test("--replace on a live session deletes nothing and logs the ADR-0010 refusal", async () => {
+  await db.session.create({
+    data: {
+      sessionKey: SESSION_KEY,
+      name: SESSION_JSON.session.session_name,
+      country: SESSION_JSON.session.country_name,
+      circuitKey: SESSION_JSON.session.circuit_key,
+      dateStart: new Date(SESSION_JSON.session.date_start),
+      dateEnd: new Date(SESSION_JSON.session.date_end),
+      totalLaps: null,
+      status: "live",
+    },
+  });
+  await db.event.createMany({
+    data: [{ eventId: "stale:1", sessionKey: SESSION_KEY, endpoint: "position", sourceTime: null, payload: {} }],
+  });
+
+  const logs: string[] = [];
+  const result = await loadRecordings([dir], db, { onLog: (line) => logs.push(line), replace: true });
+
+  expect(result.sessionsSkipped).toBe(1);
+  const countAfter = await db.event.count({ where: { sessionKey: SESSION_KEY } });
+  expect(countAfter).toBe(1); // the one stale row, untouched
+  expect(logs).toContain(`load: refused ${SESSION_KEY}: session is live; the live ingest service owns it`);
+}, 30_000);
+
+test("without --replace, a stale row untouched by skip-duplicates stays alongside the recording's rows", async () => {
+  await db.session.create({
+    data: {
+      sessionKey: SESSION_KEY,
+      name: SESSION_JSON.session.session_name,
+      country: SESSION_JSON.session.country_name,
+      circuitKey: SESSION_JSON.session.circuit_key,
+      dateStart: new Date(SESSION_JSON.session.date_start),
+      dateEnd: new Date(SESSION_JSON.session.date_end),
+      totalLaps: null,
+      status: "finished",
+    },
+  });
+  await db.event.createMany({
+    data: [{ eventId: "stale:1", sessionKey: SESSION_KEY, endpoint: "laps", sourceTime: new Date("2026-01-01T13:05:00Z"), payload: {} }],
+  });
+
+  const result = await loadRecordings([dir], db, { onLog: () => {} });
+
+  expect(result.sessionsSkipped).toBe(0);
+  const stale = await db.event.findUnique({ where: { eventId: "stale:1" } });
+  expect(stale).not.toBeNull();
+  const countAfter = await db.event.count({ where: { sessionKey: SESSION_KEY } });
+  // The stale row plus the 22 drivers + 2 position rows the recording adds.
+  expect(countAfter).toBe(25);
+}, 30_000);
+
 // A bulk read of a complete recording, read in RECORDING_ENDPOINT_ORDER (a
 // per-endpoint read order, not a time order), must not emit every
 // `position`/`intervals` row before any `laps` row — `events.seq` for a
