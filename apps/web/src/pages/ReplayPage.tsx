@@ -27,8 +27,9 @@ export function ReplayPage() {
   const sessionKey = params.session_key === undefined ? NaN : Number(params.session_key);
   const validKey = Number.isFinite(sessionKey);
 
-  // Shared with the chooser (`RacesPage`) so the index loads once per tab.
-  // The matching entry's `exported_at` is this race's file version: it
+  // Shared with the chooser (`RacesPage`) so both read the same cached
+  // index instead of fetching it twice. The matching entry's `exported_at`
+  // is this race's file version: it
   // goes into the file query's key and its URL, so a re-export (a new
   // `exported_at`) fetches a fresh file instead of the browser's cached
   // immutable response for the old one.
