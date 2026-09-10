@@ -1,4 +1,4 @@
-import type { RaceEvent, RaceState } from "@formula-time/domain";
+import type { JsonPatchOp, RaceEvent, RaceState } from "@formula-time/domain";
 
 export type PollTemplateKind = "winner" | "podium";
 export type PollLifecycleStatus = "open" | "locked" | "resolved" | "void";
@@ -43,6 +43,25 @@ export interface LivePush {
    * stream must be discarded and re-backfilled, since the rebuild may have
    * changed rows the client already folded.
    */
+  rebuilt?: boolean;
+}
+
+/**
+ * The delta wire shape (ADR-0013 "Wire" point 1): an RFC 6902 JSON Patch
+ * from the RaceState at `base_seq` to the RaceState at `seq`. `events` and
+ * `rebuilt` carry through exactly like on a `LivePush` -- see there for
+ * what each means; `apps/web/src/live/deltas.ts`'s `applyDelta` folds a
+ * `DeltaPush` against a held `LivePush` into the next `LivePush`.
+ */
+export interface DeltaPush {
+  type: "delta";
+  seq: string;
+  base_seq: string;
+  sent_at: number;
+  session_key: string;
+  patch: JsonPatchOp[];
+  polls: PollPublic[];
+  events?: RaceEvent[];
   rebuilt?: boolean;
 }
 

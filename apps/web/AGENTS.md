@@ -19,8 +19,12 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   session (ADR-0009) and rendered by `ReplayPage` at `/races/:session_key`
   (`src/app/router.tsx`); it must stay identical to the server's.
 - One `EventSource` per tab carries race state, poll state, tallies, and
-  the heartbeat. The browser does not validate the SSE payload; it trusts
-  its own server. Votes are a plain `POST`.
+  the heartbeat, opened in delta format (ADR-0013, `?format=delta`): a
+  `state` frame seeds or replaces the held push outright, a `delta` frame
+  is folded against it (`src/live/deltas.ts`'s `applyDelta`), and a gap
+  (the delta's `base_seq` not matching the held push's `seq`) fetches `GET
+  /api/live/snapshot` once to resume. The browser does not validate the SSE
+  payload; it trusts its own server. Votes are a plain `POST`.
 - Alignment is entirely client-side: OCR of the lap counter and
   lights-out detection (`src/align/`) produce a personal offset applied
   straight to `setDelayMs` on the live store -- no server seek, no trim

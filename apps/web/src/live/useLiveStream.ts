@@ -1,10 +1,22 @@
 // Mounted once in the shell. The only place in the app that owns an
 // EventSource -- no component below the shell creates one (apps/web/AGENTS.md).
+//
+// Opens the stream in delta format (ADR-0013): a `state` frame seeds or
+// replaces the held push outright (a join snapshot or a keyframe, both
+// handled identically by `onState`); a `delta` frame is folded against the
+// held push by `applyDelta` (deltas.ts). A `null` result is a gap -- the
+// held push's `seq` does not match the delta's `base_seq` -- resolved by
+// fetching `GET /api/live/snapshot` once; further deltas arriving while
+// that fetch is in flight are dropped (the fetch itself will resume the
+// stream from whatever `seq` it returns), and a failed fetch simply leaves
+// the flag clear so the next delta retries it. The server never replays
+// history and this hook keeps no other client-side state across the gap.
 import { useEffect } from "react";
 
-import { apiUrl } from "../api.ts";
+import { apiFetch, apiUrl } from "../api.ts";
+import { applyDelta } from "./deltas.ts";
 import { useLiveStore } from "./store.ts";
-import type { LivePush } from "./types.ts";
+import type { DeltaPush, LivePush } from "./types.ts";
 
 const TICK_INTERVAL_MS = 250;
 
@@ -16,11 +28,41 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
   const EventSourceImpl = options.EventSourceImpl ?? globalThis.EventSource;
 
   useEffect(() => {
-    const source = new EventSourceImpl(apiUrl("/api/live/events"));
+    const source = new EventSourceImpl(apiUrl("/api/live/events?format=delta"));
+
+    // Set synchronously before the fetch's promise even starts, so a delta
+    // arriving before it resolves is unambiguously seen as "already
+    // fetching" and dropped, never starting a second, overlapping fetch.
+    let fetchingSnapshot = false;
+    const fetchSnapshot = (): void => {
+      fetchingSnapshot = true;
+      apiFetch("/api/live/snapshot")
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`GET /api/live/snapshot: ${res.status}`);
+          const push = (await res.json()) as LivePush;
+          useLiveStore.getState().onState(push, Date.now());
+        })
+        .catch(() => {
+          // Left unresolved; the next delta's gap retries the fetch.
+        })
+        .finally(() => {
+          fetchingSnapshot = false;
+        });
+    };
 
     const handleState = (event: MessageEvent<string>): void => {
       const push = JSON.parse(event.data) as LivePush;
       useLiveStore.getState().onState(push, Date.now());
+    };
+    const handleDelta = (event: MessageEvent<string>): void => {
+      if (fetchingSnapshot) return;
+      const frame = JSON.parse(event.data) as DeltaPush;
+      const next = applyDelta(useLiveStore.getState().live, frame);
+      if (next === null) {
+        fetchSnapshot();
+        return;
+      }
+      useLiveStore.getState().onState(next, Date.now());
     };
     const handleStatus = (event: MessageEvent<string>): void => {
       const status = JSON.parse(event.data) as { catching_up: boolean };
@@ -28,6 +70,7 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
     };
 
     source.addEventListener("state", handleState as EventListener);
+    source.addEventListener("delta", handleDelta as EventListener);
     source.addEventListener("status", handleStatus as EventListener);
     source.onopen = () => useLiveStore.getState().onOpen();
     source.onerror = () => useLiveStore.getState().onError();
@@ -48,6 +91,7 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
 
     return () => {
       source.removeEventListener("state", handleState as EventListener);
+      source.removeEventListener("delta", handleDelta as EventListener);
       source.removeEventListener("status", handleStatus as EventListener);
       source.close();
       if (interval !== null) clearInterval(interval);
