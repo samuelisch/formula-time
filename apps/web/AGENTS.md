@@ -1,7 +1,7 @@
 # apps/web — local conventions
 
 Issue label: `web`. An agent working here picks `ready` issues labelled
-`web` (`gh issue list --label ready --label web`) and nothing else.
+`web` (`gh issue list --label ready --label web --search "sort:created-asc"`) and nothing else.
 
 ## What this app owns
 
