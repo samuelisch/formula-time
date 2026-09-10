@@ -142,15 +142,21 @@ describe("RacesPage", () => {
     expect(link).toHaveAttribute("href", "/live");
   });
 
-  it("shows the quiet line when the session status is finished", async () => {
+  it("shows the Last session card with both links when the session status is finished", async () => {
     resetStore({
       displayed: displayedWithSession({ status: "finished", country: "Italy", name: "Race", date_start: "2026-09-08T13:00:00.000Z" }),
     });
     stubFetch([]);
     renderPage();
 
-    expect(screen.getByText("No live session right now")).toBeInTheDocument();
+    expect(screen.getByText("Last session · Italy · Race · finished")).toBeInTheDocument();
     expect(screen.queryByText("Live now")).not.toBeInTheDocument();
+    expect(screen.queryByText("No live session right now")).not.toBeInTheDocument();
+
+    const finalStateLink = screen.getByRole("link", { name: "Final state" });
+    expect(finalStateLink).toHaveAttribute("href", "/live");
+    const replayLink = screen.getByRole("link", { name: "Watch the replay" });
+    expect(replayLink).toHaveAttribute("href", "/races/9999");
   });
 
   it("renders rows from the stubbed /api/races fetch, newest first as served", async () => {
