@@ -83,7 +83,10 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   keyframes, lap markers, `foldAt` for scrubbing -- shared by the replay
   path (`src/replay/foldRace.ts`, the whole event log in one shot) and the
   live path (`src/live/timeline.ts`, built page by page while a session
-  is still live).
+  is still live). The live page mounts `src/live/LiveTimelineLoader.tsx` to
+  hand that timeline to the live store, whose `reselect` (`src/live/store.ts`)
+  folds from it once a viewer rewinds past the push ring buffer
+  (`mode: "timeline"`, `polls: []`).
 - Styling is CSS Modules (`*.module.css` next to the component); the dark
   palette lives as CSS variables in `src/index.css`.
 - Unit tests are `*.test.ts(x)` next to the source. The root
