@@ -2,3 +2,22 @@
   display: flex;
   flex-direction: column;
 }
+
+.startNotice {
+  padding: 0.5rem 1rem;
+  background: var(--color-raised);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.startNoticeLink {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}

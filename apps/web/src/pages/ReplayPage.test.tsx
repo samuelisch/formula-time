@@ -1,6 +1,7 @@
 import type { RaceEvent, RawRecord } from "@formula-time/domain";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
@@ -43,10 +44,10 @@ const RACE_FILE: RaceFile = {
   events: EVENTS,
 };
 
-function stubFetch(): void {
+function stubFetch(file: RaceFile = RACE_FILE): void {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => new Response(JSON.stringify(RACE_FILE), { status: 200 })),
+    vi.fn(async () => new Response(JSON.stringify(file), { status: 200 })),
   );
 }
 
@@ -154,5 +155,69 @@ describe("ReplayPage", () => {
     await waitFor(() => screen.getByRole("slider", { name: "Playback position" }));
 
     expect(screen.getByRole("button", { name: /Align with my screen/ })).toBeInTheDocument();
+  });
+});
+
+describe("ReplayPage -- start notice", () => {
+  beforeEach(resetStores);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetStores();
+  });
+
+  // The recording in this fixture starts 54 minutes before the leader
+  // reaches lap 1 -- a position event with no lap yet, then the lap-1 event
+  // 54 minutes later -- matching how a real recording opens well before
+  // lights-out (owner decision D2, option C: keep the recording start).
+  const GAP_MINUTES = 54;
+  const RACE_FILE_WITH_GAP: RaceFile = {
+    schema: 1,
+    exported_at: "2026-09-06T15:10:00.000Z",
+    session: { ...SESSION, total_laps: 1 },
+    events: [
+      event("g1", "position", 0, { driver_number: 1, position: 1 }),
+      event("g2", "laps", GAP_MINUTES * 60, { driver_number: 1, lap_number: 1 }),
+    ],
+  };
+  const RACE_FILE_NO_LAP_ONE: RaceFile = {
+    schema: 1,
+    exported_at: "2026-09-06T15:10:00.000Z",
+    session: { ...SESSION, total_laps: 1 },
+    events: [event("p1", "position", 0, { driver_number: 1, position: 1 })],
+  };
+
+  it('shows "This replay starts 54 min before lights out" while the displayed position is before lights-out', async () => {
+    stubFetch(RACE_FILE_WITH_GAP);
+    renderPage();
+
+    await waitFor(() => screen.getByRole("slider", { name: "Playback position" }));
+
+    expect(screen.getByText(/This replay starts 54 min before lights out\./)).toBeInTheDocument();
+  });
+
+  it("clicking the notice's link jumps to the lights-out anchor and hides the notice", async () => {
+    const user = userEvent.setup();
+    stubFetch(RACE_FILE_WITH_GAP);
+    renderPage();
+
+    const slider = (await waitFor(() =>
+      screen.getByRole("slider", { name: "Playback position" }),
+    )) as HTMLInputElement;
+    const lightsOutMs = Date.parse(isoAt(GAP_MINUTES * 60));
+
+    await user.click(screen.getByRole("button", { name: "Jump to race start" }));
+
+    expect(slider.value).toBe(String(lightsOutMs));
+    expect(screen.queryByText(/This replay starts/)).not.toBeInTheDocument();
+  });
+
+  it("shows no notice when the fold has no lap-1 anchor", async () => {
+    stubFetch(RACE_FILE_NO_LAP_ONE);
+    renderPage();
+
+    await waitFor(() => screen.getByRole("slider", { name: "Playback position" }));
+
+    expect(screen.queryByText(/This replay starts/)).not.toBeInTheDocument();
   });
 });

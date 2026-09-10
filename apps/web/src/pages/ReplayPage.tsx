@@ -3,6 +3,7 @@
 // timing board through `BoardSourceProvider`. No server-side replay
 // session -- the browser owns playback entirely.
 import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { useParams } from "react-router";
 
 import { AlignPanel } from "../align/AlignPanel.tsx";
@@ -13,7 +14,8 @@ import { Card } from "../components/Card.tsx";
 import { fetchRaceFile } from "../races/api.ts";
 import { foldRace } from "../replay/foldRace.ts";
 import { useReplayPlayback } from "../replay/useReplayPlayback.ts";
-import { TimeTargetProvider } from "../transport/TimeTarget.ts";
+import { jumpToRaceStart } from "../transport/raceStart.ts";
+import { TimeTargetProvider, type TimeTarget } from "../transport/TimeTarget.ts";
 import { TransportBar } from "../transport/TransportBar.tsx";
 import { useReplayTimeTarget } from "../transport/useReplayTimeTarget.ts";
 import styles from "./ReplayPage.module.css";
@@ -41,6 +43,40 @@ export function ReplayPage() {
   const playback = useReplayPlayback(foldQuery.data ?? null);
   const target = useReplayTimeTarget(playback, foldQuery.data ?? null);
 
+  // The start notice's dismissal: sticky for the life of the page once the
+  // viewer has started or seeked playback themselves, regardless of where
+  // that lands them -- so it never reappears on a later rewind before
+  // lights-out. A wrapper `TimeTarget` sets it inside `seekTo`/`nudge`/
+  // `playback().play` before delegating to the real target, so the bar and
+  // the notice's own link share the one flag without either duplicating the
+  // other's logic.
+  const [dismissed, setDismissed] = useState(false);
+  const targetWithDismissal = useMemo<TimeTarget>(
+    () => ({
+      ...target,
+      seekTo: (atMs) => {
+        setDismissed(true);
+        target.seekTo(atMs);
+      },
+      nudge: (deltaMs) => {
+        setDismissed(true);
+        target.nudge(deltaMs);
+      },
+      playback: () => {
+        const inner = target.playback();
+        if (inner === null) return null;
+        return {
+          ...inner,
+          play: () => {
+            setDismissed(true);
+            inner.play();
+          },
+        };
+      },
+    }),
+    [target],
+  );
+
   if (!validKey) {
     return <Card>Not a valid race.</Card>;
   }
@@ -57,8 +93,31 @@ export function ReplayPage() {
     return <Card>Loading race…</Card>;
   }
 
+  // The replay always opens at the recording's first row (owner decision
+  // D2, option C), which can sit well before lights-out -- this notice
+  // tells the viewer where the race actually starts instead of leaving them
+  // to find "Race start" on their own. It shows only before lights-out, only
+  // when there is a lights-out anchor to jump to, and only until the viewer
+  // has started or seeked playback themselves (`dismissed`).
+  const anchors = targetWithDismissal.anchors();
+  const lightsOutMs = anchors.lights_out === null ? null : Date.parse(anchors.lights_out);
+  const displayedAtMs = targetWithDismissal.displayedAt();
+  const showStartNotice = !dismissed && lightsOutMs !== null && displayedAtMs !== null && displayedAtMs < lightsOutMs;
+  const startNoticeMinutes =
+    lightsOutMs === null || foldQuery.data.firstSourceMs === null
+      ? null
+      : Math.round((lightsOutMs - foldQuery.data.firstSourceMs) / 60_000);
+
   return (
     <div className={styles.replay}>
+      {showStartNotice && startNoticeMinutes !== null && (
+        <div className={styles.startNotice}>
+          This replay starts {startNoticeMinutes} min before lights out.{" "}
+          <button type="button" className={styles.startNoticeLink} onClick={() => jumpToRaceStart(targetWithDismissal)}>
+            Jump to race start
+          </button>
+        </div>
+      )}
       {/* The pure `Board`, never `BoardPage`: the live route's furniture
           (the finished/upcoming banner and polls) reads the live session
           and must not appear on a replay. The banner in particular would
@@ -69,7 +128,7 @@ export function ReplayPage() {
           directly, so it lines the replay up with a broadcast the same way
           the live board does. */}
       <BoardSourceProvider push={playback.push}>
-        <TimeTargetProvider value={target}>
+        <TimeTargetProvider value={targetWithDismissal}>
           <Board controls={<AlignPanel />} transport={<TransportBar />} side={<DriverPanel />} />
         </TimeTargetProvider>
       </BoardSourceProvider>
