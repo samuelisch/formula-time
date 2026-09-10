@@ -42,7 +42,11 @@ Read `docs/` before doing anything. What each part holds:
   over anything hand-rolled.
 - New decisions get a new numbered file in `docs/decisions-adr/` (Status / Date /
   Context / Decision / Consequences). Never edit an accepted ADR's decision;
-  supersede it. A PreToolUse hook blocks edits to accepted ADRs.
+  supersede it. A PreToolUse hook blocks edits to accepted ADRs. Take the
+  next free ADR number from `origin/main` and from every open PR
+  (`gh pr list --search ADR-00`) when the PR opens, not when the draft
+  starts. A PR that adds a precondition, a config name, or a wire format
+  writes the ADR before asking for review.
 - Tests (ADR-0002): vitest for unit (in-memory fakes) and integration
   (real Postgres in Docker — dedup + vote upsert); Playwright for e2e.
   `typecheck` + unit + the ADR check before a commit (the hook), plus
@@ -106,7 +110,14 @@ for a re-review; a push never triggers one → **the owner merges; merging
 is never automated** → label `done` → next `ready`. A local `/review-pr` prints the verdict and
 posts nothing, so approvals only ever come from the bot or the owner.
 After a fix round, the implementer updates the PR's Friction line before
-re-review; "none" on a PR that needed a round is a false record.
+re-review; "none" on a PR that needed a round is a false record. A PR is
+marked ready, or labelled `in-review`, only once `## Verified` holds the
+real result; a placeholder there is a review finding. Slices merge into
+main in order; never merge a later slice into an earlier slice's branch.
+A number in a brief carries the command that produced it. A brief that
+lifts an external API client quotes a measured response, not a type
+annotation. A rule that starts something (a fetch, an export, a retry)
+names what stops it.
 
 Design-bearing tracks (ADR-0001 §4: the Postgres fetcher / projector
 cursor, and vote acknowledgement) are owner-reviewed in person. Whether the
