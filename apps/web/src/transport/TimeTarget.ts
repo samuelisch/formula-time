@@ -41,8 +41,7 @@ export interface TimeTarget {
    * that has only ever played straight through, since ticking while
    * playing advances both the real position and this "un-nudged"
    * reference by the same amount -- null before a fold has loaded. Live:
-   * the current delay in ms (`range().endMs − displayedAt()`, the same
-   * reading `TransportBar` showed before this issue) -- never null once a
+   * the current delay behind the live edge, in ms -- never null once a
    * target exists.
    */
   syncOffsetMs(): number | null;

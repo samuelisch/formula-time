@@ -107,10 +107,8 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
       // stale-true from before the timeline landed.
       notice: () => (mode === "timeline" ? null : bufferShort ? BUFFER_SHORT_NOTICE : null),
 
-      // The current delay, in ms -- the same reading the position label
-      // already shows for live (`range().endMs − displayedAt()`), just
-      // exposed through the seam so `syncOffsetMs` is non-optional on both
-      // implementations.
+      // The live sync offset is the store's delay in ms, which the
+      // transport readout shows directly.
       syncOffsetMs: () => delayMs,
 
       rewindMode: () => mode,

@@ -77,10 +77,11 @@ export function createLiveStore(): LiveStoreApi {
   const seenRestarts = new Set<string>();
 
   // One-entry cache for the timeline-mode synthesised push: `foldAt` clones
-  // on every call, so without this, `displayed` got a new reference on
-  // every 250ms tick even when the fold did not cross an event boundary --
-  // breaking the referential-stability guarantee the buffer path gets from
-  // `parsedByEntry` above (review round 1 on PR #154). Keyed on `events`
+  // on every call, so without this, `displayed` would get a new reference
+  // on every 250ms tick even when the fold did not cross an event
+  // boundary -- breaking the referential-stability guarantee the buffer
+  // path gets from `parsedByEntry` above. A cached entry is reused only
+  // when all three of its keys still match the current call: `events`
   // (the mutable array `appendEvents` pushes onto in place -- unchanged by
   // `useSessionTimeline` publishing a new shallow *copy* of the `Timeline`
   // per page/push, so that alone must not invalidate the cache; a
@@ -88,12 +89,11 @@ export function createLiveStore(): LiveStoreApi {
   // (`RaceStateReducer` increments it once per applied, non-duplicate
   // event, so two folds that stop at the same event boundary agree on it
   // regardless of how far `now` advanced between them), and `live` itself
-  // (review round 2: a real push arriving mid-interval still changes the
-  // envelope -- `seq`/`sent_at`/`session_key`/`total_laps` -- even when its
-  // fold lands on the same `sequence` as the previous one, so reusing the
-  // cached push across two different `live` values silently kept the first
-  // push's envelope on the second. Comparing `live` by reference is enough:
-  // every push is a fresh, immutable object).
+  // (a real push arriving mid-interval still changes the envelope --
+  // `seq`/`sent_at`/`session_key`/`total_laps` -- even when its fold lands
+  // on the same `sequence` as the previous one, so the cached push must
+  // not be reused across two different `live` values; comparing `live` by
+  // reference is enough, since every push is a fresh, immutable object).
   let lastTimelineDisplayed: { events: RaceEvent[]; sequence: number; live: LivePush; push: LivePush } | null = null;
 
   function parseCached(entry: BufferedPush): LivePush {
