@@ -81,11 +81,12 @@ main_repo=$(mktemp -d)
 worktree_repo=$(mktemp -d)
 no_install_repo=$(mktemp -d)
 stale_lock_repo=$(mktemp -d)
+decoy_repo=$(mktemp -d)
 space_repo="$(mktemp -d)/repo with space"
 mkdir -p "$space_repo"
 accent_repo="$(mktemp -d)/café"
 mkdir -p "$accent_repo"
-trap 'rm -rf "$main_repo" "$worktree_repo" "$no_install_repo" "$stale_lock_repo" "$(dirname "$space_repo")" "$(dirname "$accent_repo")"' EXIT
+trap 'rm -rf "$main_repo" "$worktree_repo" "$no_install_repo" "$stale_lock_repo" "$decoy_repo" "$(dirname "$space_repo")" "$(dirname "$accent_repo")"' EXIT
 
 make_repo "$main_repo" yes
 make_repo "$worktree_repo" yes
@@ -98,6 +99,7 @@ sleep 1
 touch "$stale_lock_repo/pnpm-lock.yaml"
 make_repo "$space_repo" yes
 make_repo "$accent_repo" yes
+make_repo "$decoy_repo" yes
 
 main_top=$(git -C "$main_repo" rev-parse --show-toplevel)
 worktree_top=$(git -C "$worktree_repo" rev-parse --show-toplevel)
@@ -176,6 +178,15 @@ while [ "$pad_i" -lt "${#trailing_cd_cmd}" ]; do
 done
 run_tree_case "multibyte padding cannot push the cut point past the commit" \
   "$main_repo" "echo '$pad' && $trailing_cd_cmd" "$main_top" no
+
+# --- quoted text before the commit is an argument, not a command boundary.
+
+run_tree_case "a single-quoted decoy cd does not out-rank the real one" \
+  "$main_repo" "cd $worktree_repo && echo 'x && cd /decoy && y' && git commit -m x" \
+  "$worktree_top" no
+run_tree_case "a double-quoted decoy naming a real tree does not out-rank the real cd" \
+  "$main_repo" "cd $worktree_repo && echo \"z && cd $decoy_repo && z\" && git commit -m x" \
+  "$worktree_top" no
 
 # Feeds one command to the hook and asserts both that a given substring
 # appears in its output and which tree it fell back to gating.

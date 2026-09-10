@@ -23,6 +23,31 @@ strip_quotes() {
   printf '%s' "$p"
 }
 
+# Quoted text is an argument, not shell syntax: `echo 'x && cd /decoy && y'`
+# runs no `cd` at all. Replacing the blanks inside quotes with \001 leaves a
+# quoted stretch unable to match the `cd <path> &&` pattern below, while a
+# genuinely quoted path (`cd "/my dir" &&`) still matches and is restored by
+# unmask_blanks once extracted. An unbalanced quote masks the rest of the
+# line, which costs nothing: such a command is a shell syntax error and
+# never reaches a commit.
+mask_quoted_blanks() {
+  awk '{
+    q = ""; out = ""
+    for (i = 1; i <= length($0); i++) {
+      c = substr($0, i, 1)
+      if (q == "") { if (c == "\"" || c == "\047") q = c }
+      else if (c == q) { q = "" }
+      else if (c == " " || c == "\t") { c = "\001" }
+      out = out c
+    }
+    print out
+  }'
+}
+
+unmask_blanks() {
+  printf '%s' "$1" | tr '\001' ' '
+}
+
 # The tree the commit actually lands in is not always the hook's own cwd: an
 # agent's Bash command can `cd` into another checkout, or pass `git -C`,
 # before running `git commit` in the same command. Pick, in order: the last
@@ -46,14 +71,14 @@ git_part=$(printf '%s' "$cmd_match" | sed -E 's/^[;&|]?[[:space:]]*//')
 anchor=${cmd_match%"$git_part"}
 anchor_bytes=$(printf '%s' "$anchor" | wc -c | tr -d '[:space:]')
 prefix=$(printf '%s' "$cmd" | head -c "$(( match_offset + anchor_bytes ))")
-raw_path=$(printf '%s\n' "$prefix" | sed -nE "s/.*(^|[;&|])[[:space:]]*cd[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]*(&&|;).*/\\2/p")
+raw_path=$(printf '%s\n' "$prefix" | mask_quoted_blanks | sed -nE "s/.*(^|[;&|])[[:space:]]*cd[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]*(&&|;).*/\\2/p")
 if [ -z "$raw_path" ]; then
   raw_path=$(printf '%s\n' "$cmd_match" | sed -nE "s/.*git[[:space:]]+-C[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]+commit.*/\\1/p")
 fi
 
 tree=""
 if [ -n "$raw_path" ]; then
-  path=$(strip_quotes "$raw_path")
+  path=$(unmask_blanks "$(strip_quotes "$raw_path")")
   case "$path" in
     *'$'*)
       # A $VAR the hook cannot expand: never silently pass, name it and fall
