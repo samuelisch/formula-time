@@ -29,7 +29,7 @@ import { ReplayPage } from "./pages/ReplayPage.tsx";
 import { makePoll } from "./polls/pollFixtures.ts";
 import { PollModal } from "./polls/PollModal.tsx";
 import { usePollModalUiStore } from "./polls/pollModalStore.ts";
-import type { RaceFile } from "./races/api.ts";
+import type { RaceFile, RaceIndexEntry } from "./races/api.ts";
 import { makeDriver, makePush } from "./test/fixtures.ts";
 import { installNarrowMatchMedia } from "./test/matchMedia.ts";
 import { TimeTargetProvider, type TimeTarget } from "./transport/TimeTarget.ts";
@@ -99,8 +99,14 @@ describe("TimingTable under a narrow viewport", () => {
     const teamName = screen.getByText("Red Bull Racing");
     // TimingTable.module.css hides both under --bp-narrow (640px) -- these
     // classes are what that media query selects.
-    expect(fullName.className).toMatch(/fullName/);
     expect(teamName.className).toMatch(/teamName/);
+    // The full name's <br /> lives inside the same hidden wrapper as the
+    // name itself, so the narrow collapse drops the line break too --
+    // otherwise the cell would still keep the empty second line the CSS
+    // comment claims is gone.
+    const fullNameWrapper = fullName.parentElement;
+    expect(fullNameWrapper?.className).toMatch(/fullName/);
+    expect(fullNameWrapper?.querySelector("br")).not.toBeNull();
   });
 });
 
@@ -337,9 +343,26 @@ describe("Every page mounts cleanly at phone width", () => {
       },
       events: [],
     };
+    const raceIndex: RaceIndexEntry[] = [
+      {
+        session_key: 11361,
+        name: "Race",
+        country: "Italy",
+        date_start: "2026-09-06T13:00:00.000Z",
+        date_end: "2026-09-06T15:00:00.000Z",
+        total_laps: 2,
+        exported_at: raceFile.exported_at,
+      },
+    ];
+    // Routed by URL, same as the real api: the index (ReplayPage's own
+    // exported_at lookup) and the file are two different routes.
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(JSON.stringify(raceFile), { status: 200 })),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/races") return new Response(JSON.stringify(raceIndex), { status: 200 });
+        return new Response(JSON.stringify(raceFile), { status: 200 });
+      }),
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const router = createMemoryRouter([{ path: "/races/:session_key", element: <ReplayPage /> }], {

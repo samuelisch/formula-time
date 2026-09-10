@@ -62,8 +62,10 @@ export const DriverRow = memo(function DriverRow({ number: driverNumber, delta =
       <td className={cueClass}>{cueText(delta)}</td>
       <td>
         <strong>{text(driver.name_acronym)}</strong>
-        <br />
-        <span className={cx(styles.muted, styles.fullName)}>{text(driver.full_name)}</span>
+        <span className={styles.fullName}>
+          <br />
+          <span className={styles.muted}>{text(driver.full_name)}</span>
+        </span>
       </td>
       <td>
         <TeamDot teamColour={driver.team_colour} />

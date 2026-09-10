@@ -73,9 +73,11 @@
 
 @media (max-width: 640px) {
   /* Thumb-reachable controls: every button and the lap-jump input grow to
-     a 40px tap target instead of the desktop compact sizing. */
+     a 40px tap target instead of the desktop compact sizing -- both
+     dimensions, so a short label like "Go" doesn't fall short on width. */
   .control {
     min-height: 40px;
+    min-width: 40px;
   }
 
   .jump input {
