@@ -6,6 +6,10 @@ import type { RaceEvent, RawRecord } from "./types.js";
 // declaration here, so it is declared locally instead of widening `lib`.
 declare function structuredClone<T>(value: T): T;
 
+// A timing gap: a number of seconds, a lapped car's "+N LAP(S)" string from
+// OpenF1, or null when neither is present.
+export type Gap = number | string | null;
+
 export interface DriverState {
   driver_number: number;
   full_name: string | null;
@@ -13,8 +17,8 @@ export interface DriverState {
   team_name: string | null;
   team_colour: string | null;
   position: number | null;
-  interval: number | null;
-  gap_to_leader: number | null;
+  interval: Gap;
+  gap_to_leader: Gap;
   current_lap: number | null;
   lap_duration: number | null;
   sector_durations: {
@@ -72,6 +76,15 @@ function stringValue(record: RawRecord, key: string): string | null {
 function booleanValue(record: RawRecord, key: string): boolean | null {
   const value = record[key];
   return typeof value === "boolean" ? value : null;
+}
+
+const LAPPED_GAP_PATTERN = /^\+\d+ LAPS?$/;
+
+function gapValue(record: RawRecord, key: string): Gap {
+  const value = record[key];
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && LAPPED_GAP_PATTERN.test(value)) return value;
+  return null;
 }
 
 function sourceMillis(sourceTime: string | null): number | null {
@@ -256,8 +269,8 @@ export class RaceStateReducer {
     if (driver === null || !this.acceptField(driver, "intervals", event)) {
       return;
     }
-    driver.interval = numberValue(event.payload, "interval");
-    driver.gap_to_leader = numberValue(event.payload, "gap_to_leader");
+    driver.interval = gapValue(event.payload, "interval");
+    driver.gap_to_leader = gapValue(event.payload, "gap_to_leader");
   }
 
   private applyLap(event: RaceEvent): void {
