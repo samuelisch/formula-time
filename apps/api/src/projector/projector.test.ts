@@ -250,9 +250,8 @@ describe("RaceStateProjector", () => {
     await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(1));
     expect(projector.snapshot().drivers["3"]).toBeUndefined();
     expect(seen[0]?.rebuilt).toBe(false);
-    // Tick 1 is also the projector's first-ever (just-caught-up) tick, so
-    // its backlog (rows 1, 2, 4, 5) is not published as `events` -- issue
-    // #114, review round 1.
+    // Tick 1 is the projector's first-ever (just-caught-up) tick, so
+    // its backlog (rows 1, 2, 4, 5) is not published as `events`.
     expect(seen[0]?.events).toEqual([]);
 
     // "c" commits late: it becomes visible, e.g. because a second writer
@@ -270,9 +269,9 @@ describe("RaceStateProjector", () => {
     expect(projector.snapshot().drivers["3"]).toBeDefined();
     expect(projector.status().cursor).toBe(5n);
     expect(source.readWindowCalls[0]?.sessionKey).toBe(SESSION.sessionKey);
-    // A rebuild discards the client's event timeline -- issue #114: the
-    // rebuild pushes `events: []` and `rebuilt: true` rather than the rows
-    // it re-folded, since a rebuild is a fold correction, not new events.
+    // A rebuild discards the client's event timeline: the rebuild pushes
+    // `events: []` and `rebuilt: true` rather than the rows it re-folded,
+    // since a rebuild is a fold correction, not new events.
     expect(seen[1]?.events).toEqual([]);
     expect(seen[1]?.rebuilt).toBe(true);
   });

@@ -109,11 +109,10 @@ test("folds real rows from Postgres, sits idle with no subscriber call, and rebu
     expect(projector.status().cursor).toBe(highestSeq);
     expect(calls).toBe(1);
 
-    // Issue #114, review round 1: the first tick is also the catch-up tick
-    // -- it re-folds the whole backlog from cursor 0, which is not "new
-    // events" for a client's timeline (a client already gets this history
-    // from its own paged backfill), so it publishes `events: []` even
-    // though rows were applied.
+    // The first tick is also the catch-up tick -- it re-folds the whole
+    // backlog from cursor 0, which is not "new events" for a client's
+    // timeline (a client already gets this history from its own paged
+    // backfill), so it publishes `events: []` even though rows were applied.
     expect(seenEvents[0]).toEqual([]);
     expect(seenRebuilt[0]).toBe(false);
 

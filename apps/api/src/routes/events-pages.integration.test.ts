@@ -3,10 +3,10 @@
 // `pnpm test:integration` (or point `DATABASE_URL`/`DATABASE_DIRECT_URL`
 // at a throwaway container).
 //
-// Exercises GET /api/races/:session_key/events against real rows
-// (issue #96): seed 12 events, page with limit 5, and assert the three
-// pages come back 5/5/2 with `next_seq` chaining -- and that a page
-// boundary neither drops nor duplicates a row.
+// Exercises GET /api/races/:session_key/events against real rows:
+// seed 12 events, page with limit 5, and assert the three pages come back
+// 5/5/2 with `next_seq` chaining -- and that a page boundary neither drops
+// nor duplicates a row.
 import Fastify from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createDb, type PrismaClient } from "@formula-time/db";

@@ -81,8 +81,7 @@ process.on("SIGTERM", () => {
 // `catching_up` status frame the brief already specifies.
 await app.listen({ port, host: "0.0.0.0" });
 
-// The exporter owns its own 5s tick (issue #44) -- it does not touch
-// session-lifecycle.ts, which two other PRs are editing.
+// The exporter owns its own 5s tick; it does not touch session-lifecycle.ts.
 exporter.start();
 
 // Run pickSession now and every 5s after; a changed key (first discovery,

@@ -11,7 +11,7 @@
 // healthcheck, `.railway/railway.ts`), not a client route, and stays at
 // the root, registered separately in main.ts.
 //
-// `?format=delta` (issue #89, ADR point 2): opt-in, default unchanged.
+// `?format=delta` (ADR point 2): opt-in, default unchanged.
 // `GET /api/live/snapshot` is the gap-recovery route (ADR point 3): the
 // newest `state` push's bytes, verbatim; 503 before the first push.
 import type { FastifyInstance, FastifyPluginCallback, FastifyReply, FastifyRequest } from "fastify";
