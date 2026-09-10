@@ -252,4 +252,35 @@ describe("useLiveStream", () => {
     await waitFor(() => expect(useLiveStore.getState().live).toEqual(snapshot));
     expect(apiFetch).toHaveBeenCalledTimes(2);
   });
+
+  it("discards a stale fetched snapshot when a newer state frame already landed while the fetch was in flight", async () => {
+    const { EventSourceImpl, es } = capturingEventSource();
+    renderHook(() => useLiveStream({ EventSourceImpl }));
+
+    es().emit("state", JSON.stringify(statePush("1", 1)));
+
+    let resolveFetch: ((res: Response) => void) | null = null;
+    const pending = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    vi.mocked(apiFetch).mockReturnValueOnce(pending);
+
+    es().emit("delta", JSON.stringify(deltaFrame("49", "50", 50))); // gap: starts the fetch
+
+    // A keyframe (or a fresh join snapshot from the stream's own reconnect)
+    // lands and advances `live` while the fetch is still in flight.
+    const keyframe = statePush("200", 200);
+    es().emit("state", JSON.stringify(keyframe));
+    expect(useLiveStore.getState().live).toEqual(keyframe);
+
+    // The stale fetch resolves with an older snapshot than what's now held
+    // -- it must not overwrite the newer keyframe.
+    const staleSnapshot = statePush("50", 50);
+    resolveFetch!(jsonResponse(staleSnapshot));
+
+    // Give the fetch's .then chain every chance to (wrongly) apply the
+    // stale snapshot before asserting it did not.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useLiveStore.getState().live).toEqual(keyframe);
+  });
 });

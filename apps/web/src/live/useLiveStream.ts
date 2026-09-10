@@ -9,8 +9,13 @@
 // fetching `GET /api/live/snapshot` once; further deltas arriving while
 // that fetch is in flight are dropped (the fetch itself will resume the
 // stream from whatever `seq` it returns), and a failed fetch simply leaves
-// the flag clear so the next delta retries it. The server never replays
-// history and this hook keeps no other client-side state across the gap.
+// the flag clear so the next delta retries it. A `state` frame is not
+// gated by that flag -- it can land mid-fetch (a keyframe, or a fresh join
+// snapshot from the stream's own reconnect) -- so the fetch's own
+// resolution only ever applies its snapshot if it is not older than
+// whatever is already held (`seq` compared as numbers); an older snapshot
+// is discarded rather than regressing the board back past a push that has
+// already arrived.
 import { useEffect } from "react";
 
 import { apiFetch, apiUrl } from "../api.ts";
@@ -22,6 +27,11 @@ const TICK_INTERVAL_MS = 250;
 
 export interface UseLiveStreamOptions {
   EventSourceImpl?: typeof EventSource;
+}
+
+/** `seq` values are numeric-string projector cursors; compared as numbers. */
+function seqIsNewer(candidate: string, than: string): boolean {
+  return Number(candidate) > Number(than);
 }
 
 export function useLiveStream(options: UseLiveStreamOptions = {}): void {
@@ -40,6 +50,13 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
         .then(async (res) => {
           if (!res.ok) throw new Error(`GET /api/live/snapshot: ${res.status}`);
           const push = (await res.json()) as LivePush;
+          const held = useLiveStore.getState().live;
+          if (held !== null && !seqIsNewer(push.seq, held.seq)) {
+            // A state frame already landed and moved `live` past this
+            // fetch's snapshot while it was in flight -- applying it now
+            // would silently regress the board.
+            return;
+          }
           useLiveStore.getState().onState(push, Date.now());
         })
         .catch(() => {
