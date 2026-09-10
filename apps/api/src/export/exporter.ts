@@ -40,6 +40,8 @@
 // exactly like a new one: compute `exported_at = now()` once, read the
 // events by `seq`, write the file atomically, then update the row's
 // `exported_at` and `path` in one statement, so the two can never diverge.
+// Logged as `export re-exported <key>`, distinct from a first-time export
+// (silent, the same as before) and from `export failed`.
 import { createWriteStream } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
@@ -236,6 +238,7 @@ export function createExporter(opts: ExporterOptions): Exporter {
         await exportSession(sessionKey, exportedAt);
         if (stale) {
           await db.export.update({ where: { sessionKey }, data: { exportedAt, path } });
+          log(`export re-exported ${sessionKey.toString()}`, { exportedAt: exportedAt.toISOString() });
         } else {
           await db.export.create({ data: { sessionKey, exportedAt, path } });
         }

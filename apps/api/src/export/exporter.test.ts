@@ -316,7 +316,8 @@ describe("createExporter", () => {
     db.events.push(event(9n, 1n, "position", new Date("2026-09-09T01:00:00.000Z")));
 
     const dir = join(tmpRoot, "out");
-    const exporter = createExporter({ db: db as unknown as PrismaClient, dir, log: vi.fn() });
+    const log = vi.fn();
+    const exporter = createExporter({ db: db as unknown as PrismaClient, dir, log });
     await exporter.runOnce();
 
     expect(db.calls).toContain("export.update");
@@ -324,6 +325,7 @@ describe("createExporter", () => {
     expect(db.exports).toHaveLength(1);
     const row = db.exports[0];
     expect(row?.exportedAt.getTime()).toBeGreaterThan(oldExportedAt.getTime());
+    expect(log).toHaveBeenCalledWith("export re-exported 9", expect.objectContaining({ exportedAt: row?.exportedAt.toISOString() }));
 
     const gz = await readFile(join(dir, "9.json.gz"));
     const json = JSON.parse((await gunzipAsync(gz)).toString("utf-8")) as { exported_at: string };
