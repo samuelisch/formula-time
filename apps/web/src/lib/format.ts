@@ -2,7 +2,7 @@
 // typed loosely (RawRecord fields are `unknown`) so these accept `unknown`
 // and fall back rather than throw -- the POC's `text`/`number`/`formatClock`
 // (app.js), lifted for the typed board.
-import type { RawRecord } from "@formula-time/domain";
+import type { Gap, RawRecord } from "@formula-time/domain";
 
 /** `String(value)`, or `fallback` for null, undefined, and the empty string. */
 export function text(value: unknown, fallback = "—"): string {
@@ -37,9 +37,25 @@ export function lapTime(value: unknown): string {
   return `${minutes}:${seconds.toFixed(3).padStart(6, "0")}`;
 }
 
-/** `L<lap> · <duration>s`, or "—" for no pit stop. Shared by the timing table's "last pit" column (DriverRow.tsx) and the driver panel's pit-stop history (DriverPanel.tsx). */
+/** A gap or interval to another car: "—" for null (the leader, a retired car), the lap-count string as-is (e.g. "+1 LAP"), or the seconds value to 3 decimals with an "s" suffix. Shared by the timing table row (DriverRow.tsx) and the driver panel (DriverPanel.tsx) so both render a lapped gap and neither appends "s" to a null value. */
+export function gapText(value: Gap): string {
+  if (value === null) return "—";
+  if (typeof value === "string") return value;
+  return `${value.toFixed(3)}s`;
+}
+
+/** A duration in seconds as `SS.S` below 60s or `M:SS.S` at or above 60s, with no unit suffix past a minute; "—" for anything not a number. */
+export function duration(value: unknown): string {
+  if (typeof value !== "number" || Number.isNaN(value)) return "—";
+  if (value < 60) return `${value.toFixed(1)}s`;
+  const minutes = Math.floor(value / 60);
+  const seconds = value - minutes * 60;
+  return `${minutes}:${seconds.toFixed(1).padStart(4, "0")}`;
+}
+
+/** `L<lap> · <duration>`, or "—" for no pit stop. Shared by the timing table's "last pit" column (DriverRow.tsx) and the driver panel's pit-stop history (DriverPanel.tsx). */
 export function pitStopText(pit: RawRecord | null): string {
-  return pit === null ? "—" : `L${text(pit["lap_number"])} · ${number(pit["pit_duration"], 1)}s`;
+  return pit === null ? "—" : `L${text(pit["lap_number"])} · ${duration(pit["pit_duration"])}`;
 }
 
 /** `HH:MM:SS UTC` from an ISO source time, or "—" when absent/unparseable. */
