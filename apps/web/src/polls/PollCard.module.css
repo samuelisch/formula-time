@@ -125,3 +125,9 @@
   color: var(--color-muted);
   font-size: 0.8rem;
 }
+
+@media (max-width: 640px) {
+  .row {
+    min-height: 40px;
+  }
+}

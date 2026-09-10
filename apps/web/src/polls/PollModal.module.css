@@ -34,3 +34,19 @@
   line-height: 1;
   cursor: pointer;
 }
+
+/* The bottom-sheet variant, applied via useNarrowViewport.ts under
+   --bp-narrow so the same flag also drives the backdrop alignment. */
+.backdropSheet {
+  align-items: flex-end;
+  padding: 0;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 100%;
+  border-radius: 0.75rem 0.75rem 0 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+}
