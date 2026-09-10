@@ -12,6 +12,7 @@
     "test:unit": "vitest run",
     "test:integration": "scripts/with-db-env.sh vitest run --config vitest.integration.config.ts --passWithNoTests",
     "test": "pnpm typecheck && pnpm test:unit && pnpm test:integration",
+    "lint": "eslint .",
     "dev:domain": "tsc -b packages/domain --watch",
     "dev:api": "pnpm --filter @formula-time/api dev",
     "dev:ingest": "pnpm --filter @formula-time/ingest dev",
@@ -26,10 +27,15 @@
     "db:migrate:deploy": "scripts/with-db-env.sh pnpm --filter @formula-time/db db:migrate:deploy"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@types/node": "^24.13.3",
+    "eslint": "10.10.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.12.0",
     "railway": "3.11.0",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",
+    "typescript-eslint": "8.70.0",
     "vitest": "^5.0.0"
   }
 }
