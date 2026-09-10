@@ -57,6 +57,15 @@ mkdir -p "$STATE_DIR" "$LOG_DIR"
 
 cd "$REPO_ROOT"
 pnpm db:up
+
+# Export this worktree's own compose Postgres before migrating it: an
+# already-exported DATABASE_URL/DATABASE_DIRECT_URL in the invoking shell
+# (left over from other work) must never leak in here and get migrated
+# instead of the compose Postgres just started.
+eval "$(scripts/db-env.sh)"
+export DATABASE_URL="postgres://formula:formula@localhost:${DB_PORT}/formula_time"
+export DATABASE_DIRECT_URL="$DATABASE_URL"
+
 # `docker compose up -d` returns once the container starts, not once
 # Postgres is accepting connections (no `--wait`), so a migrate right after
 # can race a still-starting server. Retry instead of failing outright.
@@ -72,10 +81,6 @@ if [ "$migrated" != true ]; then
   echo "e2e-stack: database never became ready for migration" >&2
   exit 1
 fi
-
-eval "$(scripts/db-env.sh)"
-export DATABASE_URL="postgres://formula:formula@localhost:${DB_PORT}/formula_time"
-export DATABASE_DIRECT_URL="$DATABASE_URL"
 
 pnpm sim --recording "$RECORDING" --speed 20 --start race >"$LOG_DIR/sim.log" 2>&1 &
 echo $! >>"$PID_FILE"
