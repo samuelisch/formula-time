@@ -3,8 +3,11 @@
 # Gate: typecheck, unit tests, and no edits to Accepted ADRs. Non-zero exit blocks the commit.
 set -u
 cmd=$(jq -r '.tool_input.command // empty')
-# Anchored: the phrase must start a command (line start or after ; & |), not merely appear in a message.
-printf '%s\n' "$cmd" | grep -qE '(^|[;&|])[[:space:]]*git commit' || exit 0
+# Anchored: the phrase must start a command (line start or after ; & |), not
+# merely appear in a message. Options between "git" and "commit" (-c x=y,
+# -C dir, --no-pager, ...) are skipped so an option-prefixed form still
+# matches; "commit" must be a whole word so "git commitlog" does not.
+printf '%s\n' "$cmd" | grep -qE '(^|[;&|])[[:space:]]*git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+commit([[:space:]]|$)' || exit 0
 # Gate the tree the commit is happening in. Hooks run with cwd = the caller's
 # directory, so for an agent in a git worktree this is the worktree, not the
 # main checkout (CLAUDE_PROJECT_DIR always points at the main checkout).
