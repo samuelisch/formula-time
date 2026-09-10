@@ -1,22 +1,10 @@
 import type { RawRecord } from "@formula-time/domain";
-import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router";
 
-import { Pill, type PillTone } from "../components/Pill.tsx";
-import {
-  useCatchingUp,
-  useConnection,
-  useLastMessageAt,
-  useSessionMeta,
-  useSessionStatus,
-  type SessionStatusValue,
-} from "../live/selectors.ts";
+import { useSessionMeta, useSessionStatus, type SessionStatusValue } from "../live/selectors.ts";
 import { useLiveStream } from "../live/useLiveStream.ts";
 import { stringField } from "../lib/format.ts";
 import styles from "./Shell.module.css";
-
-// A stoppage must read as a quiet feed, never a frozen app (POC quiet-feed rule).
-const QUIET_AFTER_MS = 5_000;
 
 // The raw OpenF1 fields are "{country_name} · {circuit_short_name}", but the
 // wire never carries those: the projector's sessionAsRawRecord()
@@ -35,50 +23,11 @@ function sessionLine(session: RawRecord | null, status: SessionStatusValue | nul
   return base;
 }
 
-function pillState(
-  connection: ReturnType<typeof useConnection>,
-  catchingUp: boolean,
-  lastMessageAt: number | null,
-  now: number,
-  status: SessionStatusValue | null,
-): { text: string; tone: PillTone } {
-  if (connection === "connecting") return { text: "connecting…", tone: "neutral" };
-
-  const live = status === "live";
-  const prefix = live ? "Live" : "Connected";
-
-  if (connection === "reconnecting") return { text: `${prefix} · reconnecting…`, tone: "warn" };
-
-  if (catchingUp) return { text: `${prefix} · catching up`, tone: "live" };
-
-  if (lastMessageAt !== null) {
-    const quietSeconds = Math.floor((now - lastMessageAt) / 1000);
-    if (now - lastMessageAt >= QUIET_AFTER_MS) {
-      return { text: `${prefix} · last update ${quietSeconds}s ago`, tone: "live" };
-    }
-  }
-
-  return { text: live ? "Live · connected" : "Connected", tone: "live" };
-}
-
 export function Shell() {
   useLiveStream();
 
-  const connection = useConnection();
-  const catchingUp = useCatchingUp();
-  const lastMessageAt = useLastMessageAt();
   const { session } = useSessionMeta();
   const status = useSessionStatus();
-
-  // Ticks once a second so the "last update Ns ago" pill keeps advancing
-  // even when no new push arrives.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const pill = pillState(connection, catchingUp, lastMessageAt, now, status);
 
   return (
     <div className={styles.shell}>
@@ -92,7 +41,6 @@ export function Shell() {
           <NavLink to="/live">Live</NavLink>
           <NavLink to="/polls">Polls</NavLink>
         </nav>
-        <Pill tone={pill.tone}>{pill.text}</Pill>
       </header>
       <main className={styles.main}>
         <Outlet />

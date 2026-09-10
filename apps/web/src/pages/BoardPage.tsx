@@ -5,6 +5,7 @@ import { AlignPanel } from "../align/AlignPanel.tsx";
 import { Board } from "../board/Board.tsx";
 import { DriverPanel } from "../board/DriverPanel.tsx";
 import { useBoardSessionMeta, useBoardSessionStatus } from "../board/useBoardState.ts";
+import { ConnectionPill } from "../live/ConnectionPill.tsx";
 import { LiveTimelineLoader } from "../live/LiveTimelineLoader.tsx";
 import { useLiveSessionKey, useLiveSessionStatus, type SessionStatusValue } from "../live/selectors.ts";
 import { date, stringField } from "../lib/format.ts";
@@ -55,8 +56,9 @@ function useShouldMountTimelineLoader(sessionKey: number | null, status: Session
 }
 
 // The `/live` route: the pure `Board` (board/Board.tsx) plus everything
-// that is live-only -- the finished/upcoming session banner, polls, and the
-// alignment control. `ReplayPage` mounts `Board` on its own, so none of
+// that is live-only -- the finished/upcoming session banner, the connection
+// pill, polls, and the alignment control. `ReplayPage` mounts `Board` on
+// its own, so none of
 // this leaks onto a replay: the banner would read the replay's own
 // session, which is always finished (the exporter only exports finished
 // sessions), and the transport bar's live `TimeTarget` acts on the live
@@ -99,6 +101,7 @@ export function BoardPage() {
         <Board
           controls={
             <>
+              <ConnectionPill />
               <PollsButton />
               <AlignPanel />
             </>
