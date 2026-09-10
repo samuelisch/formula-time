@@ -16,9 +16,14 @@ const START = Date.parse("2026-09-06T13:00:00Z");
 const END = Date.parse("2026-09-06T15:00:00Z");
 const WINDOW = 30 * 60 * 1000;
 
+// No meeting_key: most tests below use SESSION as the sole row in a fake
+// `sessions?year=` response, which would otherwise read as a meeting whose
+// only known session is its own race — not a real-world shape (OpenF1's
+// full-year response always carries a race's practice/qualifying siblings
+// too) and not one the Friday-fetch tests below need SESSION for; they
+// build their own meeting fixtures with an explicit meeting_key instead.
 const SESSION: RawRecord = {
   session_key: 11361,
-  meeting_key: 1293,
   session_name: "Race",
   circuit_key: 39,
   country_name: "Italy",
@@ -935,7 +940,7 @@ describe("RestLane: drivers fetch budget (issue #39)", () => {
       date_start: "2026-09-04T11:30:00Z",
       date_end: "2026-09-04T12:30:00Z",
     };
-    const RACE: RawRecord = { ...SESSION, session_type: "Race" };
+    const RACE: RawRecord = { ...SESSION, meeting_key: 1293, session_type: "Race" };
     const calls: string[] = [];
     const fetcher = async (url: string): Promise<unknown> => {
       calls.push(url);

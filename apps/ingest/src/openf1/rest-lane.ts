@@ -320,10 +320,11 @@ export class RestLane {
   }
 
   /**
-   * `sessions?year=` plus the upsert of every row: refreshes `lastSessions`
-   * and `knownSessionKeys` (only rows whose upsert succeeded). Shared by the
-   * idle discovery tick and the live loop's periodic refresh. `null` when
-   * the fetch failed or returned no array.
+   * `sessions?year=` plus the upsert of every race row: refreshes
+   * `lastSessions` (every row this fetch returned, race or not) and
+   * `knownSessionKeys` (race rows whose upsert succeeded only). Shared by
+   * the idle discovery tick and the live loop's periodic refresh. `null`
+   * when the fetch failed or returned no array.
    */
   private async refreshSessions(nowMs: number): Promise<{ rows: RawRecord[]; upserted: Set<RawRecord> } | null> {
     this.nextSessionsRefreshAt = nowMs + this.discoveryIntervalMs;
@@ -337,9 +338,9 @@ export class RestLane {
     if (!Array.isArray(sessions)) return null;
     const rows = sessions as RawRecord[];
 
-    // Only race sessions are captured (isRaceSession, owner decision
-    // 2026-09-10): a practice, qualifying or sprint row is never upserted,
-    // never added to `upserted`, and never added to `knownSessionKeys` — so
+    // Only race sessions are captured (isRaceSession): a practice,
+    // qualifying or sprint row is never upserted, never added to
+    // `upserted`, and never added to `knownSessionKeys` — so
     // ensureLiveSession() can't select it and a drivers row tagged to it is
     // dropped downstream as unknownSession.
     //
@@ -552,14 +553,6 @@ export class RestLane {
       // otherwise be picked here instead of the meeting's actual race.
       const raceSession = meetingSessions.find((s) => isRaceSession(s));
       if (!raceSession) continue;
-
-      // A meeting whose only known session so far is its own race isn't
-      // "Friday" yet — that race's own entry list already comes from its
-      // session-key selection fetch once it goes live. Friday's condition
-      // ("first session's date_start has passed") only makes sense once at
-      // least one other (practice/qualifying/sprint) row for the meeting
-      // is in the snapshot too.
-      if (meetingSessions.length < 2) continue;
 
       // The race session must already be in `knownSessionKeys` (its own
       // `sessions` upsert has landed) — `lastSessions` above holds every
