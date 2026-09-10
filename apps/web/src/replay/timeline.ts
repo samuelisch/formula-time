@@ -50,7 +50,7 @@
 // (`foldRace.ts` defines `FoldedRace` as `Timeline & { finalState }`), so
 // `foldAt` accepts either one unchanged.
 import type { RawRecord, RaceEvent, RaceState } from "@formula-time/domain";
-import { createInitialState, leaderLap, RaceStateReducer } from "@formula-time/domain";
+import { createInitialState, RaceStateReducer } from "@formula-time/domain";
 
 export const KEYFRAME_EVENT_INTERVAL = 500;
 export const KEYFRAME_SOURCE_TIME_MS = 30_000;
@@ -68,7 +68,11 @@ export interface Keyframe {
 
 export interface LapMarker {
   lap: number;
-  /** The first source time (epoch ms) the leader reached this lap. */
+  /**
+   * The lap's own start time (epoch ms): the earliest non-null `source_time`
+   * among `laps` events for this lap, across drivers -- the leader starts a
+   * lap first, so this is the leader's `date_start`.
+   */
   sourceMs: number;
 }
 
@@ -88,6 +92,38 @@ function sourceMillis(sourceTime: string | null): number | null {
   if (sourceTime === null) return null;
   const millis = Date.parse(sourceTime);
   return Number.isNaN(millis) ? null : millis;
+}
+
+/** `payload.lap_number` from a `laps` event, or null when absent or not a number. */
+function lapNumber(payload: RawRecord): number | null {
+  const value = payload["lap_number"];
+  return typeof value === "number" ? value : null;
+}
+
+/**
+ * Records `sourceMs` as a candidate start time for `lap`, in place on
+ * `markers` (sorted by lap): creates the marker on the first non-null
+ * `source_time` seen for that lap, and lowers an existing marker's time in
+ * place when a later-arriving row for the same lap turns out earlier --
+ * never raises it, since the earliest row already seen is the lap's start.
+ * A lap lower than every marker recorded so far is inserted in its sorted
+ * position rather than assumed to append at the end.
+ */
+function recordLapMarker(markers: LapMarker[], lap: number, sourceMs: number): void {
+  const index = markers.findIndex((marker) => marker.lap === lap);
+  if (index !== -1) {
+    if (sourceMs < markers[index]!.sourceMs) {
+      markers[index] = { lap, sourceMs };
+    }
+    return;
+  }
+
+  const insertAt = markers.findIndex((marker) => marker.lap > lap);
+  if (insertAt === -1) {
+    markers.push({ lap, sourceMs });
+  } else {
+    markers.splice(insertAt, 0, { lap, sourceMs });
+  }
 }
 
 function yieldToEventLoop(): Promise<void> {
@@ -176,7 +212,6 @@ export async function appendEvents(timeline: Timeline, rawEvents: RaceEvent[]): 
 
   let eventsSinceKeyframe = timeline.events.length - lastKeyframe.eventIndex;
   let keyframeSourceMs = lastKeyframe.sourceMs ?? timeline.firstSourceMs;
-  let lastMarkedLap = timeline.lapMarkers.length > 0 ? timeline.lapMarkers[timeline.lapMarkers.length - 1]!.lap : 0;
   let firstSourceMs = timeline.firstSourceMs;
   let lastSourceMs = timeline.lastSourceMs;
 
@@ -197,13 +232,17 @@ export async function appendEvents(timeline: Timeline, rawEvents: RaceEvent[]): 
       if (keyframeSourceMs === null) keyframeSourceMs = incoming;
     }
 
-    // `state` is the object `reducer` mutates in place, so this reads the
-    // current leader lap with no clone -- cheap enough to check every event.
-    if (lastSourceMs !== null) {
-      const currentLap = leaderLap(state);
-      if (currentLap > lastMarkedLap) {
-        timeline.lapMarkers.push({ lap: currentLap, sourceMs: lastSourceMs });
-        lastMarkedLap = currentLap;
+    // A lap's start is only known from a `laps` row that actually carries a
+    // `date_start` -- the first lap-1 row for each driver arrives with a
+    // null `source_time` while the field is still on the formation lap, so
+    // gating on the leader's current lap (as this used to) stamps the
+    // marker with whatever unrelated event happened to be last, long before
+    // lights out. Recording straight from `laps` rows keeps the marker tied
+    // to the lap it actually describes.
+    if (raceEvent.endpoint === "laps" && incoming !== null) {
+      const lap = lapNumber(raceEvent.payload);
+      if (lap !== null) {
+        recordLapMarker(timeline.lapMarkers, lap, incoming);
       }
     }
 
@@ -252,7 +291,7 @@ export function foldAt(timeline: Timeline, targetSourceMs: number): RaceState {
   return reducer.snapshot();
 }
 
-/** The lap markers recorded so far -- the first source time (epoch ms) the leader reached each lap. */
+/** The lap markers recorded so far -- each lap's own start time (epoch ms), the earliest non-null `source_time` seen among its `laps` rows. */
 export function lapMarkers(timeline: Timeline): LapMarker[] {
   return timeline.lapMarkers;
 }
