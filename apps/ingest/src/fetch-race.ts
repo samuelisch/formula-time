@@ -271,6 +271,7 @@ async function fetchOneSession(
   recorder: RaceRecorder,
   now: () => number,
   log: (line: string) => void,
+  replace: boolean,
 ): Promise<FetchOneSessionResult> {
   const noEvents: DrainResult = { inserted: 0, skipped: 0 };
   const sessionsRaw = await fetcher(`${OPENF1_BASE}/sessions?session_key=${sessionKey}`);
@@ -327,6 +328,7 @@ async function fetchOneSession(
         pushNormalized(queue, sessionKeyNum, group);
       }
     },
+    { replace },
   );
 
   return { found: true, ...result };
@@ -336,6 +338,8 @@ export interface FetchRacesOptions {
   now?: () => number;
   onLog?: (line: string) => void;
   recorder?: RaceRecorder;
+  /** Same `--replace` as the recording loader (load-recording.ts): reload this session's events in place. */
+  replace?: boolean;
 }
 
 export interface FetchRacesResult {
@@ -362,6 +366,7 @@ export async function fetchRaces(
   const now = opts.now ?? Date.now;
   const log = opts.onLog ?? ((line: string) => console.log(line));
   const recorder = opts.recorder ?? NULL_RECORDER;
+  const replace = opts.replace ?? false;
 
   const queue = new EventQueue<QueueItem>();
   const writer = new EventWriter(db, queue);
@@ -378,7 +383,7 @@ export async function fetchRaces(
   for (const sessionKey of sessionKeys) {
     sessionsAttempted += 1;
     try {
-      const result = await fetchOneSession(sessionKey, fetcher, db, writer, queue, recorder, now, log);
+      const result = await fetchOneSession(sessionKey, fetcher, db, writer, queue, recorder, now, log, replace);
       fold(result.drainResult);
       if (!result.found) sessionsNotFound += 1;
       else if (result.skipped) sessionsSkipped += 1;
@@ -398,15 +403,17 @@ export async function fetchRaces(
   return { ...totals, sessionsAttempted, sessionsSkipped, sessionsNotFound };
 }
 
-// CLI entry: `node dist/fetch-race.js <session_key> [<session_key> ...]`
-// (package.json script "fetch-race"; root script "ingest:fetch-race").
-// Guarded so this module can be imported by the unit test without running
-// the CLI.
+// CLI entry: `node dist/fetch-race.js [--replace] <session_key>
+// [<session_key> ...]` (package.json script "fetch-race"; root script
+// "ingest:fetch-race"). Guarded so this module can be imported by the unit
+// test without running the CLI.
 const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
-  const args = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  const replace = argv.includes("--replace");
+  const args = argv.filter((arg) => arg !== "--replace");
   if (args.length === 0) {
-    console.error("fetch-race: usage: pnpm ingest:fetch-race <session_key> [<session_key> ...]");
+    console.error("fetch-race: usage: pnpm ingest:fetch-race [--replace] <session_key> [<session_key> ...]");
     process.exit(1);
   }
   const sessionKeys: number[] = [];
@@ -436,7 +443,7 @@ if (isMain) {
   const fetcher = withSpacing(retried, FETCH_SPACING_MS);
   const recorder = new JsonlRecorder(config.liveLogDir);
 
-  fetchRaces(sessionKeys, db, fetcher, { recorder })
+  fetchRaces(sessionKeys, db, fetcher, { recorder, replace })
     .then(async (result) => {
       await db.$disconnect();
       // Same "exit 1 only if every attempted session failed" rule

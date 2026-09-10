@@ -106,6 +106,42 @@ only way to get a race into the deployed database.
    next deploy anyway — but leaves nothing behind if this container
    instance stays up a while.
 
+## Reload a race
+
+A race already loaded with events in the wrong `seq` order (for example,
+one loaded before the received_at-ordering fix landed) can be fixed in
+place with `--replace`, instead of wiping the session by hand: it deletes
+the session's `events` rows and reruns the normal insert path as one
+transaction, so a failed insert leaves the old rows untouched. The
+recording must already be on the container (steps 1-2 above); add the
+flag before the recording paths:
+
+```
+ssh railway-ingest 'node apps/ingest/dist/load-recording.js --replace /tmp/recordings/<key>'
+```
+
+The loader logs one verify line per session after every load, replaced or
+not: `load: verify <key> rows=<n> endpoint_runs=<r>
+source_time_backsteps=<b>`. `endpoint_runs` is the decisive signal:
+`endpoint_runs` equal to the number of OpenF1 endpoints (8) is the broken,
+endpoint-grouped shape `--replace` fixes; a correctly interleaved race has
+far more (measured on a full Italian GP: `endpoint_runs=1057`). Don't
+judge health from `source_time_backsteps` alone — it's present on a
+healthy load too (OpenF1 batches arrive slightly out of order; measured on
+the same race, `source_time_backsteps=1004` correctly interleaved vs. 625
+endpoint-grouped) and does not by itself separate a healthy load from a
+broken one. `--replace` writes newer `events` rows than the session's
+`exports` row reflects; per ADR-0018, the api's exporter treats that
+session as stale and re-exports it automatically on its own 5 s tick, no
+separate step. Confirm the new export landed:
+
+```
+curl -s https://api-production-8fbf2.up.railway.app/api/races | grep '"session_key":<key>'
+```
+
+`exported_at` should be later than it was before the reload. The owner
+runs the actual production reload of an affected race, not an agent.
+
 ## Common mistakes
 
 - Running this before the loader build has actually been deployed to

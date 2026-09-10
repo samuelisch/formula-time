@@ -54,8 +54,38 @@ export interface SessionStatusReader {
   };
 }
 
+/** `--replace`'s delete half: clears a session's `events` rows before the reload's insert path runs. */
+export interface EventDeleteDb {
+  event: {
+    deleteMany(args: { where: { sessionKey: bigint } }): Promise<{ count: number }>;
+  };
+}
+
+/** The verify line's read-back — `seq` order, `endpoint` and `source_time` only, never the payload. */
+export interface EventReadDb {
+  event: {
+    findMany(args: {
+      where: { sessionKey: bigint };
+      orderBy: { seq: "asc" };
+      select: { endpoint: true; sourceTime: true };
+    }): Promise<Array<{ endpoint: string; sourceTime: Date | null }>>;
+  };
+}
+
+/**
+ * `--replace` runs the delete and the reload's insert path as one
+ * transaction, so a failed insert rolls the delete back too and the
+ * session's old rows are left exactly as they were.
+ */
+export interface EventTransactionDb {
+  $transaction<T>(
+    fn: (tx: EventWriterDb & EventDeleteDb) => Promise<T>,
+    options?: { timeout?: number; maxWait?: number },
+  ): Promise<T>;
+}
+
 /** The slice of the Prisma client the loader needs — real client or a fake (unit test). */
-export type LoaderDb = SessionsDb & EventWriterDb & SessionStatusReader;
+export type LoaderDb = SessionsDb & EventWriterDb & SessionStatusReader & EventDeleteDb & EventReadDb & EventTransactionDb;
 
 // Reads every `raw/*.jsonl` through the same `LiveNormalizer` (identity,
 // dedup) in file order, endpoint order `drivers, position, intervals,
@@ -132,9 +162,112 @@ async function readSessionRowsInTimeOrder(dir: string, sessionKey: number): Prom
   });
 }
 
+/**
+ * The two counts the verify line reports: a race loaded with `events`
+ * emitted one endpoint fully before the next, instead of interleaved by
+ * time, has `events.seq` grouped by endpoint — the browser fold reads that
+ * as "no lap yet" for most of a scrubbed replay. `endpoint_runs` counts
+ * maximal runs of equal `endpoint` in `seq` order: an endpoint-grouped load
+ * has exactly one run per endpoint; a correctly interleaved race has many
+ * times that many, order-of-magnitude closer to the row count than to the
+ * endpoint count. `source_time_backsteps` counts rows whose non-null
+ * `source_time` is earlier than the previous non-null one — present on a
+ * healthy load too (OpenF1 batches arrive slightly out of order), so on its
+ * own it does not separate a healthy load from a broken one; `endpoint_runs`
+ * is the decisive signal. A `null` `source_time` (e.g. `drivers`) never
+ * counts as a backstep and never resets the comparison.
+ */
+export function verifyCounts(
+  rows: readonly { endpoint: string; source_time: Date | string | null }[],
+): { rows: number; endpoint_runs: number; source_time_backsteps: number } {
+  let endpoint_runs = 0;
+  let previousEndpoint: string | null = null;
+  let previousSourceTimeMs: number | null = null;
+  let source_time_backsteps = 0;
+
+  for (const row of rows) {
+    if (row.endpoint !== previousEndpoint) {
+      endpoint_runs += 1;
+      previousEndpoint = row.endpoint;
+    }
+    const ms = sourceTimeMs(row.source_time);
+    if (ms !== null) {
+      if (previousSourceTimeMs !== null && ms < previousSourceTimeMs) source_time_backsteps += 1;
+      previousSourceTimeMs = ms;
+    }
+  }
+
+  return { rows: rows.length, endpoint_runs, source_time_backsteps };
+}
+
+function sourceTimeMs(value: Date | string | null): number | null {
+  if (value === null) return null;
+  const ms = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * Reads a session's own `events` back in `seq` order (the commit order) and
+ * logs `verifyCounts` on them — one line per session, printed after every
+ * load whether or not `--replace` was used, so an endpoint-grouped load is
+ * visible in the log without a manual query. `endpoint`/`source_time` only,
+ * never the payload: this is a shape check, not a data read.
+ */
+async function logVerifyLine(db: EventReadDb, sessionKey: number, log: (line: string) => void): Promise<void> {
+  const rows = await db.event.findMany({
+    where: { sessionKey: BigInt(sessionKey) },
+    orderBy: { seq: "asc" },
+    select: { endpoint: true, sourceTime: true },
+  });
+  const counts = verifyCounts(rows.map((row) => ({ endpoint: row.endpoint, source_time: row.sourceTime })));
+  log(
+    `load: verify ${sessionKey} rows=${counts.rows} endpoint_runs=${counts.endpoint_runs} source_time_backsteps=${counts.source_time_backsteps}`,
+  );
+}
+
+// A full race is ~28,000 events, ~280 `createMany` batches of 100 — well
+// over Prisma's 5s default interactive-transaction timeout. This is
+// deliberately generous (minutes, not seconds): intent is "never time out a
+// legitimate reload", not a tuned value.
+const REPLACE_TRANSACTION_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * `--replace`: deletes a session's `events` rows and drains the queue's
+ * already-ordered rows back in, as one transaction — so a insert failure
+ * (the writer gives up, per `EventWriter.drainAll()`) rolls the delete back
+ * too, and the session's old rows are exactly as they were. `queue` is
+ * shared with the caller: `emitAll` has already filled it (outside this
+ * transaction — for `fetch-race` that means the OpenF1 requests themselves
+ * are not held inside a database transaction).
+ */
+async function replaceSessionEvents(
+  db: EventTransactionDb,
+  queue: EventQueue<QueueItem>,
+  sessionKey: bigint,
+): Promise<DrainResult> {
+  return db.$transaction(
+    async (tx) => {
+      await tx.event.deleteMany({ where: { sessionKey } });
+      const txWriter = new EventWriter(tx, queue);
+      const result = await txWriter.drainAll();
+      // `drainAll()` gives up after repeated failures without throwing,
+      // leaving the failed batch on the queue — throwing here is what rolls
+      // the delete back too, instead of committing a session with its old
+      // rows gone and the new ones only partially written.
+      if (!queue.isEmpty()) {
+        throw new Error(`replace: writer failed to write all events for session ${sessionKey}`);
+      }
+      return result;
+    },
+    { timeout: REPLACE_TRANSACTION_TIMEOUT_MS, maxWait: REPLACE_TRANSACTION_TIMEOUT_MS },
+  );
+}
+
 export interface LoadRecordingsOptions {
   now?: () => number;
   onLog?: (line: string) => void;
+  /** Reload a session in place: delete its `events` rows, then the normal insert path, as one transaction. */
+  replace?: boolean;
 }
 
 export interface LoadRecordingsResult {
@@ -159,14 +292,26 @@ export interface WriteSessionThroughLoaderResult {
   drainResult: DrainResult;
 }
 
+export interface WriteSessionThroughLoaderOptions {
+  /**
+   * Reload this session in place: delete its `events` rows and run the
+   * insert path as one transaction, instead of `createMany`'s
+   * skip-duplicates behaviour leaving stale rows (and their stale `seq`
+   * order) untouched. The ADR-0010 live guard runs first either way — a
+   * live/not-yet-closed session is refused before anything is deleted.
+   */
+  replace?: boolean;
+}
+
 /**
  * The write path shared by the recording loader and `fetch-race`
  * (ADR-0009: "a fetched race reaches the exporter the same way a loaded
  * one does"): validate the session key, apply the ADR-0010 live guard,
  * upsert `upcoming` (unless already `finished`), let `emitAll` push every
  * event onto `queue` (via a fresh `LiveNormalizer` it is handed, so every
- * row is normalized with the same LiveNormalizer), drain, and
- * only then upsert `finished` — see the inline comments below.
+ * row is normalized with the same LiveNormalizer), drain (or, with
+ * `--replace`, delete-then-drain as one transaction), print the verify
+ * line, and only then upsert `finished` — see the inline comments below.
  */
 export async function writeSessionThroughLoader(
   session: RawRecord,
@@ -176,6 +321,7 @@ export async function writeSessionThroughLoader(
   nowMs: number,
   log: (line: string) => void,
   emitAll: (normalizer: LiveNormalizer, sessionKey: number, alreadyFinished: boolean) => Promise<void>,
+  opts: WriteSessionThroughLoaderOptions = {},
 ): Promise<WriteSessionThroughLoaderResult> {
   const noEvents: DrainResult = { inserted: 0, skipped: 0 };
   const sessionKey = Number(session["session_key"]);
@@ -262,23 +408,46 @@ export async function writeSessionThroughLoader(
   // and returns without throwing, leaving the failed batch requeued at the
   // front (writer.ts); `!queue.isEmpty()` is how that give-up is detected
   // here.
-  const drainResult = await writer.drainAll();
-  if (!queue.isEmpty()) {
-    // The queue and writer are shared across
-    // every session in this `loadRecordings()` call, and a batch that gave
-    // up is left sitting at the FRONT of the queue (requeueFront in
-    // writer.ts) — the next session's own `drainAll()` would hit that stuck
-    // batch first (or get merged into the same batch, since drain isn't
-    // session-aware) and be wrongly marked skipped for a failure that was
-    // never its own. Clear it here so the failure stays attributed to
-    // *this* session and the next one starts from an empty queue.
-    const dropped = queue.clear();
-    log(`load: dropped ${dropped} unwritten rows for ${sessionKey}`);
-    log(
-      `load: session=${sessionKey} writer failed to write all events; session left upcoming for the next run`,
-    );
-    return { skipped: true, drainResult };
+  let drainResult: DrainResult;
+  if (opts.replace) {
+    try {
+      drainResult = await replaceSessionEvents(db, queue, BigInt(sessionKey));
+    } catch (error) {
+      // The transaction rolled back: the delete never committed, so the
+      // session's old rows are exactly as they were. Whatever's left on the
+      // queue was never written either — clear it for the same
+      // cross-session reason as the non-replace branch below.
+      const dropped = queue.clear();
+      log(`load: dropped ${dropped} unwritten rows for ${sessionKey}`);
+      log(
+        `load: session=${sessionKey} replace transaction rolled back, old rows unchanged: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return { skipped: true, drainResult: noEvents };
+    }
+  } else {
+    drainResult = await writer.drainAll();
+    if (!queue.isEmpty()) {
+      // The queue and writer are shared across
+      // every session in this `loadRecordings()` call, and a batch that gave
+      // up is left sitting at the FRONT of the queue (requeueFront in
+      // writer.ts) — the next session's own `drainAll()` would hit that stuck
+      // batch first (or get merged into the same batch, since drain isn't
+      // session-aware) and be wrongly marked skipped for a failure that was
+      // never its own. Clear it here so the failure stays attributed to
+      // *this* session and the next one starts from an empty queue.
+      const dropped = queue.clear();
+      log(`load: dropped ${dropped} unwritten rows for ${sessionKey}`);
+      log(
+        `load: session=${sessionKey} writer failed to write all events; session left upcoming for the next run`,
+      );
+      return { skipped: true, drainResult };
+    }
   }
+
+  // The rows this session ends this run with, read back in `seq` order —
+  // printed whether or not `--replace` was used, so an endpoint-grouped
+  // load is visible in the log without a manual query.
+  await logVerifyLine(db, sessionKey, log);
 
   // Every event for this session has committed — only now is it safe to
   // mark the session `finished`. If the process had died anywhere above,
@@ -301,44 +470,54 @@ async function loadOneSession(
   queue: EventQueue<QueueItem>,
   nowMs: number,
   log: (line: string) => void,
+  replace: boolean,
 ): Promise<LoadOneSessionResult> {
-  return writeSessionThroughLoader(session, db, writer, queue, nowMs, log, async (normalizer, sessionKey) => {
-    // The static entry list, "exactly as session selection does" (same
-    // `emitRows` path rest-lane.ts's `ensureLiveSession` uses) — so the
-    // `drivers` event ids match a live run of the same session.
-    const driverRows: RawRecord[] = ENTRY_LIST_2026.map((driver) => ({
-      session_key: sessionKey,
-      driver_number: driver.driver_number,
-      full_name: driver.full_name,
-      name_acronym: driver.name_acronym,
-      team_name: driver.team_name,
-      team_colour: driver.team_colour,
-    }));
-    const entryResult = emitRows(normalizer, queue, "drivers", sessionKey, driverRows);
-    log(
-      `load: session=${sessionKey} endpoint=drivers(entry-list) rows=${driverRows.length} new=${entryResult.newRows}`,
-    );
+  return writeSessionThroughLoader(
+    session,
+    db,
+    writer,
+    queue,
+    nowMs,
+    log,
+    async (normalizer, sessionKey) => {
+      // The static entry list, "exactly as session selection does" (same
+      // `emitRows` path rest-lane.ts's `ensureLiveSession` uses) — so the
+      // `drivers` event ids match a live run of the same session.
+      const driverRows: RawRecord[] = ENTRY_LIST_2026.map((driver) => ({
+        session_key: sessionKey,
+        driver_number: driver.driver_number,
+        full_name: driver.full_name,
+        name_acronym: driver.name_acronym,
+        team_name: driver.team_name,
+        team_colour: driver.team_colour,
+      }));
+      const entryResult = emitRows(normalizer, queue, "drivers", sessionKey, driverRows);
+      log(
+        `load: session=${sessionKey} endpoint=drivers(entry-list) rows=${driverRows.length} new=${entryResult.newRows}`,
+      );
 
-    // Emit in `received_at` order across every endpoint, not one
-    // endpoint's rows fully before the next — see
-    // `readSessionRowsInTimeOrder` above. Consecutive rows that share an
-    // endpoint are still batched into one `emitRows` call each (same
-    // identity/dedup path, fewer/larger writer batches and log lines than
-    // one row at a time); only the batch boundaries move, not the per-row
-    // order within/across batches.
-    const merged = await readSessionRowsInTimeOrder(dir, sessionKey);
-    let mergedIndex = 0;
-    while (mergedIndex < merged.length) {
-      const endpoint = merged[mergedIndex]!.endpoint;
-      const rows: RawRecord[] = [];
-      while (mergedIndex < merged.length && merged[mergedIndex]!.endpoint === endpoint) {
-        rows.push(merged[mergedIndex]!.payload);
-        mergedIndex += 1;
+      // Emit in `received_at` order across every endpoint, not one
+      // endpoint's rows fully before the next — see
+      // `readSessionRowsInTimeOrder` above. Consecutive rows that share an
+      // endpoint are still batched into one `emitRows` call each (same
+      // identity/dedup path, fewer/larger writer batches and log lines than
+      // one row at a time); only the batch boundaries move, not the per-row
+      // order within/across batches.
+      const merged = await readSessionRowsInTimeOrder(dir, sessionKey);
+      let mergedIndex = 0;
+      while (mergedIndex < merged.length) {
+        const endpoint = merged[mergedIndex]!.endpoint;
+        const rows: RawRecord[] = [];
+        while (mergedIndex < merged.length && merged[mergedIndex]!.endpoint === endpoint) {
+          rows.push(merged[mergedIndex]!.payload);
+          mergedIndex += 1;
+        }
+        const result = emitRows(normalizer, queue, endpoint, sessionKey, rows);
+        log(`load: session=${sessionKey} endpoint=${endpoint} rows=${rows.length} new=${result.newRows}`);
       }
-      const result = emitRows(normalizer, queue, endpoint, sessionKey, rows);
-      log(`load: session=${sessionKey} endpoint=${endpoint} rows=${rows.length} new=${result.newRows}`);
-    }
-  });
+    },
+    { replace },
+  );
 }
 
 /**
@@ -363,6 +542,7 @@ export async function loadRecordings(
 ): Promise<LoadRecordingsResult> {
   const now = opts.now ?? Date.now;
   const log = opts.onLog ?? ((line: string) => console.log(line));
+  const replace = opts.replace ?? false;
 
   const queue = new EventQueue<QueueItem>();
   const writer = new EventWriter(db, queue);
@@ -387,7 +567,7 @@ export async function loadRecordings(
     for (const session of sessions) {
       sessionsAttempted += 1;
       try {
-        const result = await loadOneSession(dir, session, db, writer, queue, nowMs, log);
+        const result = await loadOneSession(dir, session, db, writer, queue, nowMs, log, replace);
         fold(result.drainResult);
         if (result.skipped) sessionsSkipped += 1;
       } catch (error) {
@@ -413,14 +593,17 @@ export async function loadRecordings(
   return { ...totals, sessionsAttempted, sessionsSkipped };
 }
 
-// CLI entry: `node dist/load-recording.js <recording-dir> [<recording-dir> ...]`
-// (package.json script "load"; root script "ingest:load"). Guarded so this
-// module can be imported by the unit test without running the CLI.
+// CLI entry: `node dist/load-recording.js [--replace] <recording-dir>
+// [<recording-dir> ...]` (package.json script "load"; root script
+// "ingest:load"). Guarded so this module can be imported by the unit test
+// without running the CLI.
 const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
-  const dirs = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  const replace = argv.includes("--replace");
+  const dirs = argv.filter((arg) => arg !== "--replace");
   if (dirs.length === 0) {
-    console.error("load-recording: usage: pnpm ingest:load <recording-dir> [<recording-dir> ...]");
+    console.error("load-recording: usage: pnpm ingest:load [--replace] <recording-dir> [<recording-dir> ...]");
     process.exit(1);
   }
   const databaseUrl = process.env["DATABASE_URL"];
@@ -429,7 +612,7 @@ if (isMain) {
     process.exit(1);
   }
   const db = createDb(databaseUrl, { max: 1 });
-  loadRecordings(dirs, db)
+  loadRecordings(dirs, db, { replace })
     .then(async (result) => {
       await db.$disconnect();
       // Exit 1 only if every attempted session failed/was refused — a
