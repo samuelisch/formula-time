@@ -32,6 +32,7 @@ interface FakeEventRow {
   sessionKey: bigint;
   endpoint: string;
   sourceTime: Date | null;
+  receivedAt: Date;
   payload: unknown;
 }
 
@@ -54,13 +55,19 @@ function session(sessionKey: bigint, status: FakeSessionRow["status"]): FakeSess
   };
 }
 
-function event(sessionKey: bigint, seq: bigint, endpoint = "position"): FakeEventRow {
+function event(
+  sessionKey: bigint,
+  seq: bigint,
+  endpoint = "position",
+  receivedAt = new Date("2026-09-08T12:30:00.000Z"),
+): FakeEventRow {
   return {
     seq,
     eventId: `event-${sessionKey.toString()}-${seq.toString()}`,
     sessionKey,
     endpoint,
     sourceTime: new Date("2026-09-08T12:30:00.000Z"),
+    receivedAt,
     payload: { driver_number: 1 },
   };
 }
@@ -76,13 +83,32 @@ function makeFakeDb() {
     sessions,
     events,
     exports,
+    // Stands in for the one raw query `runOnce` issues: `finished` sessions
+    // left-joined to `exports` and to `MAX(received_at)` grouped by
+    // `session_key`, keeping a row when there is no `exports` row yet or
+    // when the max `received_at` is newer than `exported_at`.
+    $queryRaw: vi.fn(async () => {
+      calls.push("$queryRaw");
+      const rows: Array<{ session_key: string; exported_at: Date | null; path: string | null }> = [];
+      for (const s of sessions) {
+        if (s.status !== "finished") continue;
+        const existing = exports.find((e) => e.sessionKey === s.sessionKey);
+        const maxReceivedAt = events
+          .filter((e) => e.sessionKey === s.sessionKey)
+          .reduce<Date | null>((max, e) => (max === null || e.receivedAt > max ? e.receivedAt : max), null);
+        const isNew = existing === undefined;
+        const isStale = existing !== undefined && maxReceivedAt !== null && maxReceivedAt > existing.exportedAt;
+        if (isNew || isStale) {
+          rows.push({
+            session_key: s.sessionKey.toString(),
+            exported_at: existing?.exportedAt ?? null,
+            path: existing?.path ?? null,
+          });
+        }
+      }
+      return rows;
+    }),
     session: {
-      findMany: vi.fn(async ({ where }: { where: { status: string; export: null } }) => {
-        calls.push("session.findMany");
-        return sessions.filter(
-          (s) => s.status === where.status && !exports.some((e) => e.sessionKey === s.sessionKey),
-        );
-      }),
       findUniqueOrThrow: vi.fn(async ({ where }: { where: { sessionKey: bigint } }) => {
         calls.push("session.findUniqueOrThrow");
         const found = sessions.find((s) => s.sessionKey === where.sessionKey);
@@ -116,6 +142,24 @@ function makeFakeDb() {
         exports.push({ ...data });
         return data;
       }),
+      update: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: { sessionKey: bigint };
+          data: { exportedAt: Date; path: string };
+        }) => {
+          calls.push("export.update");
+          const idx = exports.findIndex((e) => e.sessionKey === where.sessionKey);
+          if (idx === -1) throw new Error(`no export row for ${where.sessionKey.toString()}`);
+          const row = exports[idx];
+          if (row === undefined) throw new Error(`no export row for ${where.sessionKey.toString()}`);
+          const updated = { ...row, exportedAt: data.exportedAt, path: data.path };
+          exports[idx] = updated;
+          return updated;
+        },
+      ),
     },
   };
 }
@@ -262,6 +306,66 @@ describe("createExporter", () => {
     await retryExporter.runOnce();
 
     expect(db.exports).toHaveLength(1);
+  });
+
+  test("stale: an exports row with a newer received_at is re-exported with a later exported_at, row updated", async () => {
+    const db = makeFakeDb();
+    db.sessions.push(session(9n, "finished"));
+    const oldExportedAt = new Date("2026-09-09T00:00:00.000Z");
+    db.exports.push({ sessionKey: 9n, exportedAt: oldExportedAt, path: "/old/9.json.gz" });
+    db.events.push(event(9n, 1n, "position", new Date("2026-09-09T01:00:00.000Z")));
+
+    const dir = join(tmpRoot, "out");
+    const exporter = createExporter({ db: db as unknown as PrismaClient, dir, log: vi.fn() });
+    await exporter.runOnce();
+
+    expect(db.calls).toContain("export.update");
+    expect(db.calls).not.toContain("export.create");
+    expect(db.exports).toHaveLength(1);
+    const row = db.exports[0];
+    expect(row?.exportedAt.getTime()).toBeGreaterThan(oldExportedAt.getTime());
+
+    const gz = await readFile(join(dir, "9.json.gz"));
+    const json = JSON.parse((await gunzipAsync(gz)).toString("utf-8")) as { exported_at: string };
+    expect(json.exported_at).toBe(row?.exportedAt.toISOString());
+  });
+
+  test("not stale: an exports row with an older (or equal) received_at is left alone", async () => {
+    const db = makeFakeDb();
+    const exportedAt = new Date("2026-09-09T01:00:00.000Z");
+    db.sessions.push(session(10n, "finished"));
+    db.exports.push({ sessionKey: 10n, exportedAt, path: "/old/10.json.gz" });
+    db.events.push(event(10n, 1n, "position", new Date("2026-09-09T00:00:00.000Z")));
+
+    const exporter = createExporter({ db: db as unknown as PrismaClient, dir: join(tmpRoot, "out"), log: vi.fn() });
+    await exporter.runOnce();
+
+    expect(db.calls).not.toContain("export.update");
+    expect(db.calls).not.toContain("export.create");
+    expect(db.exports[0]?.exportedAt).toEqual(exportedAt);
+  });
+
+  test("a write failure during re-export leaves the old row and file untouched", async () => {
+    const db = makeFakeDb();
+    const oldExportedAt = new Date("2026-09-09T00:00:00.000Z");
+    db.sessions.push(session(11n, "finished"));
+    db.exports.push({ sessionKey: 11n, exportedAt: oldExportedAt, path: "/old/11.json.gz" });
+    db.events.push(event(11n, 1n, "position", new Date("2026-09-09T01:00:00.000Z")));
+
+    // Same ENOTDIR trick as the "new" write-failure test: a path segment
+    // that is an ordinary file, not a directory.
+    const blocker = join(tmpRoot, "stale-blocker-file");
+    await writeFile(blocker, "not a directory");
+    const badDir = join(blocker, "sub");
+
+    const log = vi.fn();
+    const exporter = createExporter({ db: db as unknown as PrismaClient, dir: badDir, log });
+    await exporter.runOnce();
+
+    expect(db.calls).not.toContain("export.update");
+    expect(db.exports[0]?.exportedAt).toEqual(oldExportedAt);
+    expect(db.exports[0]?.path).toBe("/old/11.json.gz");
+    expect(log).toHaveBeenCalledWith("export failed", expect.objectContaining({ sessionKey: "11" }));
   });
 
   test("start()/stop() manage a timer without throwing, and stop() is idempotent", () => {
