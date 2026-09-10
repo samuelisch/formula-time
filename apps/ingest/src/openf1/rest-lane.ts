@@ -11,6 +11,7 @@ import { ENTRY_LIST_2026 } from "./entry-list.js";
 import { LiveNormalizer, endpointConfigs } from "./normalize.js";
 import type { Fetcher, QueueItem, RawRecord } from "./types.js";
 import type { EventQueue } from "../writer/queue.js";
+import { isRaceSession } from "../writer/sessions.js";
 
 export const OPENF1_BASE = "https://api.openf1.org/v1";
 
@@ -336,12 +337,19 @@ export class RestLane {
     if (!Array.isArray(sessions)) return null;
     const rows = sessions as RawRecord[];
 
+    // Only race sessions are captured (isRaceSession, owner decision
+    // 2026-09-10): a practice, qualifying or sprint row is never upserted,
+    // never added to `upserted`, and never added to `knownSessionKeys` — so
+    // ensureLiveSession() can't select it and a drivers row tagged to it is
+    // dropped downstream as unknownSession.
+    //
     // Tracks which rows' onSession (the sessions upsert) succeeded THIS
     // tick, so ensureLiveSession() never selects a session whose row failed
     // to write — selecting it anyway would mean every later event insert
     // fails its FK against a `sessions` row that was never created.
     const upserted = new Set<RawRecord>();
     for (const row of rows) {
+      if (!isRaceSession(row)) continue;
       try {
         await this.onSession?.(row, nowMs);
         upserted.add(row);
@@ -356,10 +364,14 @@ export class RestLane {
       }
     }
 
-    // Only rows whose upsert succeeded: Friday's condition is "the race
-    // session is in the sessions table", and a drivers row tagged to a
-    // session that is not would poison the writer's batch (FK).
-    this.lastSessions = rows.filter((row) => upserted.has(row));
+    // Every row this fetch returned, race or not: the Friday entry-list
+    // check groups a meeting's sessions from this snapshot to find its
+    // first session's start and its race session, independent of whether a
+    // session's own `sessions` upsert has landed — checkFridayFetch below
+    // still requires the race session to be in `knownSessionKeys` before it
+    // fires, so a not-yet-written race session still blocks the fetch the
+    // same way it always did.
+    this.lastSessions = rows;
     return { rows, upserted };
   }
 
@@ -371,6 +383,13 @@ export class RestLane {
   ): Promise<boolean> {
     const live = pickLiveSession(sessions, nowMs);
     if (!live) return false;
+    if (!isRaceSession(live)) {
+      // Only race sessions are captured: a practice or qualifying session
+      // inside its live window is left unselected, so the REST rotation
+      // never polls it. Not an error — this is the common case whenever a
+      // practice/quali session is the only one currently in its window.
+      return false;
+    }
     if (!upserted.has(live)) {
       // Its sessions upsert failed this tick (thrown, caught, and logged
       // above) — selecting it anyway would mean every later event insert
@@ -528,8 +547,28 @@ export class RestLane {
       if (state?.satisfied) continue;
       if (state && nowMs < state.nextRetryAt) continue;
 
-      const raceSession = meetingSessions.find((s) => s["session_type"] === "Race");
+      // isRaceSession, not a raw session_type check: a sprint session
+      // carries session_type "Race" too (session_name "Sprint"), and would
+      // otherwise be picked here instead of the meeting's actual race.
+      const raceSession = meetingSessions.find((s) => isRaceSession(s));
       if (!raceSession) continue;
+
+      // A meeting whose only known session so far is its own race isn't
+      // "Friday" yet — that race's own entry list already comes from its
+      // session-key selection fetch once it goes live. Friday's condition
+      // ("first session's date_start has passed") only makes sense once at
+      // least one other (practice/qualifying/sprint) row for the meeting
+      // is in the snapshot too.
+      if (meetingSessions.length < 2) continue;
+
+      // The race session must already be in `knownSessionKeys` (its own
+      // `sessions` upsert has landed) — `lastSessions` above holds every
+      // fetched row regardless of upsert outcome, so this is the guard that
+      // keeps a not-yet-written race session from triggering a meeting-wide
+      // drivers fetch whose rows would just be dropped downstream as
+      // unknownSession (events.session_key is a FK).
+      const raceKey = Number(raceSession["session_key"]);
+      if (!Number.isFinite(raceKey) || !this.knownSessionKeys.has(raceKey)) continue;
 
       // Friday's meeting-wide fetch applies only to a meeting whose race
       // session's window has not closed: `date_end` of the meeting's race
