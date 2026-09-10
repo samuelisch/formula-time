@@ -1,7 +1,10 @@
 // Pure math for `SliderWithTicks`, split out of the component file so it
 // stays a components-only module (react-refresh's `only-export-components`
-// rule) while `snapTarget`/`currentLap` stay independently unit-testable.
+// rule) while `snapTarget`/`currentLap`/`shouldLabelTick` stay independently
+// unit-testable.
 const SNAP_THRESHOLD_RATIO = 0.015; // ±1.5% of the range, the "resistance"
+const LABEL_EVERY = 5;
+const LABEL_THINNING_THRESHOLD = 40;
 
 export interface TickMark {
   /** Position on the slider's own axis (ms), already clamped into `[min, max]` by the caller. */
@@ -45,4 +48,13 @@ export function currentLap(value: number, ticks: readonly TickMark[]): number | 
 export function percent(value: number, min: number, max: number): number {
   if (max <= min) return 0;
   return ((value - min) / (max - min)) * 100;
+}
+
+/**
+ * Whether lap `lap`'s tick gets a text label: every lap when `tickCount`
+ * ticks fall inside the slider, only every fifth lap once more than 40 do --
+ * the tick marks themselves are unaffected, this only thins the labels.
+ */
+export function shouldLabelTick(lap: number, tickCount: number): boolean {
+  return tickCount <= LABEL_THINNING_THRESHOLD || lap % LABEL_EVERY === 0;
 }

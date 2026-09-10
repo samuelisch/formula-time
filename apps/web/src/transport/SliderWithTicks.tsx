@@ -24,12 +24,10 @@
 // caller has nothing more complete to give.
 import { useState, type ChangeEvent } from "react";
 
-import { currentLap, percent, snapTarget, type TickMark } from "./sliderMath.ts";
+import { currentLap, percent, shouldLabelTick, snapTarget, type TickMark } from "./sliderMath.ts";
 import styles from "./SliderWithTicks.module.css";
 
 export type { TickMark } from "./sliderMath.ts";
-
-const LABEL_EVERY = 5;
 
 export interface SliderWithTicksProps {
   min: number;
@@ -78,7 +76,7 @@ export function SliderWithTicks({
       <div className={styles.track} aria-hidden="true">
         {ticks.map((tick) => (
           <span key={tick.lap} className={styles.tick} style={{ left: `${percent(tick.value, min, max)}%` }}>
-            {tick.lap % LABEL_EVERY === 0 && <span className={styles.tickLabel}>{tick.lap}</span>}
+            {shouldLabelTick(tick.lap, ticks.length) && <span className={styles.tickLabel}>{tick.lap}</span>}
           </span>
         ))}
       </div>
