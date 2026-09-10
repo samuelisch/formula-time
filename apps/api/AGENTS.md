@@ -60,7 +60,7 @@ row.
 
 ADR-0009: `exports` is a fifth table, written only by the api (the
 exporter). It does not write `sessions` — `sessions.exported_at` was
-dropped in the same migration that added `exports`. ADR-0017: `exported_at`
+dropped in the same migration that added `exports`. ADR-0018: `exported_at`
 is the file's version, not a one-time stamp — it moves on a re-export, and
 the route's etag and the web's cache-busting `?v=` both key off it.
 

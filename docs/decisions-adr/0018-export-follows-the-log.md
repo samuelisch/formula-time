@@ -1,4 +1,4 @@
-# ADR-0017 — Export follows the log: a session is re-exported when its events are newer than its export
+# ADR-0018 — Export follows the log: a session is re-exported when its events are newer than its export
 
 Status: Proposed
 Date: 2026-09-10
@@ -50,4 +50,4 @@ versioned on the web side (#167: the replay fetches
   stamp: a viewer that already has a race's index entry cached must refetch
   the index to notice a later `exported_at`.
 
-ADRs affected: 0017: the exporter re-exports a session whose events are newer than its export, amending ADR-0009 §2 (export once) and §3 (regenerate only a missing file)
+ADRs affected: 0018: the exporter re-exports a session whose events are newer than its export, amending ADR-0009 §2 (export once) and §3 (regenerate only a missing file)
