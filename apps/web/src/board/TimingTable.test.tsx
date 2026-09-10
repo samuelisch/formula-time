@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
 
@@ -132,6 +132,90 @@ describe("TimingTable position cues", () => {
     // still highlighted.
     renderWith(pushWithPosition(2));
     const row = screen.getByText("VER").closest("tr")!;
+    expect(row.className).not.toMatch(/rowGain|rowLoss/);
+  });
+});
+
+// A leader on lap 5 makes leaderLap() (@formula-time/domain) return 5, which
+// runStatus() reads to derive each other driver's status: LEC is 3 laps down
+// with a stale intervals timestamp (dnf), ALO has no lap row at all with the
+// leader past lap 2 (dns), and HAM is still receiving fresh intervals despite
+// a lap-count gap string (running).
+function retiredScenarioPush() {
+  const leader = makeDriver({
+    driver_number: 1,
+    name_acronym: "VER",
+    position: 1,
+    current_lap: 5,
+    source_timestamps: { lap: "2026-09-08T13:10:00.000Z" },
+  });
+  const dnfDriver = makeDriver({
+    driver_number: 16,
+    name_acronym: "LEC",
+    position: 16,
+    current_lap: 2,
+    source_timestamps: { intervals: "2026-09-08T13:00:00.000Z" },
+  });
+  const dnsDriver = makeDriver({
+    driver_number: 14,
+    name_acronym: "ALO",
+    position: 17,
+    current_lap: null,
+  });
+  const lappedRunningDriver = makeDriver({
+    driver_number: 44,
+    name_acronym: "HAM",
+    position: 2,
+    current_lap: 5,
+    gap_to_leader: "+2 LAPS",
+  });
+
+  return makePush(
+    {},
+    {
+      drivers: { "1": leader, "16": dnfDriver, "14": dnsDriver, "44": lappedRunningDriver },
+      driver_order: [1, 44, 16, 14],
+    },
+  );
+}
+
+describe("TimingTable retired drivers", () => {
+  it("renders DNF in the gap and interval cells for a driver 3+ laps down with a stale intervals timestamp", () => {
+    renderWith(retiredScenarioPush());
+    const row = screen.getByText("LEC").closest("tr")!;
+    expect(within(row).getAllByText("DNF")).toHaveLength(2);
+  });
+
+  it("renders DNS in the gap and interval cells for a driver with no lap row once the leader has passed lap 2", () => {
+    renderWith(retiredScenarioPush());
+    const row = screen.getByText("ALO").closest("tr")!;
+    expect(within(row).getAllByText("DNS")).toHaveLength(2);
+  });
+
+  it("still shows a lap-count gap for a running driver who is laps down but still receiving updates", () => {
+    renderWith(retiredScenarioPush());
+    expect(screen.getByText("+2 LAPS")).toBeInTheDocument();
+  });
+
+  it("mutes a retired row's class", () => {
+    renderWith(retiredScenarioPush());
+    const dnfRow = screen.getByText("LEC").closest("tr")!;
+    const dnsRow = screen.getByText("ALO").closest("tr")!;
+    expect(dnfRow.className).toMatch(/retired/);
+    expect(dnsRow.className).toMatch(/retired/);
+  });
+
+  it("renders no position-change cue for a retired row even after a position change", () => {
+    // driver_order stays put -- its first entry is also leaderLap()'s leader
+    // (@formula-time/domain), so only LEC's own `position` field changes
+    // here, leaving the dnf/dns basis (the leader's current_lap) untouched.
+    const first = retiredScenarioPush();
+    const { rerender } = renderWith(first);
+    const second = retiredScenarioPush();
+    second.state.drivers["16"] = { ...second.state.drivers["16"]!, position: 1 };
+    rerender(tree(second));
+    const row = screen.getByText("LEC").closest("tr")!;
+    expect(within(row).queryByText(/^[▲▼]/)).not.toBeInTheDocument();
     expect(row.className).not.toMatch(/rowGain|rowLoss/);
   });
 });

@@ -69,6 +69,12 @@
   cursor: pointer;
 }
 
+/* A retired (dnf/dns) row: every cell but the position number is muted, so
+   the car's place in the field still reads at full strength. */
+.retired td:not(.position) {
+  opacity: 0.55;
+}
+
 .row:hover {
   background: var(--color-raised);
 }

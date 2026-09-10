@@ -11,8 +11,8 @@
 //
 // A plain .ts file (not .tsx), so `BoardSourceProvider` is built with
 // `createElement` rather than JSX.
-import type { DriverState, RaceState } from "@formula-time/domain";
-import { leaderLap } from "@formula-time/domain";
+import type { DriverState, RaceState, RunStatus } from "@formula-time/domain";
+import { leaderLap, runStatus } from "@formula-time/domain";
 import { createContext, createElement, useContext, useMemo, useState, type ReactNode } from "react";
 
 import { sessionStatusOf, useDisplayed, type SessionStatusValue } from "../live/selectors.ts";
@@ -143,6 +143,12 @@ export function useBoardDriver(driverNumber: number): DriverState | null {
     return driver;
   }
   return cache.value;
+}
+
+/** A driver's run status (`RunStatus` from `@formula-time/domain`), computed from the displayed push -- so a delayed viewer only sees a retirement once their own lap reaches it. "running" before any push has arrived or for a driver absent from the push. */
+export function useBoardRunStatus(driverNumber: number): RunStatus {
+  const push = useBoardPush();
+  return push === null ? "running" : runStatus(push.state, driverNumber);
 }
 
 /** How long a position-change cue stays visible after the push that set it. */
