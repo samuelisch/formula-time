@@ -9,14 +9,11 @@
 // prefix: "/api" })`, so the public paths are `POST /api/vote` and
 // `GET /api/polls`. `/health` is not this module's and stays at the root.
 //
-// `@fastify/cookie` is registered inside the returned plugin rather than
-// in main.ts: wiring this module into the app's single Fastify instance is
-// left to a follow-up commit after #23 (projector/fan-out/live route)
-// merges, per the plan for #24. Because `@fastify/cookie` uses
-// `fastify-plugin`, its decorators (`reply.setCookie`) are exposed to this
-// plugin's own instance rather than creating a nested encapsulation, so
-// `fastify.post`/`fastify.get` below can use them regardless of the prefix
-// applied at registration.
+// `@fastify/cookie` is registered inside this plugin (not main.ts).
+// Because `@fastify/cookie` uses `fastify-plugin`, its decorators
+// (`reply.setCookie`) are exposed to this plugin's own instance rather than
+// creating a nested encapsulation, so `fastify.post`/`fastify.get` below can
+// use them regardless of the prefix applied at registration.
 import cookie from "@fastify/cookie";
 import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 
@@ -80,11 +77,10 @@ export function registerPolls(module: PollModule, db: PrismaClient): FastifyPlug
 
     fastify.get("/polls", async () => module.publicPolls());
 
-    // GET /api/races/:session_key/polls (issue #79) -- polls for a race,
-    // read straight from Postgres rather than the poll module's in-memory
-    // (current-session-only) state. Two queries per request, never per
-    // viewer per tick (ADR-0001 §2 invariant 2); the vote path above is
-    // untouched.
+    // GET /api/races/:session_key/polls -- polls for a race, read straight
+    // from Postgres rather than the poll module's in-memory (current-session-only)
+    // state. Two queries per request, never per viewer per tick (ADR-0001 §2
+    // invariant 2); the vote path above is untouched.
     fastify.get<{ Params: { session_key: string } }>("/races/:session_key/polls", async (request, reply) => {
       const raw = request.params.session_key;
       if (!INTEGER.test(raw)) {
