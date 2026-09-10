@@ -4,6 +4,7 @@ import { leaderLap } from "@formula-time/domain";
 import type { RawRecord } from "@formula-time/domain";
 import { useMemo } from "react";
 
+import type { Timeline } from "../replay/timeline.ts";
 import type { Anchors } from "./anchors.ts";
 import { span } from "./buffer.ts";
 import { useLiveStore } from "./store.ts";
@@ -96,4 +97,30 @@ export function useAnchors(): Anchors {
 /** How `displayed` was chosen: "edge", "buffer", or "timeline" (past the buffer, folded from the browser-side log). */
 export function useRewindMode(): RewindMode {
   return useLiveStore((state) => state.mode);
+}
+
+/** The browser-side full-race timeline for the live session (`LiveTimelineLoader` sets it), or null when not loaded. */
+export function useTimeline(): Timeline | null {
+  return useLiveStore((state) => state.timeline);
+}
+
+/**
+ * The *live* session's key (the newest push, `state.live`), as a number --
+ * never the *displayed* session, which in timeline mode is synthesised and
+ * would give a late joiner's rewind loader the wrong key. Null before the
+ * first push, or if `session_key` is not numeric (never happens on the
+ * wire, but this hook feeds a `number`-typed prop).
+ */
+export function useLiveSessionKey(): number | null {
+  return useLiveStore((state) => {
+    const key = state.live?.session_key;
+    if (key === undefined) return null;
+    const parsed = Number(key);
+    return Number.isFinite(parsed) ? parsed : null;
+  });
+}
+
+/** The *live* push's own session status -- see `useLiveSessionKey` for why this reads `live`, not `displayed`. */
+export function useLiveSessionStatus(): SessionStatusValue | null {
+  return useLiveStore((state) => sessionStatusOf(state.live?.state.session));
 }

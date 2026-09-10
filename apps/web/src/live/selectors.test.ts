@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { emptyAnchors } from "./anchors.ts";
 import { emptyBuffer } from "./buffer.ts";
-import { useRewindMode, useSessionStatus } from "./selectors.ts";
+import { useLiveSessionKey, useLiveSessionStatus, useRewindMode, useSessionStatus, useTimeline } from "./selectors.ts";
 import { useLiveStore } from "./store.ts";
 import type { LivePush } from "./types.ts";
 
@@ -18,6 +18,8 @@ function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>>
     displayed: null,
     bufferShort: false,
     anchors: emptyAnchors(),
+    timeline: null,
+    mode: "edge",
     ...overrides,
   });
 }
@@ -81,5 +83,35 @@ describe("useRewindMode", () => {
     resetStore({ mode: "timeline" });
     const { result } = renderHook(() => useRewindMode());
     expect(result.current).toBe("timeline");
+  });
+});
+
+describe("useTimeline", () => {
+  it("is null before a timeline is loaded", () => {
+    resetStore();
+    const { result } = renderHook(() => useTimeline());
+    expect(result.current).toBeNull();
+  });
+});
+
+describe("useLiveSessionKey / useLiveSessionStatus", () => {
+  it("read the live push, not the displayed one", () => {
+    resetStore({
+      live: pushWithSession({ status: "live" }),
+      displayed: pushWithSession({ status: "finished" }), // simulating timeline mode's synthesised displayed push
+    });
+    const { result: key } = renderHook(() => useLiveSessionKey());
+    expect(key.current).toBe(9999);
+
+    const { result: status } = renderHook(() => useLiveSessionStatus());
+    expect(status.current).toBe("live");
+  });
+
+  it("are null before any push has arrived", () => {
+    resetStore();
+    const { result: key } = renderHook(() => useLiveSessionKey());
+    expect(key.current).toBeNull();
+    const { result: status } = renderHook(() => useLiveSessionStatus());
+    expect(status.current).toBeNull();
   });
 });

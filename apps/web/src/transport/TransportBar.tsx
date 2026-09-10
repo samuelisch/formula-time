@@ -103,7 +103,9 @@ export function TransportBar() {
     playback === null
       ? range === null || displayedAtMs === null
         ? "—"
-        : `${formatSeconds(range.endMs - displayedAtMs)}s`
+        : target.rewindMode() === "timeline"
+          ? `Rewound ${formatSeconds(range.endMs - displayedAtMs)}s · from the log`
+          : `${formatSeconds(range.endMs - displayedAtMs)}s`
       : syncOffsetMs === null
         ? clock(displayedAtMs === null ? null : new Date(displayedAtMs).toISOString())
         : `${syncOffsetMs > 0 ? "+" : ""}${formatSeconds(syncOffsetMs)}s`;

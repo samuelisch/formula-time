@@ -1,7 +1,8 @@
-import type { DriverState, RaceState, RawRecord } from "@formula-time/domain";
+import type { DriverState, RaceEvent, RaceState, RawRecord } from "@formula-time/domain";
 import { describe, expect, it } from "vitest";
 
-import { deriveAnchors, emptyAnchors } from "./anchors.ts";
+import type { FoldedRace, LapMarker } from "../replay/foldRace.ts";
+import { deriveAnchors, deriveTimelineAnchors, emptyAnchors } from "./anchors.ts";
 import type { LivePush } from "./types.ts";
 
 function driver(overrides: { currentLap: number | null; lapSourceTime?: string }): DriverState {
@@ -180,5 +181,62 @@ describe("deriveAnchors", () => {
       seen,
     );
     expect(anchors.restarts).toEqual([]);
+  });
+});
+
+function raceControlEvent(id: string, message: string, date: string): RaceEvent {
+  return {
+    event_id: id,
+    endpoint: "race_control",
+    source_time: date,
+    payload: { category: "SessionStatus", message, date },
+  };
+}
+
+function folded(overrides: Partial<FoldedRace> = {}): FoldedRace {
+  const lapMarkers: LapMarker[] = overrides.lapMarkers ?? [
+    { lap: 1, sourceMs: Date.parse("2026-09-06T13:00:00.000Z") },
+    { lap: 2, sourceMs: Date.parse("2026-09-06T13:01:30.000Z") },
+  ];
+  return {
+    session: {},
+    events: [],
+    keyframes: [],
+    finalState: {} as never,
+    firstSourceMs: Date.parse("2026-09-06T13:00:00.000Z"),
+    lastSourceMs: Date.parse("2026-09-06T13:01:30.000Z"),
+    lapMarkers,
+    ...overrides,
+  };
+}
+
+// Moved from useReplayTimeTarget.test.ts (issue #97): deriveReplayAnchors ->
+// deriveTimelineAnchors, now taking a `Timeline` (a `FoldedRace` satisfies
+// that shape unchanged) instead of only a `FoldedRace`.
+describe("deriveTimelineAnchors", () => {
+  it("lap N's anchor is the lap marker's source time, and lights_out is lap 1's", () => {
+    const anchors = deriveTimelineAnchors(folded());
+    expect(anchors.lights_out).toBe("2026-09-06T13:00:00.000Z");
+    expect(anchors.laps).toEqual([
+      { lap: 1, source_time: "2026-09-06T13:00:00.000Z" },
+      { lap: 2, source_time: "2026-09-06T13:01:30.000Z" },
+    ]);
+  });
+
+  it("lights_out is null when lap 1 was never reached", () => {
+    const anchors = deriveTimelineAnchors(folded({ lapMarkers: [{ lap: 2, sourceMs: 1_000 }] }));
+    expect(anchors.lights_out).toBeNull();
+  });
+
+  it("restarts are SESSION STARTED race-control events, deduped and sorted", () => {
+    const events: RaceEvent[] = [
+      raceControlEvent("e1", "SESSION STARTED", "2026-09-06T13:05:00.000Z"),
+      raceControlEvent("e2", "SESSION STARTED", "2026-09-06T13:00:00.000Z"), // earlier, out of order
+      raceControlEvent("e3", "SESSION STARTED", "2026-09-06T13:00:00.000Z"), // duplicate date
+      raceControlEvent("e4", "SAFETY CAR DEPLOYED", "2026-09-06T13:02:00.000Z"), // not a restart
+      { event_id: "e5", endpoint: "laps", source_time: "2026-09-06T13:03:00.000Z", payload: { category: "SessionStatus", message: "SESSION STARTED", date: "2026-09-06T13:03:00.000Z" } }, // wrong endpoint
+    ];
+    const anchors = deriveTimelineAnchors(folded({ events }));
+    expect(anchors.restarts).toEqual(["2026-09-06T13:00:00.000Z", "2026-09-06T13:05:00.000Z"]);
   });
 });
