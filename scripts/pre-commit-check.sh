@@ -4,15 +4,6 @@
 # Accepted ADRs. Non-zero exit blocks the commit.
 set -u
 cmd=$(jq -r '.tool_input.command // empty')
-# Anchored: the phrase must start a command (line start or after ; & |), not
-# merely appear in a message. Options between "git" and "commit" (-c x=y,
-# -C dir, --no-pager, ...) are skipped so an option-prefixed form still
-# matches; "commit" must be a whole word so "git commitlog" does not.
-self_filter='(^|[;&|])[[:space:]]*git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+commit([[:space:]]|$)'
-match_line=$(printf '%s\n' "$cmd" | grep -obE "$self_filter" | head -1)
-[ -n "$match_line" ] || exit 0
-match_offset=${match_line%%:*}
-cmd_match=${match_line#*:}
 
 strip_quotes() {
   local p="$1"
@@ -23,13 +14,15 @@ strip_quotes() {
   printf '%s' "$p"
 }
 
-# Quoted text is an argument, not shell syntax: `echo 'x && cd /decoy && y'`
-# runs no `cd` at all. Replacing the blanks inside quotes with \001 leaves a
-# quoted stretch unable to match the `cd <path> &&` pattern below, while a
-# genuinely quoted path (`cd "/my dir" &&`) still matches and is restored by
-# unmask_blanks once extracted. An unbalanced quote masks the rest of the
-# line, which costs nothing: such a command is a shell syntax error and
-# never reaches a commit.
+# Quoted text is an argument, not shell syntax: neither `echo '; git commit'`
+# nor `echo 'x && cd /decoy && y'` runs anything. Replacing the blanks inside
+# quotes with \001 leaves a quoted stretch unable to look like a command —
+# every form the patterns below recognise needs a real blank inside it —
+# while a genuinely quoted path (`cd "/my dir" &&`) still matches and is
+# restored by unmask_blanks once extracted. One byte in, one byte out, so an
+# offset into the masked command is also an offset into the original. An
+# unbalanced quote masks the rest of the line, which costs nothing: such a
+# command is a shell syntax error and never reaches a commit.
 mask_quoted_blanks() {
   awk '{
     q = ""; out = ""
@@ -48,6 +41,17 @@ unmask_blanks() {
   printf '%s' "$1" | tr '\001' ' '
 }
 
+masked=$(printf '%s' "$cmd" | mask_quoted_blanks)
+# Anchored: the phrase must start a command (line start or after ; & |), not
+# merely appear in a message. Options between "git" and "commit" (-c x=y,
+# -C dir, --no-pager, ...) are skipped so an option-prefixed form still
+# matches; "commit" must be a whole word so "git commitlog" does not.
+self_filter='(^|[;&|])[[:space:]]*git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+commit([[:space:]]|$)'
+match_line=$(printf '%s\n' "$masked" | grep -obE "$self_filter" | head -1)
+[ -n "$match_line" ] || exit 0
+match_offset=${match_line%%:*}
+cmd_match=${match_line#*:}
+
 # The tree the commit actually lands in is not always the hook's own cwd: an
 # agent's Bash command can `cd` into another checkout, or pass `git -C`,
 # before running `git commit` in the same command. Pick, in order: the last
@@ -59,7 +63,8 @@ unmask_blanks() {
 # an unrelated "git commit"-looking substring earlier in the command (e.g.
 # inside a quoted echo argument) cannot be mistaken for it either: the cut
 # point comes from grep's own byte offset for the anchored match, not a
-# second, textual search for the matched string.
+# second, textual search for the matched string, and that match was taken
+# from the masked text so quoted text cannot supply it.
 #
 # That offset is a count of bytes, so the cut point is measured and applied
 # in bytes throughout — `wc -c` for the length of the match's leading
@@ -70,8 +75,14 @@ hook_cwd="$(pwd)"
 git_part=$(printf '%s' "$cmd_match" | sed -E 's/^[;&|]?[[:space:]]*//')
 anchor=${cmd_match%"$git_part"}
 anchor_bytes=$(printf '%s' "$anchor" | wc -c | tr -d '[:space:]')
-prefix=$(printf '%s' "$cmd" | head -c "$(( match_offset + anchor_bytes ))")
-raw_path=$(printf '%s\n' "$prefix" | mask_quoted_blanks | sed -nE "s/.*(^|[;&|])[[:space:]]*cd[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]*(&&|;).*/\\2/p")
+cut_bytes=$(( match_offset + anchor_bytes ))
+prefix=""
+# head -c 0 is an error on BSD, and a commit that starts the command has
+# nothing in front of it to search anyway.
+if [ "$cut_bytes" -gt 0 ]; then
+  prefix=$(printf '%s' "$masked" | head -c "$cut_bytes")
+fi
+raw_path=$(printf '%s\n' "$prefix" | sed -nE "s/.*(^|[;&|])[[:space:]]*cd[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]*(&&|;).*/\\2/p")
 if [ -z "$raw_path" ]; then
   raw_path=$(printf '%s\n' "$cmd_match" | sed -nE "s/.*git[[:space:]]+-C[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]+commit.*/\\1/p")
 fi

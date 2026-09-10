@@ -187,6 +187,30 @@ run_tree_case "a single-quoted decoy cd does not out-rank the real one" \
 run_tree_case "a double-quoted decoy naming a real tree does not out-rank the real cd" \
   "$main_repo" "cd $worktree_repo && echo \"z && cd $decoy_repo && z\" && git commit -m x" \
   "$worktree_top" no
+run_tree_case "a quoted decoy carrying a separator is not taken for the invocation" \
+  "$main_repo" "echo '; git commit -m fake' && cd $worktree_repo && git commit -m x" \
+  "$worktree_top" no
+run_tree_case "a quoted decoy carrying a pipe is not taken for the invocation" \
+  "$main_repo" "echo \"| git commit -m fake\" && cd $worktree_repo && git commit -m x" \
+  "$worktree_top" no
+run_tree_case "a quoted git -c value does not hide the invocation from the gate" \
+  "$main_repo" "cd $worktree_repo && git -c user.name='A B' commit -m x" \
+  "$worktree_top" no
+run_tree_case "a quoted git -C path gates that tree" \
+  "$main_repo" "git -C \"$space_repo\" commit -m x" "$space_top" no
+
+# The hook reports only what the caller must act on, so a command it handles
+# without incident must be silent: a plain commit has no text before the
+# invocation, and cutting zero bytes off the front is not a diagnostic.
+rm -f "$MARKER_FILE"
+plain_out=$(jq -cn --arg cmd 'git commit -m x' '{tool_input:{command:$cmd}}' \
+  | (cd "$main_repo" && "$hook") 2>&1)
+if [ -z "$plain_out" ]; then
+  echo "PASS: a plain commit prints nothing"
+else
+  echo "FAIL: a plain commit printed: $plain_out"
+  fail=1
+fi
 
 # Feeds one command to the hook and asserts both that a given substring
 # appears in its output and which tree it fell back to gating.
