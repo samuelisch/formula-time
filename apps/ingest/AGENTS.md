@@ -55,7 +55,10 @@ drained; and only then is the row updated to `finished` regardless of the
 window — set last because the api's exporter exports the moment a session
 turns `finished` (ADR-0009 §2), so flipping it before the events land
 would let the exporter export an empty race. Idempotent: a second run
-inserts 0.
+inserts 0. A `--replace` flag (before the recording paths) instead deletes
+a session's `events` rows and reruns this same insert path as one
+transaction, for fixing a session already loaded with the wrong `seq`
+order; the ADR-0010 guard above still applies first.
 
 That command only reaches a local Postgres. Railway's Postgres has no
 public TCP proxy, so loading a recording into the deployed database means

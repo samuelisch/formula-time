@@ -106,6 +106,31 @@ only way to get a race into the deployed database.
    next deploy anyway — but leaves nothing behind if this container
    instance stays up a while.
 
+## Reload a race
+
+A race already loaded with events in the wrong `seq` order (for example,
+one loaded before the received_at-ordering fix landed) can be fixed in
+place with `--replace`, instead of wiping the session by hand: it deletes
+the session's `events` rows and reruns the normal insert path as one
+transaction, so a failed insert leaves the old rows untouched. The
+recording must already be on the container (steps 1-2 above); add the
+flag before the recording paths:
+
+```
+ssh railway-ingest 'node apps/ingest/dist/load-recording.js --replace /tmp/recordings/<key>'
+```
+
+The loader logs one verify line per session after every load, replaced or
+not: `load: verify <key> rows=<n> endpoint_runs=<r>
+source_time_backsteps=<b>`. `endpoint_runs` in the thousands and
+`source_time_backsteps` in the low hundreds means the race is correctly
+interleaved; `endpoint_runs` near the number of OpenF1 endpoints (8) is the
+broken shape `--replace` fixes. Once the api's exporter has a staleness
+rule for an existing `exports` row (issue #166), it regenerates the export
+from the newer rows on its next 5 s tick, no separate step; until then,
+the stale export file needs its own manual fix. The owner runs the actual
+production reload of the two affected races (issue #169), not an agent.
+
 ## Common mistakes
 
 - Running this before the loader build has actually been deployed to
