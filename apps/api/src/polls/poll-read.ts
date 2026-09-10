@@ -73,7 +73,7 @@ export interface PollsBySessionResult {
 
 /** Read path for `GET /api/races/:session_key/polls`. An unknown or
  * poll-less session answers `{ polls: [], cacheable: false }` -- no lookup
- * on `sessions` (issue #79). */
+ * on `sessions`. */
 export async function pollsBySession(db: PrismaClient, sessionKey: bigint): Promise<PollsBySessionResult> {
   const rows = await db.poll.findMany({ where: { sessionKey } });
   if (rows.length === 0) {
