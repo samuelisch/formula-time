@@ -8,7 +8,9 @@ cmd=$(jq -r '.tool_input.command // empty')
 # merely appear in a message. Options between "git" and "commit" (-c x=y,
 # -C dir, --no-pager, ...) are skipped so an option-prefixed form still
 # matches; "commit" must be a whole word so "git commitlog" does not.
-printf '%s\n' "$cmd" | grep -qE '(^|[;&|])[[:space:]]*git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+commit([[:space:]]|$)' || exit 0
+self_filter='(^|[;&|])[[:space:]]*git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+commit([[:space:]]|$)'
+cmd_match=$(printf '%s\n' "$cmd" | grep -oE "$self_filter" | head -1)
+[ -n "$cmd_match" ] || exit 0
 
 strip_quotes() {
   local p="$1"
@@ -22,12 +24,17 @@ strip_quotes() {
 # The tree the commit actually lands in is not always the hook's own cwd: an
 # agent's Bash command can `cd` into another checkout, or pass `git -C`,
 # before running `git commit` in the same command. Pick, in order: the last
-# `cd <path> &&`/`cd <path>;` before the commit; else a `git -C <path>
-# commit` in the same invocation; else the hook's own cwd, as before.
+# `cd <path> &&`/`cd <path>;` before the matched commit invocation; else a
+# `git -C <path>` inside that same invocation; else the hook's own cwd, as
+# before. "Before" is scoped to the text preceding the matched invocation
+# itself, not just anywhere in the command, so a `cd` that runs after the
+# commit (e.g. `git commit -m x && cd /other && echo done`) is ignored.
 hook_cwd="$(pwd)"
-raw_path=$(printf '%s\n' "$cmd" | sed -nE "s/.*(^|[;&|])[[:space:]]*cd[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]*(&&|;).*/\\2/p")
+git_part=$(printf '%s\n' "$cmd_match" | sed -E 's/^[;&|]?[[:space:]]*//')
+prefix="${cmd%%"$git_part"*}"
+raw_path=$(printf '%s\n' "$prefix" | sed -nE "s/.*(^|[;&|])[[:space:]]*cd[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]*(&&|;).*/\\2/p")
 if [ -z "$raw_path" ]; then
-  raw_path=$(printf '%s\n' "$cmd" | sed -nE "s/.*(^|[;&|])[[:space:]]*git[[:space:]]+-C[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]+commit.*/\\2/p")
+  raw_path=$(printf '%s\n' "$cmd_match" | sed -nE "s/.*git[[:space:]]+-C[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]+commit.*/\\1/p")
 fi
 
 tree=""

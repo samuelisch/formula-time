@@ -128,5 +128,7 @@ run_tree_case "git -C a worktree commit gates the worktree" \
   "$main_repo" "git -C $worktree_repo commit -m x" "$worktree_top" no
 run_tree_case "cd into a tree with no install reports the install gap" \
   "$main_repo" "cd $no_install_repo && git commit -m x" "$no_install_top" yes
+run_tree_case "a cd after the commit is not gated (only a cd before it counts)" \
+  "$main_repo" "git commit -m x && cd $worktree_repo && echo done" "$main_top" no
 
 exit $fail
