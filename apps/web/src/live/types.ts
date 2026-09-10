@@ -1,4 +1,4 @@
-import type { RaceEvent, RaceState } from "@formula-time/domain";
+import type { JsonPatchOp, RaceEvent, RaceState } from "@formula-time/domain";
 
 export type PollTemplateKind = "winner" | "podium";
 export type PollLifecycleStatus = "open" | "locked" | "resolved" | "void";
@@ -38,11 +38,35 @@ export interface LivePush {
    */
   events?: RaceEvent[];
   /**
-   * Set when this push is a rebuild-from-log after a late-commit alarm:
-   * `events` is `[]` regardless, and a client timeline built from the
-   * stream must be discarded and re-backfilled, since the rebuild may have
-   * changed rows the client already folded.
+   * Set when the client's local event-log timeline
+   * (`apps/web/src/live/timeline.ts`'s `useSessionTimeline`) has a hole
+   * and must be discarded and re-backfilled. Two causes mean the same
+   * thing to that timeline: the server rebuilt RaceState from the log
+   * after a late-commit alarm (`events` is `[]` regardless, since the
+   * rebuild may have changed rows the client already folded); or the
+   * client itself detected a delta-stream gap (`useLiveStream.ts`) and
+   * marks the push that resolves it, since the events from the skipped
+   * ticks were never delivered either.
    */
+  rebuilt?: boolean;
+}
+
+/**
+ * The delta wire shape (ADR-0013 "Wire" point 1): an RFC 6902 JSON Patch
+ * from the RaceState at `base_seq` to the RaceState at `seq`. `events` and
+ * `rebuilt` carry through exactly like on a `LivePush` -- see there for
+ * what each means; `apps/web/src/live/deltas.ts`'s `applyDelta` folds a
+ * `DeltaPush` against a held `LivePush` into the next `LivePush`.
+ */
+export interface DeltaPush {
+  type: "delta";
+  seq: string;
+  base_seq: string;
+  sent_at: number;
+  session_key: string;
+  patch: JsonPatchOp[];
+  polls: PollPublic[];
+  events?: RaceEvent[];
   rebuilt?: boolean;
 }
 
