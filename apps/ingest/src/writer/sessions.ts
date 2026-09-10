@@ -1,4 +1,4 @@
-// Sessions upsert at discovery (issue deliverable 4). Ingest is the ONLY
+// Sessions upsert at discovery. Ingest is the ONLY
 // writer of `sessions` (ADR-0001 §1); it never touches `polls`/`votes`.
 
 import type { SessionStatus } from "@formula-time/db";
