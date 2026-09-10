@@ -1,7 +1,6 @@
-// Static 2026 entry list, values from OpenF1's drivers rows for session 11361 (2026 Italian GP). Replaced by the OpenF1 drivers fetch in #39.
+// Static 2026 entry list, values from OpenF1's drivers rows for session 11361 (2026 Italian GP). The live REST lane fetches the entry list from OpenF1 instead; this static list still backs the recording loader and historical fetch, and is the fallback when a live fetch returns nothing.
 //
-// Owner decision (round 4 on PR #31): the entry list is hardcoded for now,
-// not fetched. HLD §7: "Drivers are events. ... The fold carries them; a
+// The entry list is hardcoded here, not fetched, for those paths. HLD §7: "Drivers are events. ... The fold carries them; a
 // swap arrives as a new row; Driver stays a field inside RaceState, not a
 // table." — so emitting these as `drivers` events (rest-lane.ts, on session
 // selection) through the normal path is consistent with that fact, even

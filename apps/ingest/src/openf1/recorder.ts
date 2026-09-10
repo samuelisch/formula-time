@@ -1,8 +1,8 @@
 // Adapted from `../f1-live-events-poc/poc/live-recorder/recorder.ts`'s file
 // writes. "The jsonl recording is still written — it is the irreplaceable
 // artefact, not a stopgap." (apps/ingest/AGENTS.md). Writes under
-// `LIVE_LOG_DIR` (default `./live-logs`, gitignored — issue deliverable
-// "Config"), one directory per session, matching the file fetcher's
+// `LIVE_LOG_DIR` (default `./live-logs`, gitignored), one directory per
+// session, matching the file fetcher's
 // `<dir>/<session_key>/{session.json, raw/<endpoint>.jsonl}` layout so a
 // recording made here can later replay through the same rest lane.
 
@@ -13,10 +13,10 @@ import type { RawRecord } from "./types.js";
 
 // The caller (rest-lane.ts) validates session_key before this ever runs,
 // but the recorder builds filesystem paths from it — it must not trust that
-// unconditionally (security review, round 4 on PR #31). Only a finite
-// non-negative integer is a real OpenF1 session_key; anything else (a
-// string like "../x", a non-integer number) is rejected before any
-// mkdir/path join, not sanitized into something "safe".
+// unconditionally. Only a finite non-negative integer is a real OpenF1
+// session_key; anything else (a string like "../x", a non-integer number)
+// is rejected before any mkdir/path join, not sanitized into something
+// "safe".
 function validSessionKey(sessionKey: string | number): number {
   const n = typeof sessionKey === "number" ? sessionKey : Number(sessionKey);
   if (!Number.isInteger(n) || n < 0) {
