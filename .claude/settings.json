@@ -19,7 +19,6 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git commit *)",
             "command": "\"$CLAUDE_PROJECT_DIR/scripts/pre-commit-check.sh\"",
             "timeout": 300,
             "statusMessage": "typecheck + tests before commit"
