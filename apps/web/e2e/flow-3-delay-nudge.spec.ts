@@ -47,9 +47,18 @@ test("the delay nudge changes what is shown", async ({ page }) => {
     })
     .toBeGreaterThanOrEqual(9);
 
-  await expect(positionLabel).toHaveText(/^\d+\.\d+s$/);
-  const delaySeconds = Number.parseFloat((await positionLabel.textContent()) ?? "0");
+  // Either wording is a valid delay reading: plain "N.Ns" while the nudged
+  // target is still inside the live push ring buffer, "Rewound N.Ns · from
+  // the log" once it falls outside and the timeline fold has taken over
+  // (TransportBar.tsx's rewindMode() branch) -- which one appears depends
+  // on how far the buffer had grown by the time this clicked −10s, not on
+  // anything this flow is testing.
+  await expect(positionLabel).toHaveText(/^(?:Rewound )?\d+\.\d+s(?: · from the log)?$/);
+  const positionText = (await positionLabel.textContent()) ?? "";
+  const delayMatch = positionText.match(/(\d+\.\d+)s/);
+  const delaySeconds = delayMatch === null ? 0 : Number.parseFloat(delayMatch[1]);
   expect(delaySeconds).toBeGreaterThanOrEqual(9);
+  expect(delaySeconds).toBeLessThanOrEqual(11);
 
   await dismissPollPopupIfOpen(page);
   await page.getByRole("button", { name: "Live" }).click();
