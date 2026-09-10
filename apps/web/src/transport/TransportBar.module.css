@@ -65,3 +65,8 @@
   color: var(--color-accent);
   font-size: 0.8rem;
 }
+
+.legend {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
