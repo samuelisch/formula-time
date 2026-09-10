@@ -57,7 +57,21 @@ mkdir -p "$STATE_DIR" "$LOG_DIR"
 
 cd "$REPO_ROOT"
 pnpm db:up
-pnpm db:migrate:deploy
+# `docker compose up -d` returns once the container starts, not once
+# Postgres is accepting connections (no `--wait`), so a migrate right after
+# can race a still-starting server. Retry instead of failing outright.
+migrated=false
+for _ in $(seq 1 15); do
+  if pnpm db:migrate:deploy; then
+    migrated=true
+    break
+  fi
+  sleep 2
+done
+if [ "$migrated" != true ]; then
+  echo "e2e-stack: database never became ready for migration" >&2
+  exit 1
+fi
 
 eval "$(scripts/db-env.sh)"
 export DATABASE_URL="postgres://formula:formula@localhost:${DB_PORT}/formula_time"

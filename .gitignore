@@ -29,3 +29,7 @@ live-logs/
 
 # e2e-stack.sh's pid file and logs for the rehearse-race stack it drives
 /.e2e/
+
+# Playwright's own run output (traces, the HTML report)
+apps/web/test-results/
+apps/web/playwright-report/
