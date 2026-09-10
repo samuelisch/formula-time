@@ -298,9 +298,9 @@ describe("Fanout delta pushes (issue #89)", () => {
   });
 
   test("removing the only delta socket stops delta-frame work; a legacy socket keeps getting state frames throughout", async () => {
-    // Review round 1 (PR #109): the delta-socket count is now maintained
-    // incrementally in join()/remove(), not scanned from `sockets` on every
-    // push. This exercises both the join increment and the remove
+    // The delta-socket count is maintained incrementally in join()/remove(),
+    // not scanned from `sockets` on every push. This exercises both the join
+    // increment and the remove
     // decrement, plus the case where the only delta socket disconnects
     // mid-stream.
     const legacy = new FakeRes();

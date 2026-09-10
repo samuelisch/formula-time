@@ -4,7 +4,7 @@
 //
 // Exercises pollsBySession against real rows: seed one session with two
 // polls and three votes, assert the tallies vote.groupBy produces match
-// what the response shape reports (issue #79).
+// what the response shape reports.
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 import { createDb } from "@formula-time/db";
