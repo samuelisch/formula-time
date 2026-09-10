@@ -5,12 +5,17 @@
 import { useState } from "react";
 
 import { Pill } from "../components/Pill.tsx";
+import { useNarrowViewport } from "../lib/useNarrowViewport.ts";
 import styles from "./AlignPanel.module.css";
 import { useAligner } from "./useAligner.ts";
 
 export function AlignPanel() {
   const { phase, status, visible, previewCanvasRef, onPreviewPointerDown, onPreviewPointerUp, start, stop } = useAligner();
-  const [collapsed, setCollapsed] = useState(false);
+  // Collapsed to its tab by default under the narrow breakpoint -- the
+  // experimental preview canvas otherwise crowds a phone-width board;
+  // still a plain toggle from there, same as the wide layout.
+  const narrow = useNarrowViewport();
+  const [collapsed, setCollapsed] = useState(narrow);
 
   if (!visible) {
     return (

@@ -18,6 +18,8 @@
 import { useEffect } from "react";
 
 import { useBoardPush } from "../board/useBoardState.ts";
+import { cx } from "../lib/classNames.ts";
+import { useNarrowViewport } from "../lib/useNarrowViewport.ts";
 import type { PollPublic } from "../live/types.ts";
 import { PollList } from "./PollList.tsx";
 import styles from "./PollModal.module.css";
@@ -36,6 +38,11 @@ export function PollModal({ polls }: PollModalProps) {
   const isOpen = usePollModalUiStore((state) => state.isOpen);
   const open = usePollModalUiStore((state) => state.open);
   const close = usePollModalUiStore((state) => state.close);
+  // Under the narrow breakpoint the dialog becomes a bottom sheet
+  // (PollModal.module.css); the variant is read in JS, not left to a media
+  // query alone, so it is one flag driving both the backdrop alignment and
+  // the sheet's own shape.
+  const narrow = useNarrowViewport();
 
   useEffect(() => {
     const signature = signatureOf(polls);
@@ -71,9 +78,9 @@ export function PollModal({ polls }: PollModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className={styles.backdrop} onClick={close}>
+    <div className={cx(styles.backdrop, narrow && styles.backdropSheet)} onClick={close}>
       <div
-        className={styles.dialog}
+        className={cx(styles.dialog, narrow && styles.sheet)}
         role="dialog"
         aria-modal="true"
         aria-label="Race polls"
