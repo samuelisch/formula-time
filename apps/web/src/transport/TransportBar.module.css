@@ -16,7 +16,7 @@
   flex-wrap: wrap;
 }
 
-.row button {
+.control {
   background: var(--color-raised);
   color: var(--color-text);
   border: 1px solid var(--color-border);
@@ -74,8 +74,7 @@
 @media (max-width: 640px) {
   /* Thumb-reachable controls: every button and the lap-jump input grow to
      a 40px tap target instead of the desktop compact sizing. */
-  .row button,
-  .jump input {
+  .control {
     min-height: 40px;
   }
 
