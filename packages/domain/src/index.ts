@@ -9,5 +9,7 @@ export type { DriverState, RaceState, Gap } from "./race_state.js";
 export { createInitialState, RaceStateReducer } from "./race_state.js";
 export type { PollKind } from "./race_clock.js";
 export { isChequered, leaderLap, locksAtLap } from "./race_clock.js";
+export type { RunStatus } from "./run_status.js";
+export { runStatus } from "./run_status.js";
 export type { JsonPatchOp } from "./patch.js";
 export { diffState, applyPatch } from "./patch.js";
