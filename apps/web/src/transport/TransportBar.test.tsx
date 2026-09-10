@@ -124,27 +124,39 @@ describe("TransportBar -- live", () => {
   });
 
   it("sets the slider's bounds from range() and shows the delay in seconds", () => {
-    const target = makeLiveFake({ range: { startMs: 0, endMs: 180_000 }, displayedAtMs: 175_000 });
+    const target = makeLiveFake({ range: { startMs: 0, endMs: 180_000 }, displayedAtMs: 175_000, syncOffsetMs: 5_000 });
     renderBar(target);
 
     const slider = screen.getByRole("slider", { name: "Playback position" }) as HTMLInputElement;
     expect(slider.min).toBe("0");
     expect(slider.max).toBe("180000");
     expect(slider.value).toBe("175000");
-    expect(screen.getByText("5.0s")).toBeInTheDocument(); // 180000 - 175000
+    expect(screen.getByText("5.0s")).toBeInTheDocument();
+  });
+
+  it("shows 0.0s when the delay is zero, even while the displayed position sits behind the range's end", () => {
+    const target = makeLiveFake({ range: { startMs: 0, endMs: 180_000 }, displayedAtMs: 175_000, syncOffsetMs: 0 });
+    renderBar(target);
+    expect(screen.getByText("0.0s")).toBeInTheDocument();
   });
 
   it("shows the timeline-mode readout when rewindMode() is 'timeline'", () => {
-    const target = makeLiveFake({ range: { startMs: 0, endMs: 180_000 }, displayedAtMs: 168_000, rewindMode: "timeline" });
+    const target = makeLiveFake({ range: { startMs: 0, endMs: 180_000 }, displayedAtMs: 168_000, rewindMode: "timeline", syncOffsetMs: 12_000 });
     renderBar(target);
     expect(screen.getByText("Rewound 12.0s · from the log")).toBeInTheDocument();
   });
 
   it("shows the plain seconds readout when rewindMode() is 'buffer', not the timeline wording", () => {
-    const target = makeLiveFake({ range: { startMs: 0, endMs: 180_000 }, displayedAtMs: 168_000, rewindMode: "buffer" });
+    const target = makeLiveFake({ range: { startMs: 0, endMs: 180_000 }, displayedAtMs: 168_000, rewindMode: "buffer", syncOffsetMs: 12_000 });
     renderBar(target);
     expect(screen.getByText("12.0s")).toBeInTheDocument();
     expect(screen.queryByText(/from the log/)).not.toBeInTheDocument();
+  });
+
+  it("shows — when syncOffsetMs() is null", () => {
+    const target = makeLiveFake({ range: { startMs: 0, endMs: 180_000 }, displayedAtMs: 168_000, syncOffsetMs: null });
+    renderBar(target);
+    expect(screen.getByText("—")).toBeInTheDocument();
   });
 
   it("disables the slider when range() is null", () => {
