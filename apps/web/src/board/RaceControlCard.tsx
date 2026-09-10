@@ -19,28 +19,49 @@ function safetyCarText(safetyCar: RaceState["race_control"]["safety_car"]): stri
   return "";
 }
 
-// Joins: safety car deployment, active_flags as "scope: flag", driver_flags
-// as "#num: flag"; "No active flag" when all three are empty.
-function flagLine(raceControl: RaceState["race_control"]): string {
-  const safetyCar = safetyCarText(raceControl.safety_car);
-  const trackFlags = Object.entries(raceControl.active_flags)
-    .map(([scope, flag]) => `${scope}: ${flag}`)
-    .join(" · ");
-  const driverFlags = Object.entries(raceControl.driver_flags)
-    .map(([driverNumber, flag]) => `#${driverNumber}: ${flag}`)
-    .join(", ");
-  return [safetyCar, trackFlags, driverFlags].filter(Boolean).join(" · ") || "No active flag";
+// active_flags as "scope: flag", one line; null when none are active.
+function trackFlagsLine(raceControl: RaceState["race_control"]): string | null {
+  const entries = Object.entries(raceControl.active_flags);
+  if (entries.length === 0) return null;
+  return entries.map(([scope, flag]) => `${scope}: ${flag}`).join(" · ");
+}
+
+// "#num: flag" for each driver flag, one line; collapsed to "Blue flags: #a,
+// #b, ..." when every driver flag is BLUE (the common case, otherwise the
+// line grows one entry per driver on track). Null when there are none.
+function driverFlagsLine(raceControl: RaceState["race_control"]): string | null {
+  const entries = Object.entries(raceControl.driver_flags);
+  if (entries.length === 0) return null;
+  if (entries.every(([, flag]) => flag === "BLUE")) {
+    return `Blue flags: ${entries.map(([driverNumber]) => `#${driverNumber}`).join(", ")}`;
+  }
+  return entries.map(([driverNumber, flag]) => `#${driverNumber}: ${flag}`).join(", ");
 }
 
 export function RaceControlCard() {
   const raceControl = useBoardRaceControl();
   const driverCount = useBoardDriverCount();
 
+  const safetyCar = safetyCarText(raceControl.safety_car) || null;
+  const trackFlags = trackFlagsLine(raceControl);
+  const driverFlags = driverFlagsLine(raceControl);
+  const hasAnyFlag = safetyCar !== null || trackFlags !== null || driverFlags !== null;
+
   return (
     <Card>
       <div className={styles.content}>
         <p className={styles.phase}>{phaseOf(raceControl.session_status, driverCount)}</p>
-        <p className={styles.flags}>{flagLine(raceControl)}</p>
+        <div className={styles.flags}>
+          {hasAnyFlag ? (
+            <>
+              {safetyCar !== null && <p>{safetyCar}</p>}
+              {trackFlags !== null && <p>{trackFlags}</p>}
+              {driverFlags !== null && <p>{driverFlags}</p>}
+            </>
+          ) : (
+            <p>No active flag</p>
+          )}
+        </div>
       </div>
     </Card>
   );
