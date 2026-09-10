@@ -1,6 +1,6 @@
-// The Postgres read seam for the projector (issue #23 brief). The projector
-// never issues a raw query itself — it only ever calls this interface, so a
-// fake in-memory implementation is enough to unit test the fold.
+// The Postgres read seam for the projector. The projector never issues a raw
+// query itself — it only ever calls this interface, so a fake in-memory
+// implementation is enough to unit test the fold.
 import type { PrismaClient } from "@formula-time/db";
 import type { RaceEvent, RawRecord } from "@formula-time/domain";
 
