@@ -1,9 +1,16 @@
+import type { RaceEvent } from "@formula-time/domain";
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 
 import { foldAt, type Timeline } from "../replay/timeline.ts";
 import { deriveAnchors, emptyAnchors, type Anchors } from "./anchors.ts";
 import { append, emptyBuffer, select, type BufferedPush, type PushBuffer } from "./buffer.ts";
 import { axisOf, type Connection, type LivePush, type RewindMode } from "./types.ts";
+
+/** Whether `timeline` is the live session's own log -- `createTimeline` always normalises `session.session_key` to a string (see `replay/timeline.ts`), so this is a plain string comparison against the live push's own `session_key`. A timeline for a different session (e.g. a stale one left over from before a session change finished unmounting) must never be folded from. */
+function timelineMatchesSession(timeline: Timeline, liveSessionKey: string): boolean {
+  const key = timeline.session["session_key"];
+  return typeof key === "string" && key === liveSessionKey;
+}
 
 export interface LiveStore {
   connection: Connection;
@@ -43,12 +50,48 @@ export function createLiveStore(): LiveStoreApi {
   const parsedByEntry = new WeakMap<BufferedPush, LivePush>();
   const seenRestarts = new Set<string>();
 
+  // One-entry cache for the timeline-mode synthesised push: `foldAt` clones
+  // on every call, so without this, `displayed` got a new reference on
+  // every 250ms tick even when the fold did not cross an event boundary --
+  // breaking the referential-stability guarantee the buffer path gets from
+  // `parsedByEntry` above (review round 1 on PR #154). Keyed on `events`
+  // (the mutable array `appendEvents` pushes onto in place -- unchanged by
+  // `useSessionTimeline` publishing a new shallow *copy* of the `Timeline`
+  // per page/push, so that alone must not invalidate the cache; a
+  // restarted backfill hands over a genuinely new array) and `sequence`
+  // (`RaceStateReducer` increments it once per applied, non-duplicate
+  // event, so two folds that stop at the same event boundary agree on it
+  // regardless of how far `now` advanced between them).
+  let lastTimelineDisplayed: { events: RaceEvent[]; sequence: number; push: LivePush } | null = null;
+
   function parseCached(entry: BufferedPush): LivePush {
     const cached = parsedByEntry.get(entry);
     if (cached !== undefined) return cached;
     const parsed = JSON.parse(entry.raw) as LivePush;
     parsedByEntry.set(entry, parsed);
     return parsed;
+  }
+
+  function timelineDisplayed(timeline: Timeline, atMs: number, live: LivePush): LivePush {
+    const state = foldAt(timeline, atMs);
+    if (
+      lastTimelineDisplayed !== null &&
+      lastTimelineDisplayed.events === timeline.events &&
+      lastTimelineDisplayed.sequence === state.sequence
+    ) {
+      return lastTimelineDisplayed.push;
+    }
+    const push: LivePush = {
+      type: "state",
+      seq: live.seq,
+      sent_at: live.sent_at,
+      session_key: live.session_key,
+      total_laps: live.total_laps,
+      state,
+      polls: [],
+    };
+    lastTimelineDisplayed = { events: timeline.events, sequence: state.sequence, push };
+    return push;
   }
 
   function reselect(
@@ -71,23 +114,13 @@ export function createLiveStore(): LiveStoreApi {
       return { displayed: parseCached(found), bufferShort: false, mode: "buffer" };
     }
 
-    if (state.timeline !== null && state.timeline.firstSourceMs !== null) {
+    if (
+      state.timeline !== null &&
+      state.timeline.firstSourceMs !== null &&
+      timelineMatchesSession(state.timeline, state.live.session_key)
+    ) {
       const atMs = Math.max(target, state.timeline.firstSourceMs);
-      const foldedState = foldAt(state.timeline, atMs);
-      const live = state.live;
-      return {
-        displayed: {
-          type: "state",
-          seq: live.seq,
-          sent_at: live.sent_at,
-          session_key: live.session_key,
-          total_laps: live.total_laps,
-          state: foldedState,
-          polls: [],
-        },
-        bufferShort: false,
-        mode: "timeline",
-      };
+      return { displayed: timelineDisplayed(state.timeline, atMs, state.live), bufferShort: false, mode: "timeline" };
     }
 
     const oldest = state.buffer.entries[0];

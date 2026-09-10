@@ -208,6 +208,52 @@ describe("live store", () => {
       expect(Date.parse(after!)).toBeGreaterThan(Date.parse(before!));
     });
 
+    // Review round 1 on PR #154: `foldAt` clones on every call, so without a
+    // cache `displayed` got a new reference on every 250ms tick even when
+    // the fold did not cross an event boundary -- `useDisplayed()` would
+    // re-render every tick while a viewer sat parked in timeline mode.
+    it("keeps displayed referentially stable across ticks that do not cross an event boundary, and returns a new reference once one is crossed", async () => {
+      const store = createLiveStore();
+      const timeline = await buildRewindTimeline();
+      store.getState().setTimeline(timeline, 0);
+      // delay 190s: target = 200s - 190s = 10s offset (before the 40s lap-2 marker).
+      store.getState().setDelayMs(190_000, 0);
+
+      const live = frame("2026-09-08T12:03:20.000Z", 200_000);
+      store.getState().onState(live.raw, live.push, 200_000);
+      const first = store.getState().displayed;
+      expect(store.getState().mode).toBe("timeline");
+
+      // 10s pass: target -> 20s offset, still before the 40s marker -- same events applied.
+      store.getState().tick(210_000);
+      const second = store.getState().displayed;
+      expect(second).toBe(first);
+
+      // 30 more seconds pass: target -> 50s offset, past the 40s lap-2 marker -- a new event applied.
+      store.getState().tick(240_000);
+      const third = store.getState().displayed;
+      expect(third).not.toBe(second);
+    });
+
+    // Review round 1 on PR #154 (Note): a timeline for a different session
+    // than the live push's must never be folded from -- fall through to the
+    // oldest-entry fallback exactly as if no timeline were loaded.
+    it("ignores a timeline for a different session, falling through to the oldest-entry fallback", async () => {
+      const store = createLiveStore();
+      const otherSessionTimeline = createTimeline({ ...TIMELINE_SESSION, session_key: 1111 });
+      await appendEvents(otherSessionTimeline, [timelineEvent("o1", "laps", 0, { driver_number: 1, lap_number: 1 })]);
+
+      store.getState().setTimeline(otherSessionTimeline, 0);
+      store.getState().setDelayMs(150_000, 0);
+
+      const live = frame("2026-09-08T12:03:20.000Z", 200_000); // session_key "9999"
+      store.getState().onState(live.raw, live.push, 200_000);
+
+      expect(store.getState().mode).toBe("buffer");
+      expect(store.getState().bufferShort).toBe(true);
+      expect(store.getState().displayed).toEqual(live.push);
+    });
+
     it("returns to buffer mode when the target catches up into the buffer span, then to edge on setDelayMs(0)", async () => {
       const store = createLiveStore();
       const timeline = await buildRewindTimeline();
