@@ -1,7 +1,6 @@
 // Ingest service: the ONLY process that talks to OpenF1 (ADR-0001 §1).
-// Wires auth -> rest lane -> queue -> writer (issue deliverable 5), and (issue
-// #25 / T6) the MQTT lane onto the SAME queue: "Two lanes always on, no
-// failover logic" (apps/ingest/AGENTS.md).
+// Wires auth -> rest lane -> queue -> writer, and the MQTT lane onto the
+// SAME queue: "Two lanes always on, no failover logic" (apps/ingest/AGENTS.md).
 
 import { createDb } from "@formula-time/db";
 
@@ -30,8 +29,7 @@ const recorder = new JsonlRecorder(config.liveLogDir);
 
 let fetcher: Fetcher;
 // Set only on the `api` path — the MQTT lane needs the SAME auth instance
-// the REST lane's fetcher uses (issue #25: "get it from the same auth.ts
-// token source the REST lane uses") and the login as its MQTT username.
+// the REST lane's fetcher uses, and the login as its MQTT username.
 let mqttAuth: OpenF1Auth | null = null;
 let openf1Login: string | null = null;
 if (config.liveSource === "api") {
@@ -57,17 +55,16 @@ function sessionKeyOf(session: RawRecord): string | number | null {
 
 const restLane = new RestLane(queue, {
   fetcher,
-  // Every session row discovery sees, every discovery tick (issue
-  // deliverable 4): upsert only. The jsonl recorder's session.json write
-  // does NOT belong here — see onSessionSelected below.
+  // Every session row discovery sees, every discovery tick: upsert only.
+  // The jsonl recorder's session.json write does NOT belong here — see
+  // onSessionSelected below.
   onSession: async (session, nowMs) => {
     await upsertSession(db, session, nowMs);
   },
-  // Once per newly-selected session, not once per discovery tick — a bug
-  // fixed in review round 3: recorder.writeSession() living in onSession
-  // re-created/truncated a directory and session.json, and re-stamped
-  // discovered_at, for every session of the year, every 60s while nothing
-  // was live.
+  // Once per newly-selected session, not once per discovery tick:
+  // recorder.writeSession() living in onSession instead re-creates/
+  // truncates the directory and session.json, and re-stamps discovered_at,
+  // for every session of the year, every 60s while nothing is live.
   onSessionSelected: async (session) => {
     const key = sessionKeyOf(session);
     if (key !== null) await recorder.writeSession(session, key);
@@ -78,7 +75,7 @@ const restLane = new RestLane(queue, {
   onLog: (line) => console.log(line),
 });
 
-// The MQTT lane (issue #25 / T6): only against the real OpenF1 broker
+// The MQTT lane: only against the real OpenF1 broker
 // (`LIVE_SOURCE=api` — a file replay has no broker to connect to), only with
 // credentials to authenticate as (mqttAuth/openf1Login are set together on
 // the `api` path above), and only when MQTT_ENABLED says so (default `true`
@@ -88,9 +85,9 @@ const mqttLane =
     ? new MqttLane(queue, {
         auth: mqttAuth,
         username: openf1Login,
-        // "the shared LiveNormalizer with the CURRENT session key from the
-        // REST lane's selection" (issue #25) — REST is the authority on
-        // which session is live.
+        // the shared LiveNormalizer with the CURRENT session key from the
+        // REST lane's selection — REST is the authority on which session is
+        // live.
         getNormalizer: () => restLane.getNormalizer(),
         getSessionKey: () => restLane.status().sessionKey,
         onLog: (line) => console.log(line),

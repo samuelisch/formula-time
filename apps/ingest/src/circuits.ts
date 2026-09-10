@@ -1,6 +1,4 @@
-// Static `circuit_key` -> total race laps map (issue deliverable 4:
-// "`totalLaps` from a static `circuits.ts` map keyed by `circuit_key` (fill
-// what you know from the 2026 calendar; unknown -> null)").
+// Static `circuit_key` -> total race laps map, keyed by `circuit_key`.
 //
 // OpenF1's `circuit_key` is not documented as a fixed public table, so rather
 // than guess ids from memory this only fills entries verified against a real

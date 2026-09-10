@@ -1,7 +1,6 @@
-// Config from env only (issue "Config (seam contract 4; from env only)"):
-// DATABASE_URL, OPENF1_LOGIN, OPENF1_PASSWORD, LIVE_SOURCE, LIVE_LOG_DIR,
-// MQTT_ENABLED (issue #25 / T6). apps/ingest/AGENTS.md: "Config is read from
-// the platform secret store only, never from files in the image."
+// Config is read from env only: DATABASE_URL, OPENF1_LOGIN, OPENF1_PASSWORD,
+// LIVE_SOURCE, LIVE_LOG_DIR, MQTT_ENABLED. apps/ingest/AGENTS.md: "Config is
+// read from the platform secret store only, never from files in the image."
 
 export interface IngestConfig {
   databaseUrl: string | undefined;
@@ -12,7 +11,7 @@ export interface IngestConfig {
   /** Where the jsonl recording is written. Default `./live-logs`, gitignored. */
   liveLogDir: string;
   /**
-   * The MQTT lane (issue #25): default `true` when `OPENF1_LOGIN` is set,
+   * The MQTT lane: default `true` when `OPENF1_LOGIN` is set,
    * else `false` — the free tier has no MQTT (apps/ingest/AGENTS.md; POC
    * `CLAUDE.md`). `MQTT_ENABLED=true`/`false` overrides the default either way.
    */
