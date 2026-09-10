@@ -61,6 +61,7 @@ function sessionKeyOf(raw: RawRecord): bigint {
     // row is malformed, not that ingest is broken.
     throw new Error(
       `upsertSession: session_key is not a valid integer: ${JSON.stringify(value)} (${error instanceof Error ? error.message : String(error)})`,
+      { cause: error },
     );
   }
 }

@@ -130,7 +130,8 @@ describe("upsertSession", () => {
 
   test("a missing session_key is rejected without touching the db", async () => {
     const db = fakeDb();
-    const { session_key: _omit, ...withoutKey } = RAW_SESSION;
+    const { session_key, ...withoutKey } = RAW_SESSION;
+    void session_key;
     await expect(upsertSession(db, withoutKey, START_MS)).rejects.toThrow(/session_key/);
     expect(db.rows.size).toBe(0);
   });

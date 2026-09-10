@@ -142,7 +142,8 @@ function errorResponse(status: number, message: string): Response {
 /** A `fetch` stub that serves `pages` in order, one per call; throws if called more than queued. */
 function queuedFetch(pages: Array<RaceEventsPage | { error: number; message: string }>) {
   let index = 0;
-  return vi.fn((..._args: unknown[]) => {
+  return vi.fn((...args: unknown[]) => {
+    void args;
     if (index >= pages.length) {
       throw new Error(`fetch called more times (${index + 1}) than pages were queued (${pages.length})`);
     }
@@ -198,7 +199,7 @@ describe("useSessionTimeline", () => {
     // store mid-backfill -- synchronously, before the fetch promise even
     // resolves, so it is unambiguously buffered while backfilling is still
     // true, regardless of real scheduling.
-    const fetchStub = vi.fn((..._args: unknown[]) => {
+    const fetchStub = vi.fn(() => {
       useLiveStore.setState({ live: streamPush("2", [event("e2"), event("e3")]) });
       return Promise.resolve(jsonResponse(shortPage([event("e1"), event("e2")], 2)));
     });

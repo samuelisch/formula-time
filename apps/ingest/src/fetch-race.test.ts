@@ -3,7 +3,7 @@
 // Fakes only; no network, no filesystem, no Postgres — see
 // fetch-race.integration.test.ts for the real-Postgres end-to-end case.
 
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import type { NormalizedRow } from "./openf1/normalize.js";
 import type { Fetcher, RawRecord } from "./openf1/types.js";

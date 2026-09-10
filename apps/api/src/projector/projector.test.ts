@@ -399,7 +399,7 @@ describe("RaceStateProjector", () => {
       let callCount = 0;
       let staleResolve: ((rows: EventRow[]) => void) | null = null;
       const source: EventSource = {
-        readAfter: (_sessionKey, afterSeq, _limit) => {
+        readAfter: (_sessionKey, afterSeq) => {
           callCount += 1;
           if (callCount === 1) {
             return new Promise<EventRow[]>((resolve) => {

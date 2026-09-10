@@ -249,7 +249,7 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus): U
             await new Promise<void>((resolve) => {
               retryTimer = setTimeout(resolve, RETRY_BACKOFF_MS);
             });
-            if (!isCurrent()) throw new Error("cancelled");
+            if (!isCurrent()) throw new Error("cancelled", { cause: err });
           }
         }
       }
