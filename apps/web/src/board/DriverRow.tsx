@@ -2,7 +2,7 @@ import { memo } from "react";
 import type { DriverState } from "@formula-time/domain";
 
 import { cx } from "../lib/classNames.ts";
-import { number, pitStopText, text } from "../lib/format.ts";
+import { gapText, pitStopText, text } from "../lib/format.ts";
 import { useBoardDriver } from "./useBoardState.ts";
 import { TeamDot } from "./TeamDot.tsx";
 import styles from "./TimingTable.module.css";
@@ -69,8 +69,8 @@ export const DriverRow = memo(function DriverRow({ number: driverNumber, delta =
         <TeamDot teamColour={driver.team_colour} />
         {text(driver.team_name)}
       </td>
-      <td>{number(driver.gap_to_leader, 3)}s</td>
-      <td>{number(driver.interval, 3)}s</td>
+      <td>{gapText(driver.gap_to_leader)}</td>
+      <td>{gapText(driver.interval)}</td>
       <td>{tyreText(driver.tyre)}</td>
       <td>{pitStopText(driver.latest_pit_stop)}</td>
     </tr>

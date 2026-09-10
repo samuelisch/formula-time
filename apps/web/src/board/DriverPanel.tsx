@@ -7,10 +7,8 @@
 // push (e.g. a stale `?driver=` after a session change).
 import { useEffect } from "react";
 
-import type { Gap } from "@formula-time/domain";
-
 import { Card } from "../components/Card.tsx";
-import { lapTime, number, pitStopText, text } from "../lib/format.ts";
+import { gapText, lapTime, pitStopText, text } from "../lib/format.ts";
 import styles from "./DriverPanel.module.css";
 import { TeamDot } from "./TeamDot.tsx";
 import { useBoardDriver, useBoardSessionMeta } from "./useBoardState.ts";
@@ -24,13 +22,6 @@ function lapText(currentLap: number | null, totalLaps: number | null): string {
 function pitOutText(isPitOutLap: boolean | null): string {
   if (isPitOutLap === null) return "—";
   return isPitOutLap ? "Yes" : "No";
-}
-
-// The "s" suffix must be conditional on there being a number to suffix --
-// otherwise a null gap/interval (the race leader's gap, for one) renders
-// "—s" instead of a plain "—".
-function secondsText(value: Gap): string {
-  return value === null ? "—" : `${number(value, 3)}s`;
 }
 
 export function DriverPanel() {
@@ -66,9 +57,9 @@ export function DriverPanel() {
       </div>
       <dl className={styles.stats}>
         <dt>Gap</dt>
-        <dd>{secondsText(driver.gap_to_leader)}</dd>
+        <dd>{gapText(driver.gap_to_leader)}</dd>
         <dt>Interval</dt>
-        <dd>{secondsText(driver.interval)}</dd>
+        <dd>{gapText(driver.interval)}</dd>
         <dt>Lap</dt>
         <dd>{lapText(driver.current_lap, totalLaps)}</dd>
         <dt>Last lap</dt>

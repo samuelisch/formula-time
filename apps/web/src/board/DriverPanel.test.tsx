@@ -71,6 +71,13 @@ describe("DriverPanel", () => {
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(4);
   });
 
+  it("renders a lapped gap as its own string, not a number with a unit", () => {
+    const driver = makeDriver({ driver_number: 77, name_acronym: "BOT", gap_to_leader: "+2 LAPS" });
+    renderWith(makePush({}, { drivers: { "77": driver }, driver_order: [77] }), "/live?driver=77");
+
+    expect(screen.getByText("+2 LAPS")).toBeInTheDocument();
+  });
+
   it("orders pit stops newest first", () => {
     const driver = makeDriver({
       driver_number: 7,
