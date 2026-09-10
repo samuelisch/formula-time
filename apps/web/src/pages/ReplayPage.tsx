@@ -3,14 +3,16 @@
 // timing board through `BoardSourceProvider`. No server-side replay
 // session -- the browser owns playback entirely.
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
 
 import { AlignPanel } from "../align/AlignPanel.tsx";
+import { useHeaderStore } from "../app/headerStore.ts";
 import { Board } from "../board/Board.tsx";
 import { DriverPanel } from "../board/DriverPanel.tsx";
 import { BoardSourceProvider } from "../board/useBoardState.ts";
 import { Card } from "../components/Card.tsx";
+import { stringField } from "../lib/format.ts";
 import { fetchRaceFile } from "../races/api.ts";
 import { foldRace } from "../replay/foldRace.ts";
 import { useReplayPlayback } from "../replay/useReplayPlayback.ts";
@@ -76,6 +78,15 @@ export function ReplayPage() {
     }),
     [target],
   );
+
+  const setHeaderOverride = useHeaderStore((state) => state.setOverride);
+  const country = foldQuery.data === undefined ? null : stringField(foldQuery.data.session, "country");
+  const name = foldQuery.data === undefined ? null : stringField(foldQuery.data.session, "name");
+  useEffect(() => {
+    if (country === null || name === null) return;
+    setHeaderOverride(`${country} · ${name} · replay`);
+    return () => setHeaderOverride(null);
+  }, [country, name, setHeaderOverride]);
 
   if (!validKey) {
     return <Card>Not a valid race.</Card>;

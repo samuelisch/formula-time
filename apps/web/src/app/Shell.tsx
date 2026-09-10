@@ -4,6 +4,7 @@ import { NavLink, Outlet } from "react-router";
 import { useSessionMeta, useSessionStatus, type SessionStatusValue } from "../live/selectors.ts";
 import { useLiveStream } from "../live/useLiveStream.ts";
 import { stringField } from "../lib/format.ts";
+import { useHeaderStore } from "./headerStore.ts";
 import styles from "./Shell.module.css";
 
 // The raw OpenF1 fields are "{country_name} · {circuit_short_name}", but the
@@ -28,12 +29,13 @@ export function Shell() {
 
   const { session } = useSessionMeta();
   const status = useSessionStatus();
+  const override = useHeaderStore((state) => state.override);
 
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
         <h1 className={styles.title}>FormulaTime</h1>
-        <span className={styles.session}>{sessionLine(session, status)}</span>
+        <span className={styles.session}>{override?.line ?? sessionLine(session, status)}</span>
         <nav className={styles.nav}>
           <NavLink to="/" end>
             Races
