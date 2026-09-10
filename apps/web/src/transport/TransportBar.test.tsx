@@ -159,6 +159,12 @@ describe("TransportBar -- live", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
+  it("shows — before the first push, even though syncOffsetMs() already defaults to 0", () => {
+    const target = makeLiveFake({ range: null, displayedAtMs: null, syncOffsetMs: 0 });
+    renderBar(target);
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+
   it("disables the slider when range() is null", () => {
     const target = makeLiveFake({ range: null, displayedAtMs: null });
     renderBar(target);

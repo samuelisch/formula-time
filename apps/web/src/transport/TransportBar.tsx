@@ -97,11 +97,14 @@ export function TransportBar() {
   // reading, so the bar never derives it from `range()`/`displayedAt()`
   // itself: on replay it's relative to the un-nudged clock (0 for a fold
   // played straight through); on live it's the store's applied delay,
-  // reading `0.0s` exactly when parked at the edge.
+  // reading `0.0s` exactly when parked at the edge. Live still checks
+  // `range`/`displayedAt` for `—`: live's `syncOffsetMs()` defaults to 0
+  // before a target has any data, so the delay alone can't tell "no data
+  // yet" from "no delay".
   const syncOffsetMs = target.syncOffsetMs();
   const positionLabel =
     playback === null
-      ? syncOffsetMs === null
+      ? range === null || displayedAtMs === null || syncOffsetMs === null
         ? "—"
         : target.rewindMode() === "timeline"
           ? `Rewound ${formatSeconds(syncOffsetMs)}s · from the log`
