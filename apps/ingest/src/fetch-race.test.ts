@@ -431,6 +431,43 @@ describe("fetchRaces: ADR-0010 — refuses a live session, writes nothing for it
   });
 });
 
+describe("fetchRaces: issue #168 — refuses a non-race session, writes nothing for it", () => {
+  test("a Qualifying session_key is refused, and no endpoint beyond sessions is fetched", async () => {
+    const requestedUrls: string[] = [];
+    const fetcher: Fetcher = async (url) => {
+      requestedUrls.push(url);
+      if (url.includes("/sessions?")) {
+        return [
+          {
+            session_key: 9601,
+            session_name: "Qualifying",
+            country_name: "Italy",
+            circuit_key: 39,
+            date_start: "2026-01-01T13:00:00+00:00",
+            date_end: "2026-01-01T15:00:00+00:00",
+          },
+        ];
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const db = fakeLoaderDb();
+    const logs: string[] = [];
+    const result = await fetchRaces([9601], db, fetcher, {
+      now: () => Date.parse("2026-06-01T00:00:00Z"), // well past the window: not refused for being live
+      onLog: (line) => logs.push(line),
+    });
+
+    expect(result.inserted).toBe(0);
+    expect(result.sessionsSkipped).toBe(1);
+    expect(db.sessions.has("9601")).toBe(false);
+    expect(logs).toContain('load: refused 9601: session_name is "Qualifying", only "Race" is loaded');
+    // Only the one `sessions?session_key=` lookup — the shared
+    // writeSessionThroughLoader refuses before any of the 8 endpoint fetches.
+    expect(requestedUrls).toHaveLength(1);
+  });
+});
+
 describe("fetchRaces: no session found for the session_key", () => {
   test("an empty sessions response is refused and reported as not found", async () => {
     const fetcher: Fetcher = async () => [];

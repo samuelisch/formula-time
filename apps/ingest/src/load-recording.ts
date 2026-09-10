@@ -40,7 +40,7 @@ import { EventQueue } from "./writer/queue.js";
 import type { DrainResult, EventWriterDb } from "./writer/writer.js";
 import { EventWriter } from "./writer/writer.js";
 import type { SessionsDb } from "./writer/sessions.js";
-import { sessionFieldsFromRaw, upsertSession } from "./writer/sessions.js";
+import { isRaceSession, sessionFieldsFromRaw, upsertSession } from "./writer/sessions.js";
 
 /**
  * The read half of the live-session guard (ADR-0010): whether an *existing*
@@ -325,6 +325,18 @@ export async function writeSessionThroughLoader(
   const sessionKey = Number(session["session_key"]);
   if (!Number.isFinite(sessionKey)) {
     log(`load: session skipped, invalid session_key: ${JSON.stringify(session["session_key"])}`);
+    return { skipped: true, drainResult: noEvents };
+  }
+
+  // Only race sessions are loaded (owner decision 2026-09-10): practice,
+  // qualifying and sprint are refused here, before any write — including
+  // before the `--replace` delete below, so a `--replace` run can never
+  // wipe a non-race session's events on its way to refusing the reload.
+  // isRaceSession is the one shared predicate (writer/sessions.ts) so the
+  // REST lane, this loader, and fetch-race (via this same function) all
+  // agree on what counts as a race.
+  if (!isRaceSession(session)) {
+    log(`load: refused ${sessionKey}: session_name is "${String(session["session_name"])}", only "Race" is loaded`);
     return { skipped: true, drainResult: noEvents };
   }
 
