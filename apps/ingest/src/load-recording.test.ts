@@ -597,8 +597,8 @@ describe("loadRecordings: issue #77 — emits interleaved-endpoint rows in recei
   });
 });
 
-// verifyCounts: the pure function behind the "load: verify ..." log line
-// (issue #165). Hand-built lists, no filesystem/Postgres involved.
+// verifyCounts: the pure function behind the "load: verify ..." log line.
+// Hand-built lists, no filesystem/Postgres involved.
 describe("verifyCounts", () => {
   test("endpoint-grouped input gives runs equal to the number of endpoints", () => {
     const rows = [
@@ -645,9 +645,10 @@ describe("verifyCounts", () => {
   });
 });
 
-// --replace (issue #165): a session whose events were written in the wrong
-// seq order (pre-#78) can be reloaded in place — delete then the normal
-// insert path, as one transaction, so a failed insert leaves the old rows
+// --replace: a session whose events were written in the wrong seq order
+// (one endpoint's rows fully before the next, instead of interleaved by
+// received_at) can be reloaded in place — delete then the normal insert
+// path, as one transaction, so a failed insert leaves the old rows
 // untouched rather than the session ending up with fewer events than it
 // started with.
 describe("loadRecordings: --replace reloads a session's events in place", () => {
@@ -676,11 +677,11 @@ describe("loadRecordings: --replace reloads a session's events in place", () => 
   });
 
   // Three rows already in the database, in endpoint order rather than
-  // received_at order — the shape a pre-#78 load left behind. Goes through
-  // the fake's own `event.createMany` (not a direct `Map.set`) so its `seq`
-  // bookkeeping advances the same way a real insert would — otherwise a
-  // reload's freshly-assigned seq values could coincide with these stale
-  // ones instead of exceeding them.
+  // received_at order — the shape an endpoint-grouped load leaves behind.
+  // Goes through the fake's own `event.createMany` (not a direct `Map.set`)
+  // so its `seq` bookkeeping advances the same way a real insert would —
+  // otherwise a reload's freshly-assigned seq values could coincide with
+  // these stale ones instead of exceeding them.
   async function seedStaleRows(db: ReturnType<typeof fakeDb>): Promise<void> {
     db.sessions.set(SESSION_KEY.toString(), { status: "finished" });
     await db.event.createMany({

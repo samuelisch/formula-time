@@ -163,17 +163,19 @@ async function readSessionRowsInTimeOrder(dir: string, sessionKey: number): Prom
 }
 
 /**
- * The two counts the verify line reports (issue: a race loaded before #78
- * fixed the emission order has `events.seq` grouped by endpoint instead of
- * following time — the browser fold reads that as "no lap yet" for most of
- * a scrubbed replay). `endpoint_runs` counts maximal runs of equal
- * `endpoint` in `seq` order: a correctly interleaved race has runs in the
- * thousands, an endpoint-grouped load has one run per endpoint.
- * `source_time_backsteps` counts rows whose non-null `source_time` is
- * earlier than the previous non-null one — OpenF1 batches arrive slightly
- * out of order, so a healthy load still has some (low hundreds); a
- * `null` `source_time` (e.g. `drivers`) never counts as a backstep and
- * never resets the comparison.
+ * The two counts the verify line reports: a race loaded with `events`
+ * emitted one endpoint fully before the next, instead of interleaved by
+ * time, has `events.seq` grouped by endpoint — the browser fold reads that
+ * as "no lap yet" for most of a scrubbed replay. `endpoint_runs` counts
+ * maximal runs of equal `endpoint` in `seq` order: an endpoint-grouped load
+ * has exactly one run per endpoint; a correctly interleaved race has many
+ * times that many, order-of-magnitude closer to the row count than to the
+ * endpoint count. `source_time_backsteps` counts rows whose non-null
+ * `source_time` is earlier than the previous non-null one — present on a
+ * healthy load too (OpenF1 batches arrive slightly out of order), so on its
+ * own it does not separate a healthy load from a broken one; `endpoint_runs`
+ * is the decisive signal. A `null` `source_time` (e.g. `drivers`) never
+ * counts as a backstep and never resets the comparison.
  */
 export function verifyCounts(
   rows: readonly { endpoint: string; source_time: Date | string | null }[],

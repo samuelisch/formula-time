@@ -545,11 +545,11 @@ describe("fetchRaces: round 1 fix — the jsonl recording is not duplicated on a
   });
 });
 
-// --replace (issue #165) reaches `fetchRaces` through the same
-// `writeSessionThroughLoader` path the recording loader uses — no second
-// implementation. The delete/rollback/verify-line behaviour itself is
-// covered by load-recording.test.ts; this only pins that the flag and the
-// stale rows actually get to that shared path from here.
+// --replace reaches `fetchRaces` through the same `writeSessionThroughLoader`
+// path the recording loader uses — no second implementation. The
+// delete/rollback/verify-line behaviour itself is covered by
+// load-recording.test.ts; this only pins that the flag and the stale rows
+// actually get to that shared path from here.
 describe("fetchRaces: --replace threads through the shared write path", () => {
   test("a session with a stale row gets that row deleted before the fetched row lands", async () => {
     const fetcher = endpointResponses({

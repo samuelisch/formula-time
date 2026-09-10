@@ -86,8 +86,8 @@ test("loading the same fixture twice: row count unchanged on the second run, ses
   expect(countAfterSecond).toBe(24);
 }, 30_000);
 
-// --replace (issue #165): a session whose events were written in the wrong
-// order can be reloaded in place. Real Postgres, so this also proves the
+// --replace: a session whose events were written in the wrong order can be
+// reloaded in place. Real Postgres, so this also proves the
 // `db.$transaction` interactive transaction actually works over the
 // loader's single-connection pool (`createDb(url, { max: 1 })`).
 test("--replace: 3 stale rows in endpoint order end up replaced by exactly the recording's rows, with a fresh seq range", async () => {
@@ -103,8 +103,8 @@ test("--replace: 3 stale rows in endpoint order end up replaced by exactly the r
       status: "finished",
     },
   });
-  // Stale rows in endpoint order, not received_at order — the shape a
-  // pre-#78 load left behind.
+  // Stale rows in endpoint order, not received_at order — the shape an
+  // endpoint-grouped load leaves behind.
   await db.event.createMany({
     data: [
       { eventId: "stale:1", sessionKey: SESSION_KEY, endpoint: "laps", sourceTime: new Date("2026-01-01T13:05:00Z"), payload: {} },

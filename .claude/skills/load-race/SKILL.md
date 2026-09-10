@@ -122,10 +122,15 @@ ssh railway-ingest 'node apps/ingest/dist/load-recording.js --replace /tmp/recor
 
 The loader logs one verify line per session after every load, replaced or
 not: `load: verify <key> rows=<n> endpoint_runs=<r>
-source_time_backsteps=<b>`. `endpoint_runs` in the thousands and
-`source_time_backsteps` in the low hundreds means the race is correctly
-interleaved; `endpoint_runs` near the number of OpenF1 endpoints (8) is the
-broken shape `--replace` fixes. Once the api's exporter has a staleness
+source_time_backsteps=<b>`. `endpoint_runs` is the decisive signal:
+`endpoint_runs` equal to the number of OpenF1 endpoints (8) is the broken,
+endpoint-grouped shape `--replace` fixes; a correctly interleaved race has
+far more (measured on a full Italian GP: `endpoint_runs=1057`). Don't
+judge health from `source_time_backsteps` alone — it's present on a
+healthy load too (OpenF1 batches arrive slightly out of order; measured on
+the same race, `source_time_backsteps=1004` correctly interleaved vs. 625
+endpoint-grouped) and does not by itself separate a healthy load from a
+broken one. Once the api's exporter has a staleness
 rule for an existing `exports` row (issue #166), it regenerates the export
 from the newer rows on its next 5 s tick, no separate step; until then,
 the stale export file needs its own manual fix. The owner runs the actual
