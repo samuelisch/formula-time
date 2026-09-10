@@ -1,30 +1,30 @@
-// One-shot loader (issue #63, ADR-0009): writes a POC recording into
+// One-shot loader (ADR-0009): writes a POC recording into
 // `sessions` + `events` as a finished session, so historical races can be
 // stored and exported. The live REST lane only polls a session inside its
 // ±30 min window (`pickLiveSession` in ./openf1/rest-lane.js), so pointing
 // `LIVE_SOURCE` at an old recording discovers and upserts the session but
-// never fetches its rows (found in PR #62's smoke) — historical races need
-// this explicit load instead.
+// never fetches its rows — historical races need this explicit load
+// instead.
 //
 // Lifts the in-process path `replay.integration.test.ts` already exercises
-// (file fetcher -> normalizer -> queue -> writer) into a command, per the
-// issue body: "lift that path into a command". Reuses `createFileFetcher`,
-// `LiveNormalizer` (via the shared `emitRows` pulled out of `rest-lane.ts`),
-// `EventQueue`, `EventWriter`, `upsertSession`, and the static
-// `ENTRY_LIST_2026` emission — no second writer, no second normalizer, one
-// `createDb(url, { max: 1 })` (ADR-0007 §1: "Ingest never updates an
-// `events` row."; apps/ingest/AGENTS.md: "Sole writer of the `sessions` and
-// `events` tables"). Never touches `polls`, `votes`, or `exports`.
+// (file fetcher -> normalizer -> queue -> writer) into a command. Reuses
+// `createFileFetcher`, `LiveNormalizer` (via the shared `emitRows` pulled
+// out of `rest-lane.ts`), `EventQueue`, `EventWriter`, `upsertSession`, and
+// the static `ENTRY_LIST_2026` emission — no second writer, no second
+// normalizer, one `createDb(url, { max: 1 })` (ADR-0007 §1: "Ingest never
+// updates an `events` row."; apps/ingest/AGENTS.md: "Sole writer of the
+// `sessions` and `events` tables"). Never touches `polls`, `votes`, or
+// `exports`.
 //
 // ADR-0010: ADR-0007's single-writer guarantee is per session, not per
 // process — this loader is a second connection writing `events`, which is
 // only safe because it refuses any session that is (or might still be)
 // live; see the guard in loadOneSession() below.
 //
-// Issue #71: `loadOneSession` upserts each session `upcoming`, writes and
+// `loadOneSession` upserts each session `upcoming`, writes and
 // drains every one of its events, and only then updates the row to
 // `finished` — see the comments at each step. Upserting `finished` first
-// (the original order) let the api's exporter (ADR-0009 §2) export the
+// would let the api's exporter (ADR-0009 §2) export the
 // session the moment the row flipped, before any event existed.
 
 import type { SessionStatus } from "@formula-time/db";
@@ -57,14 +57,14 @@ export interface SessionStatusReader {
 /** The slice of the Prisma client the loader needs — real client or a fake (unit test). */
 export type LoaderDb = SessionsDb & EventWriterDb & SessionStatusReader;
 
-// Issue #63: "read every `raw/*.jsonl` through the same `LiveNormalizer`
-// (identity, dedup) in file order, endpoint order `drivers, position,
-// intervals, laps, stints, pit, race_control, weather`". "drivers" here is
+// Reads every `raw/*.jsonl` through the same `LiveNormalizer` (identity,
+// dedup) in file order, endpoint order `drivers, position, intervals,
+// laps, stints, pit, race_control, weather`. "drivers" here is
 // the recorded OpenF1 `drivers` fetch (`raw/drivers.jsonl`, distinct fields
 // from the static `ENTRY_LIST_2026` payload below) — the entry list is
-// emitted separately, first, "exactly as session selection does". This list
-// is still the read order for `raw/*.jsonl` files (issue #77 below reorders
-// only the *emitted* order, by `received_at`).
+// emitted separately, first, exactly as session selection does. This list
+// is still the read order for `raw/*.jsonl` files (the ordering below
+// reorders only the *emitted* order, by `received_at`).
 export const RECORDING_ENDPOINT_ORDER = [
   "drivers",
   "position",
@@ -76,22 +76,22 @@ export const RECORDING_ENDPOINT_ORDER = [
   "weather",
 ] as const;
 
-// Issue #77: a bulk read of a complete recording emitted one endpoint fully
-// before the next, so a loaded session's `events.seq` ended up blocked by
-// endpoint instead of following time — every `laps` row landed after every
+// A bulk read of a complete recording that emitted one endpoint fully
+// before the next would leave a loaded session's `events.seq` blocked by
+// endpoint instead of following time — every `laps` row landing after every
 // `position`/`intervals` row, which the browser fold (`foldAt`, seq order up
-// to `source_time`) reads as "no lap yet" for most of the race. Fix: read
-// every endpoint's rows (with `received_at`, via `readRecordingEndpoint`)
-// and emit them in `received_at` order instead, reproducing the order live
-// capture would have produced. When two rows tie exactly on `received_at`,
-// break the tie by endpoint using `POLL_ROTATION`'s order (rest-lane.ts) —
-// the order one live poll cycle visits them in; `drivers` never appears in
-// `POLL_ROTATION` (fetched once at session selection, not polled), so it
-// keeps its `RECORDING_ENDPOINT_ORDER` position, first. Do not touch
-// `RestLane` — the live REST lane already emits in time order, one poll's
-// rows at a time; only a bulk recording load needs this sort (see the
-// scope note on issue #77: `replay.integration.test.ts`'s per-endpoint
-// block order is expected there too, and is unaffected by this fix).
+// to `source_time`) reads as "no lap yet" for most of the race. Instead,
+// read every endpoint's rows (with `received_at`, via
+// `readRecordingEndpoint`) and emit them in `received_at` order,
+// reproducing the order live capture would have produced. When two rows tie
+// exactly on `received_at`, break the tie by endpoint using
+// `POLL_ROTATION`'s order (rest-lane.ts) — the order one live poll cycle
+// visits them in; `drivers` never appears in `POLL_ROTATION` (fetched once
+// at session selection, not polled), so it keeps its
+// `RECORDING_ENDPOINT_ORDER` position, first. Do not touch `RestLane` — the
+// live REST lane already emits in time order, one poll's rows at a time;
+// only a bulk recording load needs this sort (`replay.integration.test.ts`'s
+// per-endpoint block order is expected there too, and is unaffected).
 const ENDPOINT_TIE_BREAK_ORDER: readonly string[] = [
   "drivers",
   ...POLL_ROTATION.filter((endpoint, index) => POLL_ROTATION.indexOf(endpoint) === index),
@@ -140,15 +140,15 @@ export interface LoadRecordingsOptions {
 export interface LoadRecordingsResult {
   inserted: number;
   skipped: number;
-  /** Sessions the loader tried to load, across every `dir` (round 1 fix). */
+  /** Sessions the loader tried to load, across every `dir`. */
   sessionsAttempted: number;
   /**
-   * Sessions not written, or not fully written: a malformed row (round 1
-   * fix — caught in `loadRecordings`'s per-session loop, not here); refused
-   * as live (ADR-0010 — returned as `{ skipped: true }` below); or the
-   * writer gave up on the session's events after repeated failures (issue
-   * #71 — the row is left `upcoming`, not written, for the next run to
-   * finish; also `{ skipped: true }`).
+   * Sessions not written, or not fully written: a malformed row (caught in
+   * `loadRecordings`'s per-session loop, not here); refused as live
+   * (ADR-0010 — returned as `{ skipped: true }` below); or the writer gave
+   * up on the session's events after repeated failures (the row is left
+   * `upcoming`, not written, for the next run to finish; also
+   * `{ skipped: true }`).
    */
   sessionsSkipped: number;
 }
@@ -160,15 +160,13 @@ export interface WriteSessionThroughLoaderResult {
 }
 
 /**
- * The write path shared by the recording loader and `fetch-race` (issue
- * #88, ADR-0009: "a fetched race reaches the exporter the same way a loaded
+ * The write path shared by the recording loader and `fetch-race`
+ * (ADR-0009: "a fetched race reaches the exporter the same way a loaded
  * one does"): validate the session key, apply the ADR-0010 live guard,
  * upsert `upcoming` (unless already `finished`), let `emitAll` push every
- * event onto `queue` (via a fresh `LiveNormalizer` it is handed, per
- * behaviour "normalise every row with the same LiveNormalizer"), drain, and
- * only then upsert `finished` (issue #71's ordering — see the inline
- * comments below, unchanged from before this was pulled out of
- * `loadOneSession`).
+ * event onto `queue` (via a fresh `LiveNormalizer` it is handed, so every
+ * row is normalized with the same LiveNormalizer), drain, and
+ * only then upsert `finished` — see the inline comments below.
  */
 export async function writeSessionThroughLoader(
   session: RawRecord,
@@ -195,7 +193,7 @@ export async function writeSessionThroughLoader(
   // `sessions` row (in case the live service is still tracking it under
   // different dates). `sessionFieldsFromRaw` also validates
   // `date_start`/`date_end` — a malformed date throws here and is caught by
-  // the caller (round 1 fix), same as it always was inside `upsertSession`.
+  // the caller, same as it always was inside `upsertSession`.
   const fields = sessionFieldsFromRaw(session, nowMs);
   if (fields.status === "live") {
     log(`load: refused ${sessionKey}: session is live; the live ingest service owns it`);
@@ -207,60 +205,58 @@ export async function writeSessionThroughLoader(
     return { skipped: true, drainResult: noEvents };
   }
 
-  // Round-3 review fix (issue #39, owner ruling): the two checks above only
-  // refuse a session already `live`. ADR-0010 §1, quoted verbatim: "The
-  // single-writer guarantee holds per `session_key`: at most one process
-  // writes rows for a given session. The live `ingest` service owns every
-  // session inside its live window; the loader owns only sessions whose
-  // window has closed." A window that hasn't closed yet also covers
-  // `upcoming` (not live YET, but the live service will start owning that
-  // SAME session_key once its window opens) — the checks above let an
-  // `upcoming` session through unrefused, and issue #39's Friday/pre-race
-  // `drivers` fetches are the first thing that made that reachable in
-  // practice: they write rows for a session while it is still `upcoming`,
-  // which the live service could then race against this loader/fetch-race
-  // run for the same session_key. `fields.status` is "live" only when
-  // ADR-0010 already refused above, so by this point it is "upcoming" or
-  // "finished" — refuse whenever it isn't "finished" (the window hasn't
-  // closed).
+  // The two checks above only refuse a session already `live`. ADR-0010 §1,
+  // quoted verbatim: "The single-writer guarantee holds per `session_key`:
+  // at most one process writes rows for a given session. The live `ingest`
+  // service owns every session inside its live window; the loader owns
+  // only sessions whose window has closed." A window that hasn't closed yet
+  // also covers `upcoming` (not live YET, but the live service will start
+  // owning that SAME session_key once its window opens) — the checks above
+  // let an `upcoming` session through unrefused, and the Friday/pre-race
+  // `drivers` fetches write rows for a session while it is still
+  // `upcoming`, which the live service could then race against this
+  // loader/fetch-race run for the same session_key. `fields.status` is
+  // "live" only when ADR-0010 already refused above, so by this point it
+  // is "upcoming" or "finished" — refuse whenever it isn't "finished" (the
+  // window hasn't closed).
   if (fields.status !== "finished") {
     log(`load: refused ${sessionKey}: window not closed; the live ingest service owns it`);
     return { skipped: true, drainResult: noEvents };
   }
 
-  // Issue #71 / ADR-0009 §2: the api's exporter runs on its own 5s tick and
+  // ADR-0009 §2: the api's exporter runs on its own 5s tick and
   // exports any `sessions` row with `status = 'finished'` that has no
   // `exports` row yet (HLD §7, quoted: "**Export** = once, when `status =
   // finished` and `exported_at IS NULL`; idempotent; retried by the same
   // check. No separate job."). Upserting `finished` before the events exist
-  // let the exporter win the race and write an export with `"events": []`
-  // — exports are immutable, so that file had to be deleted by hand. Upsert
-  // `upcoming` first instead: it satisfies the `events` FK (the exporter's
-  // query ignores `upcoming` rows) without ever exposing a finished session
-  // with no events.
+  // would let the exporter win the race and write an export with
+  // `"events": []` — exports are immutable, so that file would need to be
+  // deleted by hand. Upsert `upcoming` first instead: it satisfies the
+  // `events` FK (the exporter's query ignores `upcoming` rows) without ever
+  // exposing a finished session with no events.
   //
-  // Round 1 fix (PR #74 review): skip that `upcoming` upsert when the row is
-  // already `finished` — a rerun of an already-loaded recording (idempotent
-  // by design; see `loadRecordings`'s doc comment) must not visibly demote a
-  // finished session back to `upcoming` and then straight back to
-  // `finished`. The final `upsertSession(..., { status: "finished" })` below
-  // still runs either way, so the net effect is unchanged: still finished.
+  // Skip that `upcoming` upsert when the row is already `finished` — a
+  // rerun of an already-loaded recording (idempotent by design; see
+  // `loadRecordings`'s doc comment) must not visibly demote a finished
+  // session back to `upcoming` and then straight back to `finished`. The
+  // final `upsertSession(..., { status: "finished" })` below still runs
+  // either way, so the net effect is unchanged: still finished.
   const alreadyFinished = existing?.status === "finished";
   if (!alreadyFinished) {
     await upsertSession(db, session, nowMs, { status: "upcoming" });
   }
 
   const normalizer = new LiveNormalizer();
-  // `alreadyFinished` is handed to `emitAll` too (issue #88 round 1 fix):
-  // this write path always re-fetches/re-normalizes on a rerun (DB-level
-  // idempotency comes from `event.createMany({ skipDuplicates: true })`
-  // downstream, not from skipping the work here) — but a caller with its
-  // own side effect keyed off "is this actually new" (fetch-race.ts's jsonl
-  // recording) needs to know a rerun when it sees one, since a fresh
-  // `LiveNormalizer` per call means every row looks "new" to it again.
+  // `alreadyFinished` is handed to `emitAll` too: this write path always
+  // re-fetches/re-normalizes on a rerun (DB-level idempotency comes from
+  // `event.createMany({ skipDuplicates: true })` downstream, not from
+  // skipping the work here) — but a caller with its own side effect keyed
+  // off "is this actually new" (fetch-race.ts's jsonl recording) needs to
+  // know a rerun when it sees one, since a fresh `LiveNormalizer` per call
+  // means every row looks "new" to it again.
   await emitAll(normalizer, sessionKey, alreadyFinished);
 
-  // Issue #71: wait for every queued event to actually commit before
+  // Wait for every queued event to actually commit before
   // flipping the row to `finished` — the whole point of the reordering
   // above. `drainAll()` retries a failing batch a few times, then gives up
   // and returns without throwing, leaving the failed batch requeued at the
@@ -268,7 +264,7 @@ export async function writeSessionThroughLoader(
   // here.
   const drainResult = await writer.drainAll();
   if (!queue.isEmpty()) {
-    // Round 1 fix (PR #74 review): the queue and writer are shared across
+    // The queue and writer are shared across
     // every session in this `loadRecordings()` call, and a batch that gave
     // up is left sitting at the FRONT of the queue (requeueFront in
     // writer.ts) — the next session's own `drainAll()` would hit that stuck
@@ -323,7 +319,7 @@ async function loadOneSession(
       `load: session=${sessionKey} endpoint=drivers(entry-list) rows=${driverRows.length} new=${entryResult.newRows}`,
     );
 
-    // Issue #77: emit in `received_at` order across every endpoint, not one
+    // Emit in `received_at` order across every endpoint, not one
     // endpoint's rows fully before the next — see
     // `readSessionRowsInTimeOrder` above. Consecutive rows that share an
     // endpoint are still batched into one `emitRows` call each (same
@@ -355,7 +351,7 @@ async function loadOneSession(
  *
  * Every row for one session is pushed to one shared `EventQueue`, then
  * drained (`writer.drainAll()`) before that session's row is marked
- * `finished` (issue #71) — so draining now happens per session, not once at
+ * `finished` — draining happens per session, not once at
  * the very end, though the queue and writer are still shared across every
  * session and `dir`. Idempotent: rows already in the database are skipped
  * by `event.createMany({ skipDuplicates: true })`, not re-inserted.
@@ -402,8 +398,8 @@ export async function loadRecordings(
           }`,
         );
       } finally {
-        // Round 1 fix, still needed per session now that draining happens
-        // inside `loadOneSession`: whatever made it onto the queue before a
+        // Needed per session since draining happens inside
+        // `loadOneSession`: whatever made it onto the queue before a
         // mid-session throw (e.g. a fetch failure partway through the
         // endpoint loop) must still reach the writer. A no-op when
         // `loadOneSession` already drained cleanly — the queue is empty by
@@ -436,8 +432,8 @@ if (isMain) {
   loadRecordings(dirs, db)
     .then(async (result) => {
       await db.$disconnect();
-      // Exit 1 only if every attempted session failed/was refused (round 1
-      // fix) — a partial load (some sessions good, some skipped) still
+      // Exit 1 only if every attempted session failed/was refused — a
+      // partial load (some sessions good, some skipped) still
       // wrote what it could, so it exits 0.
       const allFailed = result.sessionsAttempted > 0 && result.sessionsSkipped === result.sessionsAttempted;
       process.exit(allFailed ? 1 : 0);

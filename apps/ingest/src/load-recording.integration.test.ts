@@ -1,5 +1,5 @@
-// Integration test (issue #63 deliverable "Integration test"; ADR-0002):
-// needs the real Postgres from the root `docker-compose.yml`. Pins the two
+// Integration test (ADR-0002): needs the real Postgres from the root
+// `docker-compose.yml`. Pins the two
 // facts only Postgres enforces: loading the same fixture recording twice
 // leaves the row count unchanged (DB-level dedup via
 // `event.createMany({ skipDuplicates: true })` on `event_id`, same as
@@ -86,17 +86,17 @@ test("loading the same fixture twice: row count unchanged on the second run, ses
   expect(countAfterSecond).toBe(24);
 }, 30_000);
 
-// Issue #77: a bulk read of a complete recording used to emit every
-// `position`/`intervals` row before any `laps` row (RECORDING_ENDPOINT_ORDER
-// is a per-endpoint read order, not a time order), so `events.seq` for a
-// loaded session was blocked by endpoint — the browser fold (seq order up to
-// `source_time`) read that as "no lap yet" for most of a scrubbed replay.
-// Real recording, not a fixture (`recordings/11361` — the Italian GP capture
-// that surfaced the bug, psql-confirmed in the issue). `recordings/` is
-// gitignored on purpose ("not repo content") — same shape as
-// `replay.integration.test.ts`'s `REPLAY_RECORDING_DIR`: skipped, loudly,
-// wherever the directory isn't present (CI, a reviewer's machine), and
-// overridable by env var for a different layout.
+// A bulk read of a complete recording, read in RECORDING_ENDPOINT_ORDER (a
+// per-endpoint read order, not a time order), must not emit every
+// `position`/`intervals` row before any `laps` row — `events.seq` for a
+// loaded session would then be blocked by endpoint, and the browser fold
+// (seq order up to `source_time`) would read that as "no lap yet" for most
+// of a scrubbed replay. Real recording, not a fixture (`recordings/11361` —
+// the Italian GP capture). `recordings/` is gitignored on purpose ("not
+// repo content") — same shape as `replay.integration.test.ts`'s
+// `REPLAY_RECORDING_DIR`: skipped, loudly, wherever the directory isn't
+// present (CI, a reviewer's machine), and overridable by env var for a
+// different layout.
 const RECORDING_11361_DIR =
   process.env["RECORDING_11361_DIR"] ??
   path.resolve(fileURLToPath(import.meta.url), "../../../../recordings/11361");
