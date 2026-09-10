@@ -9,8 +9,10 @@ cmd=$(jq -r '.tool_input.command // empty')
 # -C dir, --no-pager, ...) are skipped so an option-prefixed form still
 # matches; "commit" must be a whole word so "git commitlog" does not.
 self_filter='(^|[;&|])[[:space:]]*git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+commit([[:space:]]|$)'
-cmd_match=$(printf '%s\n' "$cmd" | grep -oE "$self_filter" | head -1)
-[ -n "$cmd_match" ] || exit 0
+match_line=$(printf '%s\n' "$cmd" | grep -obE "$self_filter" | head -1)
+[ -n "$match_line" ] || exit 0
+match_offset=${match_line%%:*}
+cmd_match=${match_line#*:}
 
 strip_quotes() {
   local p="$1"
@@ -28,10 +30,16 @@ strip_quotes() {
 # `git -C <path>` inside that same invocation; else the hook's own cwd, as
 # before. "Before" is scoped to the text preceding the matched invocation
 # itself, not just anywhere in the command, so a `cd` that runs after the
-# commit (e.g. `git commit -m x && cd /other && echo done`) is ignored.
+# commit (e.g. `git commit -m x && cd /other && echo done`) is ignored, and
+# an unrelated "git commit"-looking substring earlier in the command (e.g.
+# inside a quoted echo argument) cannot be mistaken for it either: the cut
+# point comes from grep's own byte offset for the anchored match, not a
+# second, textual search for the matched string.
 hook_cwd="$(pwd)"
 git_part=$(printf '%s\n' "$cmd_match" | sed -E 's/^[;&|]?[[:space:]]*//')
-prefix="${cmd%%"$git_part"*}"
+anchor_len=$(( ${#cmd_match} - ${#git_part} ))
+git_start=$(( match_offset + anchor_len ))
+prefix="${cmd:0:git_start}"
 raw_path=$(printf '%s\n' "$prefix" | sed -nE "s/.*(^|[;&|])[[:space:]]*cd[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]*(&&|;).*/\\2/p")
 if [ -z "$raw_path" ]; then
   raw_path=$(printf '%s\n' "$cmd_match" | sed -nE "s/.*git[[:space:]]+-C[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)[[:space:]]+commit.*/\\1/p")
