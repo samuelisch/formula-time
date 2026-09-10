@@ -19,11 +19,14 @@ const db: PrismaClient = createDb();
 
 const SESSION_KEY = 9_000_003n;
 const DRIVERS_ONLY_SESSION_KEY = 9_000_004n;
+const RELOAD_SESSION_KEY = 9_000_005n;
+
+const ALL_SESSION_KEYS = [SESSION_KEY, DRIVERS_ONLY_SESSION_KEY, RELOAD_SESSION_KEY];
 
 async function wipe(): Promise<void> {
-  await db.export.deleteMany({ where: { sessionKey: { in: [SESSION_KEY, DRIVERS_ONLY_SESSION_KEY] } } });
-  await db.event.deleteMany({ where: { sessionKey: { in: [SESSION_KEY, DRIVERS_ONLY_SESSION_KEY] } } });
-  await db.session.deleteMany({ where: { sessionKey: { in: [SESSION_KEY, DRIVERS_ONLY_SESSION_KEY] } } });
+  await db.export.deleteMany({ where: { sessionKey: { in: ALL_SESSION_KEYS } } });
+  await db.event.deleteMany({ where: { sessionKey: { in: ALL_SESSION_KEYS } } });
+  await db.session.deleteMany({ where: { sessionKey: { in: ALL_SESSION_KEYS } } });
 }
 
 let dir: string;
@@ -147,6 +150,97 @@ test("exports a real session: gzip file matches ADR-0009 §1 exactly; a second r
   await exporter.runOnce();
   const countAfter = await db.export.count({ where: { sessionKey: SESSION_KEY } });
   expect(countAfter).toBe(countBefore);
+});
+
+test("reload: three later-received rows on an already-exported session move exported_at and land in the file", async () => {
+  dir = await mkdtemp(join(tmpdir(), "exporter-integration-"));
+  await db.session.create({
+    data: {
+      sessionKey: RELOAD_SESSION_KEY,
+      name: "Exporter Integration Test Reload Grand Prix",
+      country: "Testland",
+      circuitKey: 1,
+      dateStart: new Date("2026-09-08T12:00:00.000Z"),
+      dateEnd: new Date("2026-09-08T14:00:00.000Z"),
+      totalLaps: 53,
+      status: "finished",
+    },
+  });
+  await db.event.createMany({
+    data: [
+      {
+        eventId: "exporter-it-reload-1",
+        sessionKey: RELOAD_SESSION_KEY,
+        endpoint: "position",
+        sourceTime: new Date("2026-09-08T12:10:00.000Z"),
+        payload: { driver_number: 1, position: 1 },
+      },
+      {
+        eventId: "exporter-it-reload-2",
+        sessionKey: RELOAD_SESSION_KEY,
+        endpoint: "position",
+        sourceTime: new Date("2026-09-08T12:11:00.000Z"),
+        payload: { driver_number: 2, position: 2 },
+      },
+    ],
+  });
+
+  const exporter = createExporter({ db, dir, log: () => {} });
+  await exporter.runOnce();
+
+  const firstRow = await db.export.findUniqueOrThrow({ where: { sessionKey: RELOAD_SESSION_KEY } });
+
+  // A reload writes new rows with a `received_at` after the first export's
+  // `exported_at` -- the same shape a re-run of ingest's replay produces.
+  const reloadedAt = new Date(firstRow.exportedAt.getTime() + 1000);
+  await db.event.createMany({
+    data: [
+      {
+        eventId: "exporter-it-reload-3",
+        sessionKey: RELOAD_SESSION_KEY,
+        endpoint: "position",
+        sourceTime: new Date("2026-09-08T12:12:00.000Z"),
+        receivedAt: reloadedAt,
+        payload: { driver_number: 3, position: 3 },
+      },
+      {
+        eventId: "exporter-it-reload-4",
+        sessionKey: RELOAD_SESSION_KEY,
+        endpoint: "position",
+        sourceTime: new Date("2026-09-08T12:13:00.000Z"),
+        receivedAt: reloadedAt,
+        payload: { driver_number: 4, position: 4 },
+      },
+      {
+        eventId: "exporter-it-reload-5",
+        sessionKey: RELOAD_SESSION_KEY,
+        endpoint: "position",
+        sourceTime: new Date("2026-09-08T12:14:00.000Z"),
+        receivedAt: reloadedAt,
+        payload: { driver_number: 5, position: 5 },
+      },
+    ],
+  });
+
+  await exporter.runOnce();
+
+  const secondRow = await db.export.findUniqueOrThrow({ where: { sessionKey: RELOAD_SESSION_KEY } });
+  expect(secondRow.exportedAt.getTime()).toBeGreaterThan(firstRow.exportedAt.getTime());
+  expect(secondRow.path).toBe(firstRow.path);
+
+  const gz = await readFile(secondRow.path);
+  const json = JSON.parse((await gunzipAsync(gz)).toString("utf-8")) as {
+    exported_at: string;
+    events: Array<Record<string, unknown>>;
+  };
+  expect(json.exported_at).toBe(secondRow.exportedAt.toISOString());
+  expect(json.events.map((e) => e["event_id"])).toEqual([
+    "exporter-it-reload-1",
+    "exporter-it-reload-2",
+    "exporter-it-reload-3",
+    "exporter-it-reload-4",
+    "exporter-it-reload-5",
+  ]);
 });
 
 test("finished session with only drivers events: skipped, no exports row against real Postgres", async () => {
