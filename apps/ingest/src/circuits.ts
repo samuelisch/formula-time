@@ -1,4 +1,5 @@
-// Static `circuit_key` -> total race laps map, keyed by `circuit_key`.
+// Static `circuit_key` -> total race laps map, keyed by `circuit_key`; an
+// unknown `circuit_key` maps to `null`.
 //
 // OpenF1's `circuit_key` is not documented as a fixed public table, so rather
 // than guess ids from memory this only fills entries verified against a real
