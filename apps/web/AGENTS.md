@@ -15,8 +15,9 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   request goes through `src/api.ts`, never a hand-built URL.
 - Imports the RaceState type, wire schemas, and the reducer from
   `@formula-time/domain`. Never copies them. The reducer runs in the
-  browser to fold finished races (target) and must stay identical to the
-  server's.
+  browser to fold finished races, served as one immutable export per
+  session (ADR-0009) and rendered by `ReplayPage` at `/races/:session_key`
+  (`src/app/router.tsx`); it must stay identical to the server's.
 - One `EventSource` per tab carries race state, poll state, tallies, and
   the heartbeat. The browser does not validate the SSE payload; it trusts
   its own server. Votes are a plain `POST`.
@@ -46,7 +47,11 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   typecheck` at the root must pass.
 - Unit tests are `*.test.ts` next to the source, vitest, in-memory fakes
   only. Integration tests (`*.integration.test.ts`, need Postgres) do not
-  apply here — this app has no database access. Playwright is e2e only.
+  apply here — this app has no database access. Playwright is e2e only;
+  none written yet.
+- `pnpm lint` (ESLint, root `eslint.config.js`, ADR-0017) runs over this
+  app too, zero warnings allowed, same gate as `pnpm typecheck` and
+  `pnpm test:unit`.
 - `@formula-time/domain` is browser-safe: its tsconfig enforces
   `types: []` and `lib: ["ES2022"]`, so it cannot import `node:*`. Types
   and the reducer live there; identity hashing does not, and never gets
@@ -69,16 +74,35 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   to `sent_at` when null (`axisOf` in `src/live/types.ts`) -- the POC's
   alignment anchor, so an offset measured against the broadcast applies
   directly. The push ring buffer (`src/live/buffer.ts`) caps at 600
-  entries or 180 000ms of span, whichever hits first, oldest evicted;
-  deltas are a post-deploy item, so this cap is the memory bound until
-  then. `delayMs === 0` renders the live edge with zero buffer work.
+  entries or 180 000ms of span, whichever hits first, oldest evicted. The
+  server already sends delta pushes (ADR-0013); this app still speaks the
+  legacy full-state format, so the ring buffer remains the memory bound
+  until the web migration to delta pushes (issue #108) lands. `delayMs
+  === 0` renders the live edge with zero buffer work.
 - `src/live/useLiveStream.ts` is the only place in the app that
   constructs an `EventSource`; it is mounted once in `Shell`. No other
   component or hook opens its own connection.
 - `src/transport/TimeTarget.ts` is the seam `TransportBar` drives against,
   with `useLiveTimeTarget` (the live store's delay) and
   `useReplayTimeTarget` (a replay's playback clock) as its two
-  implementations, so one control surface serves both.
+  implementations, so one control surface serves both. Live seeks and
+  nudges move on the source axis through the store's own
+  `seekToAxis`/`nudgeDelay` (`headAxisOf` in `src/live/store.ts`).
+  `src/transport/raceStart.ts`'s `jumpToRaceStart` is the one shared
+  race-start seek, used by the transport bar's button and the replay
+  page's start notice.
+- The board seam: every board component reads through the hooks in
+  `src/board/useBoardState.ts` (`useBoardPush`, `useBoardDriver`,
+  `useBoardDriverOrder`, `useBoardRaceControl`, `useBoardSessionMeta`,
+  `useBoardSessionStatus`, `useBoardIsReplay`), never the live store
+  directly, so the same component renders a live push and a folded replay
+  push. `ReplayPage` mounts `Board` under `BoardSourceProvider`; `BoardPage`
+  mounts it on the live store.
+- The connection pill (`src/live/ConnectionPill.tsx`) lives on the live
+  page (`BoardPage`) only; a replay has no live connection to show.
+- `src/app/headerStore.ts` lets a page override the shell header's session
+  line while it is mounted, clearing the override on unmount; otherwise the
+  header derives its line from the live store.
 - `src/replay/timeline.ts`'s `Timeline` is the incremental fold --
   keyframes, lap markers, `foldAt` for scrubbing -- shared by the replay
   path (`src/replay/foldRace.ts`, the whole event log in one shot) and the
