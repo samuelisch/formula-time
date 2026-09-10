@@ -230,14 +230,51 @@ describe("orderForEmission", () => {
   });
 });
 
+interface FakeEventRow {
+  eventId: string;
+  sessionKey: unknown;
+  endpoint: string;
+  sourceTime: Date | null;
+  seq: number;
+}
+
 function fakeLoaderDb(): LoaderDb & {
   sessions: Map<string, { status?: string }>;
   insertOrder: string[];
-  events: Map<string, { eventId: string; endpoint: string; sourceTime: Date | null }>;
+  events: Map<string, FakeEventRow>;
 } {
   const sessions = new Map<string, { status?: string }>();
-  const events = new Map<string, { eventId: string; endpoint: string; sourceTime: Date | null }>();
+  const events = new Map<string, FakeEventRow>();
   const insertOrder: string[] = [];
+  let nextSeq = 1;
+
+  async function createMany(args: {
+    data: Array<{ eventId: string; sessionKey: unknown; endpoint: string; sourceTime: Date | null }>;
+  }): Promise<{ count: number }> {
+    let count = 0;
+    for (const row of args.data) {
+      if (events.has(row.eventId)) continue;
+      events.set(row.eventId, { ...row, seq: nextSeq });
+      nextSeq += 1;
+      insertOrder.push(row.eventId);
+      count += 1;
+    }
+    return { count };
+  }
+
+  function deleteMany(args: { where: { sessionKey: bigint } }): { count: number } {
+    const key = args.where.sessionKey.toString();
+    let count = 0;
+    for (const [eventId, row] of [...events.entries()]) {
+      if (String(row.sessionKey) !== key) continue;
+      events.delete(eventId);
+      const index = insertOrder.indexOf(eventId);
+      if (index !== -1) insertOrder.splice(index, 1);
+      count += 1;
+    }
+    return { count };
+  }
+
   return {
     sessions,
     insertOrder,
@@ -256,16 +293,41 @@ function fakeLoaderDb(): LoaderDb & {
       },
     },
     event: {
-      async createMany(args) {
-        let count = 0;
-        for (const row of args.data) {
-          if (events.has(row.eventId)) continue;
-          events.set(row.eventId, { eventId: row.eventId, endpoint: row.endpoint, sourceTime: row.sourceTime });
-          insertOrder.push(row.eventId);
-          count += 1;
-        }
-        return { count };
+      createMany,
+      async deleteMany(args) {
+        return deleteMany(args);
       },
+      async findMany(args) {
+        const key = args.where.sessionKey.toString();
+        return [...events.values()]
+          .filter((row) => String(row.sessionKey) === key)
+          .sort((a, b) => a.seq - b.seq)
+          .map((row) => ({ endpoint: row.endpoint, sourceTime: row.sourceTime }));
+      },
+    },
+    // Same rollback-on-throw stand-in as load-recording.test.ts's fakeDb —
+    // see its comment for why a snapshot/restore is enough here.
+    async $transaction(fn) {
+      const eventsSnapshot = new Map(events);
+      const insertOrderSnapshot = [...insertOrder];
+      const nextSeqSnapshot = nextSeq;
+      try {
+        return await fn({
+          event: {
+            createMany,
+            async deleteMany(args) {
+              return deleteMany(args);
+            },
+          },
+        });
+      } catch (error) {
+        events.clear();
+        for (const [key, row] of eventsSnapshot) events.set(key, row);
+        insertOrder.length = 0;
+        insertOrder.push(...insertOrderSnapshot);
+        nextSeq = nextSeqSnapshot;
+        throw error;
+      }
     },
   };
 }
@@ -480,5 +542,44 @@ describe("fetchRaces: round 1 fix — the jsonl recording is not duplicated on a
     // Unchanged by the second (idempotent, already-finished) run.
     expect(calls.writeSessionCalls).toBe(1);
     expect(calls.appendRowsCalls).toHaveLength(2);
+  });
+});
+
+// --replace (issue #165) reaches `fetchRaces` through the same
+// `writeSessionThroughLoader` path the recording loader uses — no second
+// implementation. The delete/rollback/verify-line behaviour itself is
+// covered by load-recording.test.ts; this only pins that the flag and the
+// stale rows actually get to that shared path from here.
+describe("fetchRaces: --replace threads through the shared write path", () => {
+  test("a session with a stale row gets that row deleted before the fetched row lands", async () => {
+    const fetcher = endpointResponses({
+      sessions: [
+        {
+          session_key: 9900,
+          session_name: "Race",
+          country_name: "Italy",
+          circuit_key: 39,
+          date_start: "2026-01-01T13:00:00+00:00",
+          date_end: "2026-01-01T15:00:00+00:00",
+        },
+      ],
+      position: [{ session_key: 9900, driver_number: 1, date: "2026-01-01T13:00:01Z", x: 1, y: 1 }],
+    });
+
+    const db = fakeLoaderDb();
+    db.sessions.set("9900", { status: "finished" });
+    await db.event.createMany({
+      data: [{ eventId: "stale:1", sessionKey: 9900n, endpoint: "position", sourceTime: null, payload: {} }],
+      skipDuplicates: true,
+    });
+
+    const now = () => Date.parse("2026-06-01T00:00:00Z");
+    const logs: string[] = [];
+    const result = await fetchRaces([9900], db, fetcher, { now, onLog: (line) => logs.push(line), replace: true });
+
+    expect(result.sessionsSkipped).toBe(0);
+    expect(db.events.has("stale:1")).toBe(false);
+    expect([...db.events.values()].some((row) => row.endpoint === "position")).toBe(true);
+    expect(logs.some((line) => line.startsWith("load: verify 9900 "))).toBe(true);
   });
 });

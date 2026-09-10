@@ -17,15 +17,31 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { ENTRY_LIST_2026 } from "./openf1/entry-list.js";
 import type { RawRecord } from "./openf1/types.js";
-import { loadRecordings } from "./load-recording.js";
+import { loadRecordings, verifyCounts } from "./load-recording.js";
 import type { LoaderDb } from "./load-recording.js";
+
+// A fake row as stored by `event.createMany`/kept by `deleteMany`: enough
+// fields for the tests below plus a `seq` assigned at insertion time (like
+// Postgres's `autoincrement`) — reassigned on every fresh insert, including
+// a row re-inserted after `--replace` deleted it, so a reload always ends
+// with a fresh `seq` range, never the row's old one.
+interface FakeEventRow {
+  eventId: string;
+  sessionKey: unknown;
+  endpoint: string;
+  sourceTime: Date | null;
+  seq: number;
+}
 
 function fakeDb(): LoaderDb & {
   sessions: Map<string, { status?: string; [key: string]: unknown }>;
+  events: Map<string, FakeEventRow>;
   insertOrder: string[];
-  // Records every `session.upsert` (as `upsert:<status>`) and every
-  // `event.createMany` (as `events:<row count>`) call, in call order — how
-  // the tests below pin the upcoming -> events -> finished sequence.
+  // Records every `session.upsert` (as `upsert:<status>`), every
+  // `event.createMany` (as `events:<row count>`), and every
+  // `event.deleteMany` (as `deleteMany:<row count>`) call, in call order —
+  // how the tests below pin the upcoming -> events -> finished sequence and
+  // the --replace delete-before-insert order.
   callLog: string[];
   // `failEvents` fails every `event.createMany` call; `failSessionKeys`
   // fails only batches whose rows belong to one of these session keys —
@@ -34,12 +50,48 @@ function fakeDb(): LoaderDb & {
   flags: { failEvents: boolean; failSessionKeys: Set<string> };
 } {
   const sessions = new Map<string, { status?: string; [key: string]: unknown }>();
-  const events = new Map<string, unknown>();
+  const events = new Map<string, FakeEventRow>();
   const insertOrder: string[] = [];
   const callLog: string[] = [];
   const flags = { failEvents: false, failSessionKeys: new Set<string>() };
+  let nextSeq = 1;
+
+  async function createMany(args: {
+    data: Array<{ eventId: string; sessionKey: unknown; endpoint: string; sourceTime: Date | null }>;
+  }): Promise<{ count: number }> {
+    const batchKey = args.data[0] ? String(args.data[0].sessionKey) : undefined;
+    if (flags.failEvents || (batchKey !== undefined && flags.failSessionKeys.has(batchKey))) {
+      throw new Error("fake writer failure");
+    }
+    callLog.push(`events:${args.data.length}`);
+    let count = 0;
+    for (const row of args.data) {
+      if (events.has(row.eventId)) continue;
+      events.set(row.eventId, { ...row, seq: nextSeq });
+      nextSeq += 1;
+      insertOrder.push(row.eventId);
+      count += 1;
+    }
+    return { count };
+  }
+
+  function deleteMany(args: { where: { sessionKey: bigint } }): { count: number } {
+    const key = args.where.sessionKey.toString();
+    let count = 0;
+    for (const [eventId, row] of [...events.entries()]) {
+      if (String(row.sessionKey) !== key) continue;
+      events.delete(eventId);
+      const index = insertOrder.indexOf(eventId);
+      if (index !== -1) insertOrder.splice(index, 1);
+      count += 1;
+    }
+    callLog.push(`deleteMany:${count}`);
+    return { count };
+  }
+
   return {
     sessions,
+    events,
     insertOrder,
     callLog,
     flags,
@@ -58,21 +110,44 @@ function fakeDb(): LoaderDb & {
       },
     },
     event: {
-      async createMany(args) {
-        const batchKey = args.data[0] ? String(args.data[0].sessionKey) : undefined;
-        if (flags.failEvents || (batchKey !== undefined && flags.failSessionKeys.has(batchKey))) {
-          throw new Error("fake writer failure");
-        }
-        callLog.push(`events:${args.data.length}`);
-        let count = 0;
-        for (const row of args.data) {
-          if (events.has(row.eventId)) continue;
-          events.set(row.eventId, row);
-          insertOrder.push(row.eventId);
-          count += 1;
-        }
-        return { count };
+      createMany,
+      async deleteMany(args) {
+        return deleteMany(args);
       },
+      async findMany(args) {
+        const key = args.where.sessionKey.toString();
+        return [...events.values()]
+          .filter((row) => String(row.sessionKey) === key)
+          .sort((a, b) => a.seq - b.seq)
+          .map((row) => ({ endpoint: row.endpoint, sourceTime: row.sourceTime }));
+      },
+    },
+    // A simplified stand-in for Prisma's interactive transaction: `fn` runs
+    // directly against the same maps (so `deleteMany`/`createMany` inside
+    // it behave exactly as they do outside one), and on a throw the maps
+    // are rolled back to a snapshot taken before `fn` ran — same net effect
+    // as a real ROLLBACK, without a real database.
+    async $transaction(fn) {
+      const eventsSnapshot = new Map(events);
+      const insertOrderSnapshot = [...insertOrder];
+      const nextSeqSnapshot = nextSeq;
+      try {
+        return await fn({
+          event: {
+            createMany,
+            async deleteMany(args) {
+              return deleteMany(args);
+            },
+          },
+        });
+      } catch (error) {
+        events.clear();
+        for (const [key, row] of eventsSnapshot) events.set(key, row);
+        insertOrder.length = 0;
+        insertOrder.push(...insertOrderSnapshot);
+        nextSeq = nextSeqSnapshot;
+        throw error;
+      }
     },
   };
 }
@@ -519,5 +594,211 @@ describe("loadRecordings: issue #77 — emits interleaved-endpoint rows in recei
     expect(afterEntryList).toHaveLength(4);
     // received_at: position(01), laps(02), position(03), laps(04).
     expect(afterEntryList.map((id) => id.split(":")[0])).toEqual(["position", "laps", "position", "laps"]);
+  });
+});
+
+// verifyCounts: the pure function behind the "load: verify ..." log line
+// (issue #165). Hand-built lists, no filesystem/Postgres involved.
+describe("verifyCounts", () => {
+  test("endpoint-grouped input gives runs equal to the number of endpoints", () => {
+    const rows = [
+      { endpoint: "drivers", source_time: null },
+      { endpoint: "drivers", source_time: null },
+      { endpoint: "position", source_time: "2026-01-01T13:00:01Z" },
+      { endpoint: "position", source_time: "2026-01-01T13:00:02Z" },
+      { endpoint: "intervals", source_time: "2026-01-01T13:00:03Z" },
+    ];
+    expect(verifyCounts(rows)).toEqual({ rows: 5, endpoint_runs: 3, source_time_backsteps: 0 });
+  });
+
+  test("interleaved input gives more runs than the number of endpoints", () => {
+    const rows = [
+      { endpoint: "position", source_time: "2026-01-01T13:00:01Z" },
+      { endpoint: "laps", source_time: "2026-01-01T13:00:02Z" },
+      { endpoint: "position", source_time: "2026-01-01T13:00:03Z" },
+      { endpoint: "laps", source_time: "2026-01-01T13:00:04Z" },
+    ];
+    // 2 endpoints, but every row alternates: 4 runs, not 2.
+    expect(verifyCounts(rows)).toEqual({ rows: 4, endpoint_runs: 4, source_time_backsteps: 0 });
+  });
+
+  test("a source_time earlier than the previous non-null one counts as one backstep", () => {
+    const rows = [
+      { endpoint: "position", source_time: "2026-01-01T13:00:03Z" },
+      { endpoint: "position", source_time: "2026-01-01T13:00:01Z" }, // backstep
+      { endpoint: "position", source_time: "2026-01-01T13:00:02Z" }, // still behind 13:00:03, not the row before it
+    ];
+    expect(verifyCounts(rows).source_time_backsteps).toBe(1);
+  });
+
+  test("a null source_time neither counts as a backstep nor resets the comparison", () => {
+    const rows = [
+      { endpoint: "position", source_time: "2026-01-01T13:00:02Z" },
+      { endpoint: "drivers", source_time: null },
+      { endpoint: "position", source_time: "2026-01-01T13:00:01Z" }, // backstep against 13:00:02, the last non-null value
+    ];
+    expect(verifyCounts(rows).source_time_backsteps).toBe(1);
+  });
+
+  test("an empty list has zero runs and zero backsteps", () => {
+    expect(verifyCounts([])).toEqual({ rows: 0, endpoint_runs: 0, source_time_backsteps: 0 });
+  });
+});
+
+// --replace (issue #165): a session whose events were written in the wrong
+// seq order (pre-#78) can be reloaded in place — delete then the normal
+// insert path, as one transaction, so a failed insert leaves the old rows
+// untouched rather than the session ending up with fewer events than it
+// started with.
+describe("loadRecordings: --replace reloads a session's events in place", () => {
+  let dir: string;
+  const SESSION_KEY = 9801n;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "load-recording-replace-test-"));
+    await mkdir(path.join(dir, "raw"), { recursive: true });
+    await writeFile(
+      path.join(dir, "session.json"),
+      sessionJson({
+        sessionKey: Number(SESSION_KEY),
+        dateStart: "2026-01-01T13:00:00+00:00",
+        dateEnd: "2026-01-01T15:00:00+00:00",
+      }),
+    );
+    await writeFile(
+      path.join(dir, "raw", "position.jsonl"),
+      jsonlLine({ session_key: Number(SESSION_KEY), driver_number: 1, date: "2026-01-01T13:00:01Z", x: 1, y: 1 }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  // Three rows already in the database, in endpoint order rather than
+  // received_at order — the shape a pre-#78 load left behind. Goes through
+  // the fake's own `event.createMany` (not a direct `Map.set`) so its `seq`
+  // bookkeeping advances the same way a real insert would — otherwise a
+  // reload's freshly-assigned seq values could coincide with these stale
+  // ones instead of exceeding them.
+  async function seedStaleRows(db: ReturnType<typeof fakeDb>): Promise<void> {
+    db.sessions.set(SESSION_KEY.toString(), { status: "finished" });
+    await db.event.createMany({
+      data: [
+        {
+          eventId: "stale:1",
+          sessionKey: SESSION_KEY,
+          endpoint: "position",
+          sourceTime: new Date("2026-01-01T13:00:01Z"),
+          payload: {},
+        },
+        {
+          eventId: "stale:2",
+          sessionKey: SESSION_KEY,
+          endpoint: "position",
+          sourceTime: new Date("2026-01-01T13:00:02Z"),
+          payload: {},
+        },
+        {
+          eventId: "stale:3",
+          sessionKey: SESSION_KEY,
+          endpoint: "laps",
+          sourceTime: new Date("2026-01-01T13:05:00Z"),
+          payload: {},
+        },
+      ],
+      skipDuplicates: true,
+    });
+  }
+
+  function sessionRows(db: ReturnType<typeof fakeDb>) {
+    return [...db.events.values()].filter((row) => row.sessionKey === SESSION_KEY);
+  }
+
+  test("--replace ends with exactly the recording's rows in received_at order and a fresh seq range", async () => {
+    const db = fakeDb();
+    await seedStaleRows(db);
+    const staleMaxSeq = Math.max(...sessionRows(db).map((row) => row.seq));
+
+    const logs: string[] = [];
+    const totals = await loadRecordings([dir], db, {
+      now: () => FAR_FUTURE_NOW,
+      onLog: (line) => logs.push(line),
+      replace: true,
+    });
+
+    expect(totals.sessionsSkipped).toBe(0);
+    expect(db.events.has("stale:1")).toBe(false);
+    expect(db.events.has("stale:2")).toBe(false);
+    expect(db.events.has("stale:3")).toBe(false);
+
+    // 22 static entry-list drivers + 1 position row from the recording.
+    const rows = sessionRows(db);
+    expect(rows).toHaveLength(23);
+    expect(rows.every((row) => row.seq > staleMaxSeq)).toBe(true);
+    expect(logs).toContain("load: verify 9801 rows=23 endpoint_runs=2 source_time_backsteps=0");
+  });
+
+  test("a failed insert inside the transaction leaves the old rows in place", async () => {
+    const db = fakeDb();
+    await seedStaleRows(db);
+    const countBefore = sessionRows(db).length;
+    db.flags.failEvents = true;
+
+    const logs: string[] = [];
+    const totals = await loadRecordings([dir], db, {
+      now: () => FAR_FUTURE_NOW,
+      onLog: (line) => logs.push(line),
+      replace: true,
+    });
+
+    expect(totals.sessionsSkipped).toBe(1);
+    expect(sessionRows(db)).toHaveLength(countBefore);
+    expect(db.events.has("stale:1")).toBe(true);
+    expect(db.events.has("stale:2")).toBe(true);
+    expect(db.events.has("stale:3")).toBe(true);
+    expect(logs.some((line) => line.includes("9801") && line.includes("rolled back"))).toBe(true);
+  });
+
+  test("--replace on a live row deletes nothing and logs the ADR-0010 refusal", async () => {
+    const db = fakeDb();
+    db.sessions.set(SESSION_KEY.toString(), { status: "live" });
+    db.events.set("stale:1", {
+      eventId: "stale:1",
+      sessionKey: SESSION_KEY,
+      endpoint: "position",
+      sourceTime: null,
+      seq: 1,
+    });
+    db.insertOrder.push("stale:1");
+
+    const logs: string[] = [];
+    const totals = await loadRecordings([dir], db, {
+      now: () => FAR_FUTURE_NOW,
+      onLog: (line) => logs.push(line),
+      replace: true,
+    });
+
+    expect(totals.sessionsSkipped).toBe(1);
+    expect(db.events.has("stale:1")).toBe(true);
+    expect(db.callLog.some((entry) => entry.startsWith("deleteMany:"))).toBe(false);
+    expect(logs).toContain("load: refused 9801: session is live; the live ingest service owns it");
+  });
+
+  test("without --replace, the existing skip-duplicates behaviour is unchanged", async () => {
+    const db = fakeDb();
+    await seedStaleRows(db);
+    const countBefore = sessionRows(db).length;
+
+    const totals = await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
+
+    expect(totals.sessionsSkipped).toBe(0);
+    expect(db.events.has("stale:1")).toBe(true);
+    expect(db.events.has("stale:2")).toBe(true);
+    expect(db.events.has("stale:3")).toBe(true);
+    expect(db.callLog.some((entry) => entry.startsWith("deleteMany:"))).toBe(false);
+    // The 3 stale rows stay, plus the 22 drivers + 1 position from the
+    // recording (skip-duplicates never removes anything).
+    expect(sessionRows(db)).toHaveLength(countBefore + 23);
   });
 });
