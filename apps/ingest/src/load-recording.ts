@@ -330,8 +330,8 @@ export async function writeSessionThroughLoader(
     return { skipped: true, drainResult: noEvents };
   }
 
-  // Only race sessions are loaded (owner decision 2026-09-10): practice,
-  // qualifying and sprint are refused here, before any write — including
+  // Only race sessions are loaded: practice, qualifying and sprint are
+  // refused here, before any write — including
   // before the `--replace` delete below, so a `--replace` run can never
   // wipe a non-race session's events on its way to refusing the reload.
   // isRaceSession is the one shared predicate (writer/sessions.ts) so the
