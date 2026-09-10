@@ -14,15 +14,14 @@
 // it "same code path, same embedded `exported_at`". That is why
 // `exportSession(sessionKey, exportedAt)` is exported standalone: `runOnce`
 // calls it with a freshly computed timestamp before inserting the row;
-// slice B's route calls it again, later, with the row's stored timestamp,
-// and never touches the row itself.
+// the historical-race route calls it again, later, with the row's stored
+// timestamp, and never touches the row itself.
 //
-// Own 5s timer, independent of `session-lifecycle.ts` (two other PRs edit
-// that file): `start()`/`stop()` manage a `setInterval`, `unref`'d so it
-// never keeps the process alive. Ticks never overlap -- a tick that starts
-// while a previous `runOnce` is still awaiting returns immediately, the
-// same "never more than one pass of work in flight" shape as the
-// projector's own tick (ADR-0001 §2 invariant 2).
+// Own 5s timer, independent of `session-lifecycle.ts`: `start()`/`stop()`
+// manage a `setInterval`, `unref`'d so it never keeps the process alive.
+// Ticks never overlap -- a tick that starts while a previous `runOnce` is
+// still awaiting returns immediately, the same "never more than one pass of
+// work in flight" shape as the projector's own tick (ADR-0001 §2 invariant 2).
 //
 // Precondition on top of ADR-0009 §2's "export once when finished" (refines
 // it, does not contradict it -- §2 never says every finished session has
@@ -68,7 +67,7 @@ export interface Exporter {
 }
 
 // "findMany in pages of 5000 by seq cursor; never load a whole race into
-// one query" (issue #44).
+// one query".
 const PAGE_SIZE = 5000;
 const TICK_MS = 5000;
 
@@ -202,7 +201,7 @@ export function createExporter(opts: ExporterOptions): Exporter {
         });
       } catch (err) {
         // "Any failure: log `export failed` with the key and error, leave
-        // no `exports` row, continue with the next session." (issue #44)
+        // no `exports` row, continue with the next session."
         log("export failed", { sessionKey: sessionKey.toString(), error: String(err) });
       }
     }
