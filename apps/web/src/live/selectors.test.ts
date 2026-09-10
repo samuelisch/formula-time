@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createTimeline } from "../replay/timeline.ts";
 import { emptyAnchors } from "./anchors.ts";
 import { emptyBuffer } from "./buffer.ts";
-import { useLiveSessionKey, useLiveSessionStatus, useRewindMode, useSessionStatus, useTimeline } from "./selectors.ts";
+import { useLivePush, useLiveSessionKey, useLiveSessionStatus, useRewindMode, useSessionStatus, useTimeline } from "./selectors.ts";
 import { useLiveStore } from "./store.ts";
 import type { LivePush } from "./types.ts";
 
@@ -138,5 +138,18 @@ describe("useLiveSessionKey / useLiveSessionStatus", () => {
     expect(key.current).toBeNull();
     const { result: status } = renderHook(() => useLiveSessionStatus());
     expect(status.current).toBeNull();
+  });
+});
+
+describe("useLivePush", () => {
+  it("reads the store's live push", () => {
+    resetStore();
+    const { result } = renderHook(() => useLivePush());
+    expect(result.current).toBeNull();
+
+    const push = pushWithSession({ status: "live" });
+    resetStore({ live: push });
+    const { result: withPush } = renderHook(() => useLivePush());
+    expect(withPush.current).toBe(push);
   });
 });

@@ -17,10 +17,10 @@
 // resolves through the buffer or the timeline is the store's `mode`
 // (`reselect` in `live/store.ts`); this hook only reports it via
 // `rewindMode()`, it never decides it.
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import { deriveTimelineAnchors } from "../live/anchors.ts";
-import { useAnchors, useDelay, useDisplayed, useRewindMode, useTimeline } from "../live/selectors.ts";
+import { useAnchors, useDelay, useDisplayed, useLastMessageAt, useLivePush, useRewindMode, useTimeline } from "../live/selectors.ts";
 import { axisOf } from "../live/types.ts";
 import type { TimeTarget } from "./TimeTarget.ts";
 
@@ -38,8 +38,23 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
   const streamAnchors = useAnchors();
   const timeline = useTimeline();
   const mode = useRewindMode();
+  const livePush = useLivePush();
+  const lastMessageAt = useLastMessageAt();
 
   const displayedAtMs = displayed === null ? null : axisOf(displayed);
+
+  // The live edge on the source axis: the newest push's own axis time, plus
+  // however much wall-clock time has elapsed since it arrived. Computed
+  // fresh on every call (not memoised to a render) for the same reason
+  // `range()`/`seekTo()` already call `now()` at call time rather than
+  // reading a captured value -- real time keeps passing between a render
+  // and a click. Before the first push there is nothing to seek relative
+  // to, so this falls back to the wall clock, matching `range()`'s
+  // pre-first-push `{ startMs: endMs, endMs }`.
+  const headMs = useCallback(
+    () => (livePush !== null && lastMessageAt !== null ? axisOf(livePush) + (now() - lastMessageAt) : now()),
+    [livePush, lastMessageAt, now],
+  );
 
   // Memoised on the `timeline` reference: `useSessionTimeline` publishes a
   // new shallow copy per page and per live push, so this recomputes about
@@ -55,8 +70,14 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
       // store's own `bufferShort`/timeline-mode fold is for -- `reselect`
       // (`live/store.ts`) decides buffer vs. timeline vs. the oldest-entry
       // fallback; this only ever sets the delay (`setDelayMs` floors at 0).
+      // The delay is measured from `headMs`, the source axis, not the wall
+      // clock: `reselect` positions the viewer as
+      // `axisOf(live) + elapsed - delayMs`, so a seek to source time `atMs`
+      // must set `delayMs = headMs - atMs` for the store to land exactly on
+      // it, regardless of how far the feed's own timestamps trail (or, for
+      // a replayed recording, precede) the wall clock.
       seekTo: (atMs: number) => {
-        setDelayMs(Math.max(0, now() - atMs));
+        setDelayMs(Math.max(0, headMs() - atMs));
       },
 
       nudge: (deltaMs: number) => {
@@ -66,7 +87,7 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
       anchors: () => anchors,
 
       range: () => {
-        const endMs = now();
+        const endMs = headMs();
         if (timeline !== null && timeline.firstSourceMs !== null) {
           return { startMs: timeline.firstSourceMs, endMs };
         }
@@ -91,6 +112,6 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
 
       rewindMode: () => mode,
     }),
-    [displayedAtMs, delayMs, spanMs, bufferShort, anchors, timeline, mode, setDelayMs, now],
+    [displayedAtMs, delayMs, spanMs, bufferShort, anchors, timeline, mode, headMs, setDelayMs],
   );
 }

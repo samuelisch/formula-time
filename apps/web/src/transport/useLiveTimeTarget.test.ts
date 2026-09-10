@@ -181,6 +181,52 @@ describe("useLiveTimeTarget", () => {
     expect(result.current.anchors()).toEqual(anchorsWithLap5);
   });
 
+  it("range() is { now, now } before the first push", () => {
+    const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
+    expect(result.current.range()).toEqual({ startMs: NOW, endMs: NOW });
+  });
+
+  describe("head derives from the source axis, not the wall clock", () => {
+    const S = Date.parse("2026-09-08T12:00:00.000Z"); // the live push's own source-time axis
+    const M = 500_000; // wall-clock time the push arrived (lastMessageAt)
+
+    it("range().endMs is headMs = axisOf(live) + (now - lastMessageAt), not now", () => {
+      resetStore({ live: makePush({}, { latest_source_time: new Date(S).toISOString() }), lastMessageAt: M });
+      const { result } = renderHook(() => useLiveTimeTarget(() => M + 10_000));
+      // No buffer entries -> spanMs is 0, so startMs === endMs === headMs.
+      expect(result.current.range()).toEqual({ startMs: S + 10_000, endMs: S + 10_000 });
+    });
+
+    // A push that "just arrived" (lastMessageAt === now()) always yields
+    // headMs === its own axisOf(live), whatever the wall clock actually
+    // reads -- exactly the case a replayed recording exercises, where every
+    // push's own source_time trails (or, live, is a few seconds behind) the
+    // moment it is received, no matter how far the wall clock itself has
+    // drifted from the feed's timestamps.
+    it("seekTo(atMs) sets the delay from headMs, unaffected by how far the wall clock has drifted from the feed's own timestamps", () => {
+      resetStore({ live: makePush({}, { latest_source_time: new Date(S).toISOString() }), lastMessageAt: M });
+      const { result: near } = renderHook(() => useLiveTimeTarget(() => M));
+      act(() => near.current.seekTo(S - 60_000));
+      expect(useLiveStore.getState().delayMs).toBe(60_000); // headMs === S (elapsed 0) - (S - 60_000)
+
+      const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
+      const farM = M + FOUR_DAYS_MS; // the same push "arrives" four wall-clock days later, still carrying source time S
+      resetStore({ live: makePush({}, { latest_source_time: new Date(S).toISOString() }), lastMessageAt: farM });
+      const { result: far } = renderHook(() => useLiveTimeTarget(() => farM));
+      act(() => far.current.seekTo(S - 60_000));
+      expect(useLiveStore.getState().delayMs).toBe(60_000); // identical delay, even though the wall clock reads four days later
+    });
+
+    it("seekTo(range().endMs) (the Live button) sets the delay to exactly 0 regardless of wall-clock drift", () => {
+      resetStore({ live: makePush({}, { latest_source_time: new Date(S).toISOString() }), lastMessageAt: M });
+      const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
+      const { result } = renderHook(() => useLiveTimeTarget(() => M + FOUR_DAYS_MS));
+
+      act(() => result.current.seekTo(result.current.range()!.endMs));
+      expect(useLiveStore.getState().delayMs).toBe(0);
+    });
+  });
+
   describe("timeline mode", () => {
     const BASE_MS = Date.parse("2026-09-08T12:00:00.000Z");
     const NOW_TL = BASE_MS + 200_000; // 200s offset

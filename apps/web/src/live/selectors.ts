@@ -27,6 +27,11 @@ export function useDisplayed() {
   return useLiveStore((state) => state.displayed);
 }
 
+/** The newest push (the live edge), or null before the first one -- never the rewound `displayed` push. */
+export function useLivePush(): LivePush | null {
+  return useLiveStore((state) => state.live);
+}
+
 export interface DelayInfo {
   delayMs: number;
   spanMs: number;

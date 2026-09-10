@@ -28,7 +28,7 @@ export interface TimeTarget {
   nudge(deltaMs: number): void;
   /** Lap anchors known to this target. */
   anchors(): Anchors;
-  /** Bounds of what can be seeked, ms; live: [now − bufferedSpan, now]; replay: [first, last source time]. */
+  /** Bounds of what can be seeked, ms; live: [head − bufferedSpan, head] on the source axis, head = the newest push's axis time plus wall time elapsed since it arrived; replay: [first, last source time]. */
   range(): { startMs: number; endMs: number } | null;
   /** Playback, replay only; live returns null. */
   playback(): { playing: boolean; play(): void; pause(): void } | null;
