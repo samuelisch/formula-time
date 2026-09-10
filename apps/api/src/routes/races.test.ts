@@ -252,6 +252,47 @@ describe("GET /api/races/:session_key", () => {
     expect(exporter.calls).toHaveLength(1);
   });
 
+  test("etag changes when exported_at changes (a re-export)", async () => {
+    const firstExportedAt = new Date("2026-09-08T18:00:00.000Z");
+    const row = exportRow(11361n, { exportedAt: firstExportedAt });
+    await writeFile(join(dir, "11361.json.gz"), gz);
+    const db = makeFakeDb([row]);
+    const exporter = makeFakeExporter(dir, gz);
+    const app = buildApp(db, exporter, dir);
+
+    const first = await app.inject({ url: "/api/races/11361" });
+    const firstEtag = first.headers["etag"];
+    expect(firstEtag).toBe(`"11361-${firstExportedAt.getTime()}"`);
+
+    // Same shape as a re-export: the row's exported_at moves and the file
+    // is rewritten -- the route reads the row fresh on every request.
+    const secondExportedAt = new Date("2026-09-09T00:00:00.000Z");
+    db.rows[0]!.exportedAt = secondExportedAt;
+    const gz2 = gzipSync(Buffer.from(JSON.stringify({ schema: 1, hello: "reloaded" })));
+    await writeFile(join(dir, "11361.json.gz"), gz2);
+
+    const second = await app.inject({ url: "/api/races/11361" });
+    const secondEtag = second.headers["etag"];
+    expect(secondEtag).toBe(`"11361-${secondExportedAt.getTime()}"`);
+    expect(secondEtag).not.toBe(firstEtag);
+  });
+
+  test("?v= is ignored: same response as without it", async () => {
+    const row = exportRow(11361n);
+    await writeFile(join(dir, "11361.json.gz"), gz);
+    const db = makeFakeDb([row]);
+    const exporter = makeFakeExporter(dir, gz);
+    const app = buildApp(db, exporter, dir);
+
+    const withV = await app.inject({ url: "/api/races/11361?v=123456789" });
+    const withoutV = await app.inject({ url: "/api/races/11361" });
+
+    expect(withV.statusCode).toBe(200);
+    expect(withV.headers["etag"]).toBe(withoutV.headers["etag"]);
+    expect(withV.rawPayload).toEqual(withoutV.rawPayload);
+    expect(exporter.calls).toHaveLength(0);
+  });
+
   test("readFile sanity: on-disk file after regeneration matches the fake exporter's bytes", async () => {
     const row = exportRow(11361n);
     const db = makeFakeDb([row]);

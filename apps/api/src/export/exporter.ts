@@ -33,6 +33,15 @@
 // session whose only ingest activity was the `drivers` endpoint (or none at
 // all) has nothing for the browser fold to replay, so it never gets an
 // `exports` row and never shows up in `GET /api/races`.
+//
+// A finished session is stale when it already has an `exports` row but
+// `events` holds a row received after that row's `exported_at` -- a reload
+// wrote newer events than the file reflects. A stale session is re-exported
+// exactly like a new one: compute `exported_at = now()` once, read the
+// events by `seq`, write the file atomically, then update the row's
+// `exported_at` and `path` in one statement, so the two can never diverge.
+// Logged as `export re-exported <key>`, distinct from a first-time export
+// (silent, the same as before) and from `export failed`.
 import { createWriteStream } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
@@ -54,7 +63,9 @@ export interface ExporterOptions {
 export interface Exporter {
   /** One pass: every `finished` session with no `exports` row and at least
    * one non-`drivers` event gets exported; one with no timing events is
-   * skipped and re-checked on a later pass. */
+   * skipped and re-checked on a later pass. A session that already has an
+   * `exports` row is re-exported the same way when `events` holds a row
+   * received after that row's `exported_at`. */
   runOnce(): Promise<void>;
   /** Write `<dir>/<sessionKey>.json.gz` with `exportedAt` embedded as
    * `exported_at`. Does not touch the `exports` row -- callers that create
@@ -170,38 +181,80 @@ export function createExporter(opts: ExporterOptions): Exporter {
   }
 
   async function runOnce(): Promise<void> {
-    const candidates = await db.session.findMany({
-      where: { status: "finished", export: null },
-      select: { sessionKey: true },
-    });
-    for (const { sessionKey } of candidates) {
-      // One cheap query per candidate: does this session have any event
-      // that is not `drivers`? A finished session with none is skipped --
-      // no `exports` row is created, so the next tick re-checks it.
-      const timingEvent = await db.event.findFirst({
-        where: { sessionKey, endpoint: { not: "drivers" } },
-        select: { seq: true },
-      });
-      if (timingEvent === null) {
-        const key = sessionKey.toString();
-        if (!loggedSkips.has(key)) {
-          loggedSkips.add(key);
-          log(`export skipped ${key}: no timing events`);
+    // One query per tick, regardless of viewer count (ADR-0001 §2 invariant
+    // 2), two halves unioned. New candidates: `finished` sessions with no
+    // `exports` row -- no need to look at `events` at all, since a missing
+    // row alone makes a session a candidate. Stale candidates: `finished`
+    // sessions that do have an `exports` row, where `events` holds at least
+    // one row received after that row's `exported_at` -- an `EXISTS` per
+    // `exports` row, not a `GROUP BY` aggregate over the whole table.
+    // `exports` holds only finished, already-exported sessions (a few
+    // rows), so this is a few short, per-session scans, not a table-wide
+    // one. `events_session_key_source_time_idx` (`session_key, source_time`)
+    // narrows each scan to that session's rows via its leading column; it
+    // does not cover `received_at` itself, so within one session's rows the
+    // `EXISTS` still has to check `received_at` row by row.
+    const candidates = await db.$queryRaw<
+      Array<{ session_key: string; exported_at: Date | null; path: string | null }>
+    >`
+      SELECT s.session_key::text AS session_key, NULL::timestamp(3) AS exported_at, NULL::text AS path
+      FROM sessions s
+      WHERE s.status = 'finished'
+        AND NOT EXISTS (SELECT 1 FROM exports e WHERE e.session_key = s.session_key)
+
+      UNION ALL
+
+      SELECT s.session_key::text AS session_key, e.exported_at AS exported_at, e.path AS path
+      FROM sessions s
+      JOIN exports e ON e.session_key = s.session_key
+      WHERE s.status = 'finished'
+        AND EXISTS (
+          SELECT 1 FROM events ev
+          WHERE ev.session_key = s.session_key AND ev.received_at > e.exported_at
+        )
+    `;
+
+    for (const candidate of candidates) {
+      const sessionKey = BigInt(candidate.session_key);
+      const stale = candidate.exported_at !== null;
+
+      if (!stale) {
+        // A brand-new candidate: does this session have any event that is
+        // not `drivers`? A finished session with none is skipped -- no
+        // `exports` row is created, so the next tick re-checks it. A stale
+        // candidate already has an `exports` row, so it already passed this
+        // check the first time it was exported.
+        const timingEvent = await db.event.findFirst({
+          where: { sessionKey, endpoint: { not: "drivers" } },
+          select: { seq: true },
+        });
+        if (timingEvent === null) {
+          const key = sessionKey.toString();
+          if (!loggedSkips.has(key)) {
+            loggedSkips.add(key);
+            log(`export skipped ${key}: no timing events`);
+          }
+          continue;
         }
-        continue;
       }
 
       // Computed once: embedded in the file, stored in the row, and later
       // used by the etag (ADR-0009 §2) -- they cannot diverge.
       const exportedAt = new Date();
+      const path = filePath(dir, sessionKey);
       try {
         await exportSession(sessionKey, exportedAt);
-        await db.export.create({
-          data: { sessionKey, exportedAt, path: filePath(dir, sessionKey) },
-        });
+        if (stale) {
+          await db.export.update({ where: { sessionKey }, data: { exportedAt, path } });
+          log(`export re-exported ${sessionKey.toString()}`, { exportedAt: exportedAt.toISOString() });
+        } else {
+          await db.export.create({ data: { sessionKey, exportedAt, path } });
+        }
       } catch (err) {
         // "Any failure: log `export failed` with the key and error, leave
-        // no `exports` row, continue with the next session."
+        // the row (absent for a new session, unchanged for a stale one),
+        // continue with the next session." Temp-then-rename means a write
+        // failure never leaves a partial file either.
         log("export failed", { sessionKey: sessionKey.toString(), error: String(err) });
       }
     }
