@@ -28,3 +28,10 @@
   color: #111;
   background-image: repeating-linear-gradient(45deg, #1a1a1a 0 10px, #e8e8e8 10px 20px);
 }
+
+.plate {
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: 0.15rem 0.75rem;
+  border-radius: 0.25rem;
+}

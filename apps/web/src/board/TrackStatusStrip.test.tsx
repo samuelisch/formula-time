@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { makePush } from "../test/fixtures.ts";
 import { TrackStatusStrip } from "./TrackStatusStrip.tsx";
+import styles from "./TrackStatusStrip.module.css";
 import { BoardSourceProvider } from "./useBoardState.ts";
 
 function renderWith(raceControlOverrides: Partial<ReturnType<typeof makePush>["state"]["race_control"]>): void {
@@ -100,5 +101,29 @@ describe("TrackStatusStrip", () => {
     renderWith({ safety_car: "SC", current_flag: "RED", active_flags: { Track: "RED" } });
     expect(screen.getByText("RED FLAG")).toBeInTheDocument();
     expect(screen.queryByText("SAFETY CAR")).not.toBeInTheDocument();
+  });
+
+  it("renders the text on a backing plate so it stays legible over the chequered stripes", () => {
+    const { container } = render(
+      <BoardSourceProvider
+        push={makePush(
+          {},
+          {
+            race_control: {
+              session_status: "SESSION STARTED",
+              current_flag: "CHEQUERED",
+              safety_car: null,
+              active_flags: { Track: "CHEQUERED" },
+              driver_flags: {},
+              recent_messages: [],
+            },
+          },
+        )}
+      >
+        <TrackStatusStrip />
+      </BoardSourceProvider>,
+    );
+    const plate = container.querySelector(`[class~="${styles.plate}"]`);
+    expect(plate).toHaveTextContent("CHEQUERED FLAG");
   });
 });
