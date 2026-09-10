@@ -22,9 +22,27 @@ const STATUS_LABEL: Record<PollLifecycleStatus, string> = {
   void: "VOID",
 };
 
-/** The collapsed summary's lock/status word: the lock lap while open, else the status itself. */
+/**
+ * The collapsed summary's lock/status word. Open shows the lock lap so a
+ * viewer knows when voting closes; resolved names the winner (or the
+ * podium, in label order) instead of repeating the status pill's text.
+ */
 function lockLine(poll: PollPublic): string {
-  return poll.status === "open" ? `locks at lap ${poll.locks_at_lap}` : poll.status;
+  switch (poll.status) {
+    case "open":
+      return `locks at lap ${poll.locks_at_lap}`;
+    case "locked":
+      return "locked · awaiting result";
+    case "resolved": {
+      const labels = (poll.winning_option_ids ?? [])
+        .map((id) => poll.options.find((option) => option.id === id)?.label)
+        .filter((label): label is string => label !== undefined);
+      const prefix = poll.kind === "podium" ? "Podium" : "Winner";
+      return `${prefix}: ${labels.join(", ")}`;
+    }
+    case "void":
+      return "void";
+  }
 }
 
 export interface PollCardProps {

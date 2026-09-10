@@ -34,11 +34,45 @@ describe("PollCard", () => {
     expect(screen.getByRole("button", { name: /Verstappen/ })).toBeVisible();
   });
 
-  it("defaults collapsed when the poll is not open, showing the status word instead of the lock lap", () => {
+  it("defaults collapsed when the poll is not open, showing awaiting result instead of the lock lap", () => {
     renderCard(makePoll({ status: "locked", total_votes: 5 }));
 
-    expect(screen.getByText("locked · 5 votes")).toBeInTheDocument();
+    expect(screen.getByText("locked · awaiting result · 5 votes")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Verstappen/ })).not.toBeInTheDocument();
+  });
+
+  it("names the winner in the collapsed summary for a resolved winner poll", () => {
+    const poll = makePoll({
+      status: "resolved",
+      options: [
+        { id: "opt-a", label: "ANT" },
+        { id: "opt-b", label: "RUS" },
+      ],
+      winning_option_ids: ["opt-a"],
+      total_votes: 7,
+    });
+
+    renderCard(poll);
+
+    expect(screen.getByText("Winner: ANT · 7 votes")).toBeInTheDocument();
+  });
+
+  it("names the podium in the collapsed summary for a resolved podium poll", () => {
+    const poll = makePoll({
+      kind: "podium",
+      status: "resolved",
+      options: [
+        { id: "opt-a", label: "ANT" },
+        { id: "opt-b", label: "RUS" },
+        { id: "opt-c", label: "VER" },
+      ],
+      winning_option_ids: ["opt-a", "opt-b", "opt-c"],
+      total_votes: 4,
+    });
+
+    renderCard(poll);
+
+    expect(screen.getByText("Podium: ANT, RUS, VER · 4 votes")).toBeInTheDocument();
   });
 
   it("enables voting when the poll is open", () => {
