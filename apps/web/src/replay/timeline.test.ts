@@ -187,3 +187,45 @@ describe("timeline.ts appendEvents", () => {
     expect(timeline.lastSourceMs).toBe(before.lastSourceMs);
   });
 });
+
+describe("timeline.ts lap markers use the lap's own start time", () => {
+  it("has no lap-1 marker while every lap-1 row so far carries a null source_time, and picks it up from the first timed row rather than an earlier unrelated event", async () => {
+    const timeline = createTimeline(SESSION);
+
+    await appendEvents(timeline, [event("e1", "weather", -9, { air_temperature: 20 })]);
+    await appendEvents(timeline, [
+      { event_id: "e2", endpoint: "laps", source_time: null, payload: { driver_number: 1, lap_number: 1 } },
+    ]);
+    expect(lapMarkers(timeline)).toEqual([]);
+
+    await appendEvents(timeline, [event("e3", "laps", 210.936, { driver_number: 1, lap_number: 1 })]);
+    expect(lapMarkers(timeline)).toEqual([{ lap: 1, sourceMs: Date.parse("2026-09-06T13:03:30.936Z") }]);
+  });
+
+  it("holds the earlier source_time when a later-arriving lap-2 row is earlier than the one already recorded", async () => {
+    const events: RaceEvent[] = [
+      event("e1", "laps", 25, { driver_number: 2, lap_number: 2 }),
+      event("e2", "laps", 20, { driver_number: 1, lap_number: 2 }),
+    ];
+    const timeline = createTimeline(SESSION);
+    await appendEvents(timeline, events);
+
+    expect(lapMarkers(timeline)).toEqual([{ lap: 2, sourceMs: Date.parse(isoAt(20)) }]);
+  });
+
+  it("produces one lap-1 marker with the timed value when the null-time row and its timed row land in different appendEvents chunks", async () => {
+    const events: RaceEvent[] = [
+      { event_id: "e1", endpoint: "laps", source_time: null, payload: { driver_number: 1, lap_number: 1 } },
+      event("e2", "position", 0, { driver_number: 1, position: 1 }),
+      event("e3", "laps", 210.936, { driver_number: 1, lap_number: 1 }),
+      event("e4", "laps", 215, { driver_number: 2, lap_number: 1 }),
+    ];
+
+    const timeline = createTimeline(SESSION);
+    await appendEvents(timeline, events.slice(0, 2));
+    expect(lapMarkers(timeline)).toEqual([]);
+
+    await appendEvents(timeline, events.slice(2));
+    expect(lapMarkers(timeline)).toEqual([{ lap: 1, sourceMs: Date.parse("2026-09-06T13:03:30.936Z") }]);
+  });
+});
