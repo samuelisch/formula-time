@@ -130,11 +130,17 @@ judge health from `source_time_backsteps` alone — it's present on a
 healthy load too (OpenF1 batches arrive slightly out of order; measured on
 the same race, `source_time_backsteps=1004` correctly interleaved vs. 625
 endpoint-grouped) and does not by itself separate a healthy load from a
-broken one. Once the api's exporter has a staleness
-rule for an existing `exports` row (issue #166), it regenerates the export
-from the newer rows on its next 5 s tick, no separate step; until then,
-the stale export file needs its own manual fix. The owner runs the actual
-production reload of the two affected races (issue #169), not an agent.
+broken one. `--replace` writes newer `events` rows than the session's
+`exports` row reflects; per ADR-0018, the api's exporter treats that
+session as stale and re-exports it automatically on its own 5 s tick, no
+separate step. Confirm the new export landed:
+
+```
+curl -s https://api-production-8fbf2.up.railway.app/api/races | grep '"session_key":<key>'
+```
+
+`exported_at` should be later than it was before the reload. The owner
+runs the actual production reload of an affected race, not an agent.
 
 ## Common mistakes
 
