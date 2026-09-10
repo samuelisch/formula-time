@@ -13,7 +13,7 @@ import { DriverPanel } from "../board/DriverPanel.tsx";
 import { BoardSourceProvider } from "../board/useBoardState.ts";
 import { Card } from "../components/Card.tsx";
 import { stringField } from "../lib/format.ts";
-import { fetchRaceFile } from "../races/api.ts";
+import { fetchRaceFile, fetchRaceIndex } from "../races/api.ts";
 import { foldRace } from "../replay/foldRace.ts";
 import { useReplayPlayback } from "../replay/useReplayPlayback.ts";
 import { jumpToRaceStart } from "../transport/raceStart.ts";
@@ -27,12 +27,26 @@ export function ReplayPage() {
   const sessionKey = params.session_key === undefined ? NaN : Number(params.session_key);
   const validKey = Number.isFinite(sessionKey);
 
+  // Shared with the chooser (`RacesPage`) so the index loads once per tab.
+  // The matching entry's `exported_at` is this race's file version: it
+  // goes into the file query's key and its URL, so a re-export (a new
+  // `exported_at`) fetches a fresh file instead of the browser's cached
+  // immutable response for the old one.
+  const racesQuery = useQuery({
+    queryKey: ["races"],
+    queryFn: fetchRaceIndex,
+  });
+  const raceEntry = racesQuery.data?.find((entry) => entry.session_key === sessionKey) ?? null;
+  const indexReady = racesQuery.data !== undefined;
+
   const fileQuery = useQuery({
-    queryKey: ["race-file", sessionKey],
-    // `staleTime: Infinity`: the file is immutable (etag'd, `cache-control: immutable`).
+    queryKey: ["race-file", sessionKey, raceEntry?.exported_at],
+    // `staleTime: Infinity`: a given version of the file is immutable
+    // (etag'd, `cache-control: immutable`); a new version is a new query
+    // key above, not a refetch of this one.
     staleTime: Infinity,
-    enabled: validKey,
-    queryFn: () => fetchRaceFile(sessionKey),
+    enabled: validKey && raceEntry !== null,
+    queryFn: () => fetchRaceFile(sessionKey, raceEntry!.exported_at),
   });
 
   const foldQuery = useQuery({
@@ -90,6 +104,21 @@ export function ReplayPage() {
 
   if (!validKey) {
     return <Card>Not a valid race.</Card>;
+  }
+
+  // No entry for this session in the index -- no export yet, or the index
+  // itself failed to load -- means there is no known version to request the
+  // file with, so the file is never fetched at all. Retrying re-fetches the
+  // index rather than guessing a version.
+  if (racesQuery.isError || (indexReady && raceEntry === null)) {
+    return (
+      <Card>
+        Could not load this race.{" "}
+        <button type="button" onClick={() => void racesQuery.refetch()}>
+          Retry
+        </button>
+      </Card>
+    );
   }
 
   if (fileQuery.isError) {
