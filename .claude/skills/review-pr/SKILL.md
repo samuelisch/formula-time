@@ -17,7 +17,8 @@ Merging is never done here. The owner merges.
 
 ## Steps
 
-1. **Context.** `gh pr view <n> --json title,body,labels,baseRefName,headRefName,files,statusCheckRollup`. Read the body's Summary / Friction / Agent / ADRs affected lines and the linked issue (`gh issue view`). Read every changed file in full, not just hunks.
+1. **Context.** `gh pr view <n> --json title,body,labels,baseRefName,headRefName,files,statusCheckRollup`. Read the body's Summary / Friction / Agent / ADRs affected lines and the linked issue (`gh issue view`). Read every changed file in full, not just hunks. Then read the PR's history: `gh pr view <n> --json reviews` (earlier verdicts, newest last), `gh api repos/{owner}/{repo}/pulls/<n>/comments` (inline findings), and `gh api repos/{owner}/{repo}/issues/<n>/comments` (discussion). The PR body's "For the owner" and "Settled" sections and any comment by the repository owner are rulings: an item they settle is closed and is never reopened, in any bucket. If there is an earlier verdict, this run is a re-review (step 1a); otherwise it is round 1.
+1a. **Re-review.** Take the last verdict's items one by one against the commits since it (`gh pr view <n> --json commits`, compare against the SHA that verdict reviewed): mark each fixed, still open, or settled by a ruling. Only commits since the last verdict can produce a new item, and a new item names the commit that introduced it. Never reverse an earlier verdict of this skill silently: if an item this run would raise contradicts an earlier round, say "reverses round N because …" or drop it. If every remaining item is wording in documentation or agent files with no behavioural consequence, it goes under Notes, and the verdict is `pass`; prose is not blocked past round 3.
 2. **Correctness.** One agent, one pass. Invoke the Agent tool once, `model: sonnet`, with this brief filled in (PR number, base branch, the issue's acceptance criteria pasted verbatim): "Read `gh pr diff <n>` and every changed file in full. Report only (a) bugs: wrong behaviour, an acceptance criterion the diff does not meet, unhandled input, a wrong error path; (b) code that must change: a rule in AGENTS.md broken, a half-finished change, a test the criteria call for that is missing. One line per finding with file:line. No style, no refactors, no running tests. If nothing, one line saying so." With `--post`, put each finding on the PR as an inline comment (`mcp__github_inline_comment__create_inline_comment`).
 3. **Design.** With `--seam`, run the `seam-reviewer` agent (`.claude/agents/seam-reviewer.md`) on the PR. Without it, record "seam review not requested: no apps/, packages/, db/, or ADR files changed".
 4. **Security.** With `--security`, dispatch one Agent (`model: sonnet`) whose whole brief is: "Invoke the `security-review` skill on PR <n>'s diff (`gh pr diff <n>`) and return its findings verbatim, most severe first, or one line saying none." Run it as a subagent, never in this context: a skill's report in this context reads like a final answer, and on #42 the run stopped there without a verdict. Without `--security`, record "security review not requested: no apps/, db/, or .github/ files changed".
@@ -44,6 +45,8 @@ Merging is never done here. The owner merges.
 ```
 ## Verdict: pass | changes requested | owner decision needed
 
+Round: <n> since <short sha> — fixed: …; open: …; settled by ruling: …; new: …
+
 Security: none | - item, file:line
 Bugs: none | - item, file:line
 Must change: none | - item, file:line
@@ -53,6 +56,10 @@ Notes: - non-blocking items, or none
 Reviewed: correctness pass (Sonnet); seam-reviewer (ran | not requested: why); security-review (ran | not requested: why)
 Merge is the owner's call.
 ```
+
+Round 1 has no prior verdict to diff against: write `Round: 1`.
+
+Terse: one clause per item with file:line, the failure it causes, nothing else. No restating the diff, no hedging, no praise. An item without a concrete failure is a Note.
 
 ## Common mistakes
 
@@ -66,3 +73,6 @@ Merge is the owner's call.
 - Running the test suite from this skill. CI proves tests; this skill proves the review.
 - Ending a `--post` run with the verdict only in the transcript. Nobody reads the transcript; the review on the PR is the output.
 - Ending the turn while review agents are still running. In the workflow there is no next turn: the job ends and nothing is posted. Wait for every agent (the workflow runs them in the foreground); if any is still running, block on it before writing the verdict.
+- Reviewing round N as if it were round 1. Read the earlier verdicts first; an item the owner settled in the body or a comment is closed.
+- Contradicting the previous round without saying so. On #145 round 10 removed a list as an unrecorded rule and round 11 demanded it back.
+- Blocking on prose. Wording in docs or agent files with no behavioural consequence is a Note; a Must change names a failure.
