@@ -21,9 +21,9 @@ One process holding:
 - **The poll module** — locks and resolves polls from the fold; holds
   tallies in memory; reloads them from `votes` on start.
 - **The polls-by-race read route** — `GET /api/races/:session_key/polls`
-  (`polls/poll-read.ts`) reads `polls`/`votes` straight from Postgres for
-  any race, live or historical; it never touches the poll module's
-  in-memory state.
+  (`polls/routes.ts`, querying `pollsBySession` in `polls/poll-read.ts`)
+  reads `polls`/`votes` straight from Postgres for any race, live or
+  historical; it never touches the poll module's in-memory state.
 - **The events-by-race read route** — `GET /api/races/:session_key/events`
   (`routes/races.ts`) pages the `events` log by `seq` for any session, live
   included, reusing the projector's own select (`projector/event-source.ts`).
@@ -39,8 +39,10 @@ One process holding:
   `[]` on a catch-up or rebuild tick) and, only on a rebuild's push,
   `rebuilt: true` (ADR-0014) — a client folds them into its own deep-rewind
   timeline; the fan-out itself does not interpret either field.
-- **The SSE route handler** — live: attach the socket to the fan-out.
-  Finished: redirect to the export. It never touches state.
+- **The SSE route handler** — attaches the socket to the fan-out for
+  whichever session the projector currently folds (live, the next
+  upcoming, or, with neither, the most recent finished one, per
+  `pickSession`); it never touches state itself.
 - **The exporter** — session finished, not yet exported, and holding at
   least one event whose endpoint is not `drivers` (timing data to replay):
   write the immutable file once. Idempotent; retried by the same check. A
@@ -67,13 +69,14 @@ delete; add `--apply` to actually delete the file and the row for each
 affected session. It never touches a session that has any non-`drivers`
 event.
 
-Fastify handles routing, cookies, static files, and validation. The SSE
-route is hand-written on the raw response — compression middleware would
-gzip per viewer, which the fan-out design forbids.
+Fastify handles routing, cookies, and validation. The SSE route is
+hand-written on the raw response — compression middleware would gzip per
+viewer, which the fan-out design forbids.
 
 ## The five invariants, as they bind here
 
-1. One shared, serialize-once stream per live race — never per-viewer work.
+1. One shared, serialize-once stream per live race — since ADR-0013, read
+   as serialize once per wire format in use, never per viewer.
 2. Postgres is touched per event and per join, never per viewer per tick.
 3. Row identity is transport-independent; this service consumes that
    identity, it does not construct it (ingest does).
@@ -93,8 +96,9 @@ gzip per viewer, which the fan-out design forbids.
   tsconfig enforces `types: []`, `lib: ["ES2022"]`). Types and the reducer
   live there; identity hashing does not.
 - Config is read from the platform secret store, never from files in the
-  image: `DATABASE_URL`, `OPENF1_LOGIN`, `OPENF1_PASSWORD`, `PORT`,
-  `LIVE_SOURCE`, `EXPORT_DIR` (default `./exports`, ADR-0009 §2).
+  image: `DATABASE_URL`, `PORT`, `CORS_ORIGIN`, `NODE_ENV`, `EXPORT_DIR`
+  (default `./exports`, ADR-0009 §2). `OPENF1_LOGIN`/`OPENF1_PASSWORD`/
+  `LIVE_SOURCE` are ingest's config, not read here.
 - The `viewer_id` cookie's attributes come from one helper,
   `viewerCookieOptions(env)` (`polls/viewer-identity.ts`), so `routes.ts`
   and the raw fallback string `resolveViewerId` builds can never drift
