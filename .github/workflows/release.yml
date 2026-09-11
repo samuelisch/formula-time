@@ -19,8 +19,36 @@ jobs:
     uses: ./.github/workflows/ci.yml
     secrets: inherit
 
-  smoke:
+  plan:
     needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: railwayapp/config@v1
+        with:
+          command: plan
+          railway-token: ${{ secrets.RAILWAY_TOKEN }}
+          comment: "false"
+      - name: Fail if the released commit and the live environment disagree
+        # command: plan only writes railway-plan.json; by design it does
+        # not fail on a non-empty diff (it's meant to preview a PR's
+        # change, not gate one). A non-empty plan here means the Railway
+        # dashboard and .railway/railway.ts have drifted since the last
+        # apply -- exactly what went unnoticed for three days (issue
+        # #212) -- so the owner applies by hand or re-dispatches
+        # railway-apply.yml (now on workflow_dispatch).
+        run: |
+          changes="$(jq '(.changeSet.changes // []) | length' railway-plan.json)"
+          if [ "$changes" != "0" ]; then
+            echo "railway config plan found $changes pending change(s): dashboard and .railway/railway.ts disagree" >&2
+            jq -r '.diff // "no diff field"' railway-plan.json >&2
+            exit 1
+          fi
+          echo "railway config plan: no changes, environment matches .railway/"
+
+  smoke:
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
