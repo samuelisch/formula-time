@@ -105,10 +105,12 @@ viewer, which the fan-out design forbids.
   (default `./exports`, ADR-0009 §2). `OPENF1_LOGIN`/`OPENF1_PASSWORD`/
   `LIVE_SOURCE` are ingest's config, not read here.
 - `GET /health` answers the session lifecycle's health plus `build`: the
-  running image's git SHA, read from `GIT_SHA` (`"unknown"` if unset). The
-  Dockerfile sets `GIT_SHA` from its own `ARG`, defaulting to Railway's
-  `RAILWAY_GIT_COMMIT_SHA` build arg. `release.yml`'s smoke job polls this
-  to prove a release actually redeployed the new build, not the old one.
+  running process's git SHA, read as `GIT_SHA ?? RAILWAY_GIT_COMMIT_SHA ??
+  "unknown"`. `GIT_SHA` is an explicit override for local runs and tests;
+  `RAILWAY_GIT_COMMIT_SHA` is a variable Railway already injects into the
+  running container at runtime, no Dockerfile plumbing needed.
+  `release.yml`'s smoke job polls this to prove a release actually
+  redeployed the new build, not the old one.
 - The `viewer_id` cookie's attributes come from one helper,
   `viewerCookieOptions(env)` (`polls/viewer-identity.ts`), so `routes.ts`
   and the raw fallback string `resolveViewerId` builds can never drift
