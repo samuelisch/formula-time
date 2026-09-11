@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   gate:
@@ -24,6 +25,40 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Wait for the config apply to finish on this commit
+        # railway-apply.yml runs on the same push (issue #212). A release
+        # must not smoke-test before Railway has even been told to
+        # redeploy. No run for this SHA means there is nothing to wait
+        # for (e.g. a manual workflow_dispatch rerun already applied it).
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          repo="$GITHUB_REPOSITORY"
+          sha="$GITHUB_SHA"
+          deadline=$((SECONDS + 600))
+          while :; do
+            status=$(gh run list --repo "$repo" --workflow railway-apply.yml --commit "$sha" --json status --jq '.[0].status // "none"')
+            if [ "$status" = "none" ]; then
+              echo "no railway-apply.yml run found for $sha; nothing to wait for"
+              exit 0
+            fi
+            if [ "$status" != "in_progress" ] && [ "$status" != "queued" ]; then
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "railway-apply.yml still $status after 10 minutes" >&2
+              exit 1
+            fi
+            echo "railway-apply.yml is $status, waiting"
+            sleep 15
+          done
+          conclusion=$(gh run list --repo "$repo" --workflow railway-apply.yml --commit "$sha" --json conclusion --jq '.[0].conclusion')
+          echo "railway-apply.yml finished: $conclusion"
+          if [ "$conclusion" != "success" ]; then
+            echo "railway-apply.yml did not succeed" >&2
+            exit 1
+          fi
+
       - name: Wait for the api to answer healthy twice in a row
         # Two consecutive healthy reads, 30s apart, guard against a health
         # check that passes once mid-restart and then flaps.

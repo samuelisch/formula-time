@@ -2,14 +2,17 @@ name: Railway config apply
 
 # Applies the plan pinned on the merge to release that last touched
 # .railway/**. Re-plans nothing; fails if the environment or the merged
-# tree drifted from what was planned (railwayapp/config's staleness check).
-# release only carries commits fast-forwarded from main by the release
-# skill, so this never fires on an ordinary merge to main.
+# tree drifted from what was planned (railwayapp/config's staleness
+# check). Runs on every push to release, not just ones that touch
+# .railway/** -- a paths filter is evaluated against the branch's
+# previous commit, so it never fires on a branch-creation push
+# (formula-time #212) -- and the apply is idempotent, so a run with no
+# .railway/** change is a no-op. workflow_dispatch lets the owner re-run
+# it by hand.
 on:
   push:
     branches: [release]
-    paths:
-      - ".railway/**"
+  workflow_dispatch:
 
 permissions:
   contents: read
