@@ -82,6 +82,65 @@ export function checkBody(body, mode) {
   return null;
 }
 
+// The command string split into arguments, quote-aware: a quoted stretch is
+// part of the argument that contains it, so neither a blank nor a newline
+// inside quotes ends an argument. An unterminated quote runs to the end of
+// the command, which is the shape `--body "$(cat <<'EOF' ... )"` takes.
+// Enough to find a flag; it does not try to be a shell, and deliberately
+// knows nothing of backslash escapes or variable expansion.
+function args(command) {
+  const found = [];
+  let quote = "";
+  let start = -1;
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i];
+    if (quote) {
+      if (c === quote) quote = "";
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      if (start === -1) start = i;
+      quote = c;
+      continue;
+    }
+    if (/\s/.test(c)) {
+      if (start !== -1) {
+        found.push(command.slice(start, i));
+        start = -1;
+      }
+      continue;
+    }
+    if (start === -1) start = i;
+  }
+  if (start !== -1) found.push(command.slice(start));
+  return found;
+}
+
+function unquote(text) {
+  const open = text.startsWith('"') ? '"' : text.startsWith("'") ? "'" : "";
+  if (open === "") return text;
+  const rest = text.slice(1);
+  return rest.endsWith(open) ? rest.slice(0, -1) : rest;
+}
+
+// The body carried inline by the first `--body`/`-b` argument of a gh
+// command, or null when the command has none. Taking the first one matters:
+// a body that talks about the flags ("Summary: cover --body and -b ...")
+// would otherwise have its opening lines cut off and read as a body with no
+// Summary. `--body-file` is not an inline body — it names a path, which the
+// bash entry point reads — and a flag name mentioned inside another
+// argument is prose, not a flag, because the scan is quote-aware.
+export function inlineBody(command) {
+  const parts = args(command);
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (part === "--body" || part === "-b") return unquote(parts[i + 1] ?? "");
+    if (part.startsWith("--body=")) return unquote(part.slice("--body=".length));
+    if (part.startsWith("-b=")) return unquote(part.slice("-b=".length));
+  }
+  return null;
+}
+
 function readStdin() {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -101,7 +160,20 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     // a broken hook, not a bad PR body.
     process.exit(2);
   }
-  const reason = checkBody(await readStdin(), mode);
+  const input = await readStdin();
+  let body = input;
+  if (process.argv.includes("--from-command")) {
+    // stdin is the whole gh command rather than a body: the body is whatever
+    // an inline flag carries. With no such flag there is nothing to extract,
+    // and the two modes part ways — an edit that carries no body changes a
+    // label or a title and is none of this hook's business, while a create
+    // with no body at all still owes the header lines, so the command itself
+    // is checked and the missing headers are named.
+    const extracted = inlineBody(input);
+    if (extracted === null && mode === "edit") process.exit(0);
+    body = extracted ?? input;
+  }
+  const reason = checkBody(body, mode);
   if (reason !== null) {
     process.stdout.write(`${reason}\n`);
     process.exit(1);

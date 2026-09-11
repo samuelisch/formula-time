@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { checkBody } from "./check-pr-body.mjs";
+import { checkBody, inlineBody } from "./check-pr-body.mjs";
 
 // The exact comment the template leaves under "## Verified". A body that
 // still carries only this has not been verified.
@@ -162,5 +162,59 @@ describe("checkBody: the header lines", () => {
     expect(checkBody("## Verified\n\npending\n", "ready")).toBe(
       "PR body: ## Verified must hold the real result, not a placeholder",
     );
+  });
+});
+
+describe("inlineBody: the body an inline flag carries", () => {
+  it("returns the quoted argument after --body", () => {
+    expect(inlineBody('gh pr edit 12 --body "Summary: real"')).toBe("Summary: real");
+  });
+
+  it("returns the quoted argument after -b", () => {
+    expect(inlineBody("gh pr edit 12 -b 'Summary: real'")).toBe("Summary: real");
+  });
+
+  it("takes the first flag, not a flag name written inside the body", () => {
+    // The body is one quoted argument, so the "--body" and "-b" in its prose
+    // are text. Taking the last match instead would drop the Summary line.
+    const command = 'gh pr create --body "Summary: cover --body and -b flags\nFriction: none"';
+    expect(inlineBody(command)).toBe("Summary: cover --body and -b flags\nFriction: none");
+  });
+
+  it("is not fooled by a quoted argument written before the body", () => {
+    expect(inlineBody('gh pr create --title "a title" --body "Summary: real"')).toBe("Summary: real");
+  });
+
+  it("reads the value out of --body=<text>", () => {
+    expect(inlineBody('gh pr edit 12 --body="Summary: real"')).toBe("Summary: real");
+  });
+
+  it("keeps a multi-line body whole", () => {
+    expect(inlineBody('gh pr create --body "Summary: real\n\n## Verified\n\nRan it." --draft')).toBe(
+      "Summary: real\n\n## Verified\n\nRan it.",
+    );
+  });
+
+  it("keeps an unterminated quote running to the end of the command", () => {
+    // The shape a heredoc substitution takes: the opening quote of the body
+    // closes only after the interpolation.
+    const command = "gh pr create --body \"$(cat <<'EOF'\nSummary: real\nEOF\n)\"";
+    expect(inlineBody(command)).toBe("$(cat <<'EOF'\nSummary: real\nEOF\n)");
+  });
+
+  it("ignores --body-file, which names a path rather than carrying a body", () => {
+    expect(inlineBody("gh pr create --body-file /tmp/pr.md")).toBeNull();
+  });
+
+  it("ignores a flag name that is only mentioned inside another argument", () => {
+    expect(inlineBody('gh pr edit 12 --title "cover the --body flag"')).toBeNull();
+  });
+
+  it("returns null when there is no inline body flag", () => {
+    expect(inlineBody("gh pr edit 12 --add-label in-review")).toBeNull();
+  });
+
+  it("returns an empty body when the flag ends the command", () => {
+    expect(inlineBody("gh pr edit 12 --body")).toBe("");
   });
 });

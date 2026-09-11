@@ -103,6 +103,32 @@ run_case "edit with a real Verified section" \
 run_case "edit that carries no body is not the hook's business" \
   "gh pr edit 12 --add-label in-review" allow
 
+# The body is a quoted argument, so a flag name written inside it is prose,
+# not a flag: the extraction must take the first --body/-b argument, not the
+# last thing on the line that looks like one.
+flag_prose_body="Summary: cover --body and -b flags in gh pr edit/ready checks
+Friction: none
+Agent: claude-local
+ADRs affected: none
+
+## Verified
+
+Ran the shell test.
+
+Closes #1"
+run_case "create whose Summary line names the --body and -b flags" \
+  "gh pr create --body \"$flag_prose_body\"" allow
+run_case "edit whose Summary line names the --body and -b flags" \
+  "gh pr edit 12 --body \"$flag_prose_body\"" allow
+run_case "a quoted argument before the body does not hide it" \
+  "gh pr create --title \"a title\" --body \"$real_body\"" allow
+run_case "a quoted argument before a placeholder body does not hide it either" \
+  "gh pr create --title \"a title\" --body \"$pending_body\"" deny
+run_case "--body= takes the body from the same argument" \
+  "gh pr edit 12 --body=\"$pending_body\"" deny
+run_case "a title that merely mentions --body is not a body" \
+  "gh pr edit 12 --title \"cover the --body flag\"" allow
+
 # --- gh pr ready, body read back from the PR ---
 
 export GH_BODY_FILE="$work_dir/pending.md"

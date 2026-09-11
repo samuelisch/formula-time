@@ -25,9 +25,16 @@ cmd=$(jq -r '.tool_input.command // empty')
 # rule is worth: a `gh` alias, wrapper function or absolute path; an
 # env-prefixed form (`env GH_TOKEN=x gh pr create`); a quoted decoy that
 # happens to sit after a separator; and a second `gh pr` command in the same
-# line — only the first one found is checked. The flags below are likewise
-# searched across the whole command string, not only within the matched
-# invocation.
+# line — only the first one found is checked.
+#
+# Flag extraction has its own scope. --body-file/-F is taken by the sed
+# below, which is quote-unaware and takes the last match in the whole
+# command string, so a path with a blank in it, and a second gh command's
+# body file, are both out of scope. --body/-b is found by the Node script,
+# which splits the command into arguments with the quoting respected and
+# takes the first such argument — a flag name written inside the body or
+# inside a title is prose, not a flag — but it too looks at the whole
+# command string rather than only the matched invocation.
 match=$(printf '%s\n' "$cmd" \
   | grep -oE '(^|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+(create|edit|ready)([[:space:]]|$)' \
   | head -1)
@@ -63,28 +70,19 @@ else
     # Fail closed: a body file the hook cannot read is a body nobody checked.
     [ -f "$file" ] || deny "PR body: cannot read the --body-file '$file'"
     body=$(cat "$file")
-  elif printf '%s\n' "$cmd" | grep -qE '(--body|-b)[= ]'; then
-    # An inline body is a quoted argument, so the body starts on the command
-    # line itself: drop everything up to and including the flag and its
-    # opening quote, and the closing quote at the very end. Any argument
-    # written after the body is left in the text, which costs nothing — the
-    # rules only look for lines the body must have.
-    body=$(printf '%s' "$cmd" | sed -E '1s/^.*(--body|-b)[= ]+("|'"'"')?//')
-    body=${body%\"}
-    body=${body%\'}
-  elif [ "$mode" = "edit" ]; then
-    # An edit that changes labels or a title says nothing about the body.
-    exit 0
   else
-    # `gh pr create` with no body flag: check the command itself, so the
-    # missing header lines are reported rather than silently passed.
+    # An inline body is a quoted argument of the command itself, and finding
+    # it means splitting the command into arguments with the quoting
+    # respected — which is the Node script's job, not this one's. Hand it the
+    # command and let it pull the body out.
+    from_command=--from-command
     body="$cmd"
   fi
 fi
 
 # Exit 1 from the Node script is the one refusal; anything else (a missing
-# node, a bad mode) is a broken hook rather than a bad body, and must not
-# block the command.
-reason=$(printf '%s\n' "$body" | node "$script_dir/check-pr-body.mjs" --mode "$mode")
+# node, a bad mode, no inline body on an edit) is either a broken hook or
+# nothing to check, and must not block the command.
+reason=$(printf '%s\n' "$body" | node "$script_dir/check-pr-body.mjs" --mode "$mode" ${from_command:-})
 [ $? -eq 1 ] || exit 0
 deny "$reason"
