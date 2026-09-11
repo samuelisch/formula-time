@@ -48,7 +48,7 @@ jobs:
       DATABASE_DIRECT_URL: postgres://formula:formula@localhost:5432/formula_time
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # check-adr-immutable.sh diffs against origin/main.
           fetch-depth: 0
@@ -99,7 +99,7 @@ jobs:
     outputs:
       web: ${{ steps.filter.outputs.web }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - id: filter
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -138,7 +138,7 @@ jobs:
       DATABASE_DIRECT_URL: postgres://formula:formula@localhost:5432/formula_time
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
 
