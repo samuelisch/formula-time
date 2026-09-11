@@ -23,7 +23,7 @@ import { defineRailway, github, postgres, preserve, project, service } from "rai
 
 export default defineRailway(() => {
   const db = postgres("Postgres");
-  const source = github("samuelisch/formula-time", { branch: "main" });
+  const source = github("samuelisch/formula-time", { branch: "release" });
 
   // Same four secrets on both services (platform fact: variables are on
   // `api` only today; `ingest` gets its own after this lands — declaring
