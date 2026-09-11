@@ -52,27 +52,31 @@ export DATABASE_URL=postgres://formula:formula@localhost:${DB_PORT}/formula_time
 LIVE_SOURCE=./live-logs/sim pnpm dev:ingest
 ```
 
-Terminal 3 — the api, same database export (a new terminal, so it needs its
-own):
+Terminal 3 — the api. `pnpm dev:api` runs through `scripts/with-db-env.sh`,
+which exports this worktree's own `DATABASE_URL` and `API_PORT` (from
+`scripts/db-env.sh`), so a fresh terminal needs no manual export here:
 
 ```
-eval "$(scripts/db-env.sh)"
-export DATABASE_URL=postgres://formula:formula@localhost:${DB_PORT}/formula_time DATABASE_DIRECT_URL=$DATABASE_URL
 pnpm dev:api
 ```
 
-Terminal 4 — the web app:
+Terminal 4 — the web app. `pnpm dev:web` runs through the same wrapper, so
+it picks up this worktree's `WEB_PORT` and proxies `/api` and `/health` to
+this worktree's `API_PORT`:
 
 ```
 pnpm dev:web
 ```
 
-Open `http://localhost:5173`.
+Open the web app at this worktree's `WEB_PORT` — `http://localhost:5173` in
+a plain checkout, or `eval "$(scripts/db-env.sh)"; echo $WEB_PORT` to find it
+in any worktree.
 
 ## Confirm it is moving
 
 ```
-curl -s localhost:3000/health
+eval "$(scripts/db-env.sh)"
+curl -s "localhost:${API_PORT}/health"
 ```
 
 Run it twice, a minute apart. It should show the simulator's `session_key`

@@ -14,19 +14,28 @@
 
 - `docs/decisions-adr/` holds every architectural decision, numbered and dated. New decisions are appended.
 
-## Local Postgres
+## Local ports
+
+`scripts/db-env.sh` hashes `git rev-parse --show-toplevel` into a
+`COMPOSE_PROJECT_NAME` and three ports — `DB_PORT`, `API_PORT`, `WEB_PORT` —
+so each worktree gets its own compose project, its own Postgres host port,
+and its own api and web dev ports; two worktrees can run
+`pnpm test:integration` or rehearse a race at the same time without sharing a
+database or fighting over a port. A plain checkout (not under
+`.claude/worktrees/`) always gets `DB_PORT` 5433, `API_PORT` 3000, `WEB_PORT`
+5173, matching the rest of this repo's docs; other worktrees land in
+5440-5489, 3000-3199, and 5173-5372 respectively — the three ranges never
+overlap. Override any of the three by exporting it yourself before running a
+script — e.g. `DB_PORT=<port>` wins if the computed port collides with
+something else already listening.
 
 `pnpm db:up` / `pnpm db:down` / `pnpm db:migrate:dev` / `pnpm db:migrate:deploy`
-/ `pnpm test:integration` all run through `scripts/with-db-env.sh`, which
-exports a `COMPOSE_PROJECT_NAME` and `DB_PORT` computed by `scripts/db-env.sh`
-from a hash of `git rev-parse --show-toplevel` — so each worktree gets its own
-compose project and its own Postgres host port, and two worktrees can run
-`pnpm test:integration` at the same time without sharing a database. A plain
-checkout (not under `.claude/worktrees/`) always gets port 5433, matching the
-rest of this repo's docs; other worktrees land in 5440-5489. `db:up`/`db:down`
-only ever touch their own worktree's containers. Override either value by
-exporting it yourself before running a script — `DB_PORT=<port>` wins if the
-computed port collides with something else already listening.
+/ `pnpm test:integration` run through `scripts/with-db-env.sh`, which exports
+`scripts/db-env.sh`'s values plus a `DATABASE_URL`/`DATABASE_DIRECT_URL`
+default derived from `DB_PORT`; `db:up`/`db:down` only ever touch their own
+worktree's containers. `pnpm dev:api` and `pnpm dev:web` run through the same
+script so the api picks up its worktree's `API_PORT` and the web dev server
+picks up `WEB_PORT` (and proxies to the right `API_PORT`).
 
 ## Deploy
 
