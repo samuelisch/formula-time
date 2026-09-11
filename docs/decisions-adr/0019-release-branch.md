@@ -70,6 +70,14 @@ not against each other).
   depends on, after this PR merges.
 - A release can lag `main` by any number of commits; rolling back is a
   fast-forward to an older commit, not a revert commit on `main`.
+- The first apply of `.railway/railway.ts` also adopts each service's live
+  `build.buildCommand` and drops the file's `build.builder`, and widens
+  `build.watchPatterns` to `packages/**` and the workspace root files: the
+  IaC file had never actually been applied since it was written (#20), so
+  it had silently drifted from the live environment, and its narrow watch
+  pattern (each service's own app directory only) is why a
+  `packages/**`-only commit (the #196 migration, the #198 domain rule)
+  never triggered a rebuild of either service.
 
 ADRs affected: 0001 (§3 hosting row), 0008 (production branch, deploy
 previews).
