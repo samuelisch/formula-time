@@ -33,7 +33,7 @@ export async function registerCors(app: FastifyInstance, allowed: string[]): Pro
  * the SSE route must merge these into its `writeHead` or the browser's
  * cross-origin EventSource is refused.
  */
-export function replyHeaders(reply: FastifyReply): OutgoingHttpHeaders {
+export function replyHeaders(reply: Pick<FastifyReply, "getHeaders">): OutgoingHttpHeaders {
   return reply.getHeaders() as OutgoingHttpHeaders;
 }
 
