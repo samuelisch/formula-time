@@ -7,26 +7,9 @@
 // per viewer per tick (ADR-0001 §2 invariant 2) -- one `poll.findMany` for
 // the session's rows, one `vote.groupBy` for their tallies.
 import type { PrismaClient } from "@formula-time/db";
+import type { PollLifecycleStatus, PollOptionPublic, PollPublic, PollTemplateKind } from "@formula-time/domain";
 
-export type PollTemplateKind = "winner" | "podium";
-export type PollLifecycleStatus = "open" | "locked" | "resolved" | "void";
-
-export interface PollOptionPublic {
-  id: string;
-  label: string;
-}
-
-export interface PollPublic {
-  poll_id: string;
-  kind: PollTemplateKind;
-  question: string;
-  options: PollOptionPublic[];
-  locks_at_lap: number;
-  status: PollLifecycleStatus;
-  tally: Record<string, number>;
-  total_votes: number;
-  winning_option_ids: string[] | null;
-}
+export type { PollLifecycleStatus, PollOptionPublic, PollPublic, PollTemplateKind };
 
 export function kindFromPollId(pollId: string): PollTemplateKind {
   return pollId.endsWith(":podium") ? "podium" : "winner";
