@@ -113,6 +113,21 @@ describe("EventWriter.drainAll / stop", () => {
     expect(queue.isEmpty()).toBe(true);
   });
 
+  test("drainAll calls the supplied log once per non-empty batch, with the inserted/skipped counts", async () => {
+    const db = fakeDb();
+    const queue = new EventQueue<QueueItem>();
+    for (let i = 0; i < 120; i++) queue.push(item(`e${i}`));
+    const lines: string[] = [];
+    const writer = new EventWriter(db, queue, { log: (line) => lines.push(line) });
+
+    await writer.drainAll();
+
+    expect(lines).toEqual([
+      "writer: batch inserted=100 skipped=0",
+      "writer: batch inserted=20 skipped=0",
+    ]);
+  });
+
   test("stop() drains what's left and further drainOnce calls see an empty queue", async () => {
     const db = fakeDb();
     const queue = new EventQueue<QueueItem>();

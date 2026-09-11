@@ -244,11 +244,12 @@ async function replaceSessionEvents(
   db: EventTransactionDb,
   queue: EventQueue<QueueItem>,
   sessionKey: bigint,
+  log: (message: string) => void,
 ): Promise<DrainResult> {
   return db.$transaction(
     async (tx) => {
       await tx.event.deleteMany({ where: { sessionKey } });
-      const txWriter = new EventWriter(tx, queue);
+      const txWriter = new EventWriter(tx, queue, { log });
       const result = await txWriter.drainAll();
       // `drainAll()` gives up after repeated failures without throwing,
       // leaving the failed batch on the queue — throwing here is what rolls
@@ -423,7 +424,7 @@ export async function writeSessionThroughLoader(
   let drainResult: DrainResult;
   if (opts.replace) {
     try {
-      drainResult = await replaceSessionEvents(db, queue, BigInt(sessionKey));
+      drainResult = await replaceSessionEvents(db, queue, BigInt(sessionKey), log);
     } catch (error) {
       // The transaction rolled back: the delete never committed, so the
       // session's old rows are exactly as they were. Whatever's left on the
@@ -557,7 +558,7 @@ export async function loadRecordings(
   const replace = opts.replace ?? false;
 
   const queue = new EventQueue<QueueItem>();
-  const writer = new EventWriter(db, queue);
+  const writer = new EventWriter(db, queue, { log });
 
   let sessionsAttempted = 0;
   let sessionsSkipped = 0;
