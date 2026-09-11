@@ -150,6 +150,20 @@ describe("GET /live/events handler", () => {
 
     expect(fanout.join).toHaveBeenCalledWith(reply.raw, "gzip", "state");
   });
+
+  test("never carries rate-limit headers -- the route is unlimited", () => {
+    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const reply = fakeReply();
+    const request = fakeRequest(undefined);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    liveEventsHandler(fanout as any)(request, reply);
+
+    const headers = reply.raw.writeHead.mock.calls[0][1] as Record<string, string>;
+    const names = Object.keys(headers).map((name) => name.toLowerCase());
+    expect(names.some((name) => name.startsWith("x-ratelimit"))).toBe(false);
+    expect(names).not.toContain("retry-after");
+  });
 });
 
 describe("GET /live/snapshot handler", () => {

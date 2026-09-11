@@ -43,6 +43,14 @@ One process holding:
   whichever session the projector currently folds (live, the next
   upcoming, or, with neither, the most recent finished one, per
   `pickSession`); it never touches state itself.
+- `Fastify({ trustProxy: TRUST_PROXY })` (`trust-proxy.ts`, ADR-0024):
+  Railway connects to this container over its own internal, private
+  network, so trusting the private address ranges (`loopback, linklocal,
+  uniquelocal`) resolves `request.ip` to the real client address from
+  `X-Forwarded-For` — required for `POST /api/vote`'s per-IP rate limit to
+  throttle clients individually. Plain `trustProxy: true` was rejected: a
+  client could prepend arbitrary extra hops onto its own header and get a
+  fresh resolved "IP" on every request.
 - **The exporter** — session finished, not yet exported, and holding at
   least one event whose endpoint is not `drivers` (timing data to replay):
   write the immutable file once. Idempotent; retried by the same check. A
