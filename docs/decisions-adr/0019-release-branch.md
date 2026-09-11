@@ -33,11 +33,10 @@ not against each other).
   [release]` with the same `.railway/**` path filter; `railway-plan.yml`
   is unchanged, still running on every pull request touching
   `.railway/**`.
-- Netlify's production branch is `release`; deploy previews and branch
-  deploys are off. `apps/web/netlify.toml` makes the build command and
-  publish directory visible in the repo; the production-branch and
-  preview/branch-deploy settings live in the Netlify dashboard (owner-only
-  change).
+- Netlify's build command, publish directory, production branch
+  (`release`), deploy previews (off) and branch deploys (off) are site
+  settings in the dashboard (Site configuration -> Build & deploy);
+  nothing in the repo configures Netlify — an owner-only change.
 - `.github/workflows/release.yml` runs on `push: branches: [release]`: a
   `gate` job reuses `ci.yml`'s checks via `workflow_call` (typecheck,
   lint, unit, integration, build, the ADR check — the exact gate a PR

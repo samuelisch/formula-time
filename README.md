@@ -62,13 +62,12 @@ Two GitHub Actions workflows apply it, driven by the `railway` CLI via
   filter), applies the plan pinned to the merged PR that last touched
   `.railway/**`.
 
-The web bundle is built and hosted by Netlify from `apps/web`
-(`apps/web/netlify.toml` has the build command and publish directory) on
-push to `release`; deploy previews and branch deploys are off, so a PR no
-longer gets its own Netlify preview link. Production branch, deploy
-previews, and branch deploys are set in the Netlify dashboard (Site
-configuration -> Build & deploy -> Continuous deployment -> Branches and
-deploy contexts) — an owner-only change.
+The web bundle is built and hosted by Netlify from `apps/web` on push to
+`release`; deploy previews and branch deploys are off, so a PR no longer
+gets its own Netlify preview link. Netlify's build command, publish
+directory, production branch (`release`), deploy previews (off) and
+branch deploys (off) are site settings in the dashboard (Site
+configuration -> Build & deploy); nothing in the repo configures Netlify.
 
 Both Railway workflows need a `RAILWAY_TOKEN` repository secret (a Railway
 project token) — the owner adds this once in GitHub repo settings. The first
