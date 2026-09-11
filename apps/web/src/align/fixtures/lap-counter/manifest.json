@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "frames": [
+    { "file": "lap-change-0000ms.png", "clip": "lap-change.mov", "t_ms": 0, "lap": 14, "total": 72 },
+    { "file": "lap-change-0100ms.png", "clip": "lap-change.mov", "t_ms": 100, "lap": 14, "total": 72 },
+    { "file": "lap-change-0200ms.png", "clip": "lap-change.mov", "t_ms": 200, "lap": 14, "total": 72 },
+    { "file": "lap-change-0300ms.png", "clip": "lap-change.mov", "t_ms": 300, "lap": 14, "total": 72 },
+    { "file": "lap-change-0400ms.png", "clip": "lap-change.mov", "t_ms": 400, "lap": 14, "total": 72 },
+    { "file": "lap-change-0500ms.png", "clip": "lap-change.mov", "t_ms": 500, "lap": 15, "total": 72, "note": "the flip frame: ground truth changes from 14 to 15 between 400ms and 500ms" },
+    { "file": "lap-change-0600ms.png", "clip": "lap-change.mov", "t_ms": 600, "lap": 15, "total": 72 },
+    { "file": "lap-change-0700ms.png", "clip": "lap-change.mov", "t_ms": 700, "lap": 15, "total": 72 },
+    { "file": "lap-change-0800ms.png", "clip": "lap-change.mov", "t_ms": 800, "lap": 15, "total": 72 },
+    { "file": "lap-change-0900ms.png", "clip": "lap-change.mov", "t_ms": 900, "lap": 15, "total": 72 },
+    { "file": "lap-change-1000ms.png", "clip": "lap-change.mov", "t_ms": 1000, "lap": 15, "total": 72 },
+    { "file": "lap-change-1100ms.png", "clip": "lap-change.mov", "t_ms": 1100, "lap": 15, "total": 72 },
+    { "file": "lap-change-1200ms.png", "clip": "lap-change.mov", "t_ms": 1200, "lap": 15, "total": 72 },
+    { "file": "race-start-spa-19000ms.png", "clip": "race-start-spa.mov", "t_ms": 19000, "lap": 1, "total": 44 },
+    { "file": "race-start-spa-19100ms.png", "clip": "race-start-spa.mov", "t_ms": 19100, "lap": 1, "total": 44 },
+    { "file": "race-start-spa-19200ms.png", "clip": "race-start-spa.mov", "t_ms": 19200, "lap": 1, "total": 44 },
+    { "file": "race-start-spa-19300ms.png", "clip": "race-start-spa.mov", "t_ms": 19300, "lap": 1, "total": 44 },
+    { "file": "race-start-spa-19400ms.png", "clip": "race-start-spa.mov", "t_ms": 19400, "lap": 1, "total": 44 },
+    { "file": "race-start-spa-19500ms.png", "clip": "race-start-spa.mov", "t_ms": 19500, "lap": 1, "total": 44 },
+    { "file": "race-start-monza-18500ms.png", "clip": "race-start-monza.mov", "t_ms": 18500, "lap": null, "total": null, "note": "lights_out_at_ms 18500 (fixtures/lights/race-start-monza.json); the HUD lap counter graphic hasn't faded in yet on this broadcast -- negative case, no false-positive read expected" },
+    { "file": "race-start-monza-18600ms.png", "clip": "race-start-monza.mov", "t_ms": 18600, "lap": null, "total": null },
+    { "file": "race-start-monza-18700ms.png", "clip": "race-start-monza.mov", "t_ms": 18700, "lap": null, "total": null },
+    { "file": "race-start-monza-18800ms.png", "clip": "race-start-monza.mov", "t_ms": 18800, "lap": null, "total": null }
+  ]
+}
