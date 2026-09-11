@@ -84,7 +84,7 @@ Load only what the task needs. Nothing below is loaded by default.
 | Reviewing a PR | `/review-pr <n> [--seam] [--security]` (`.claude/skills/review-pr`): one Sonnet correctness pass against the issue; the `seam-reviewer` agent (`.claude/agents/`) for the invariants, seam contracts, and accepted-ADR consistency when `apps/`, `packages/`, `db/`, or ADRs change; `/security-review` when `apps/`, `db/`, or `.github/` change; then classifies findings and posts the verdict. In CI the flags come from the changed paths. |
 | Debugging | `superpowers:systematic-debugging` before proposing a fix. |
 | Recording a decision | New numbered file in `docs/decisions-adr/`; the ADR-guard hook refuses edits to accepted ones. |
-| Running the stack, rehearsing a race | Project skills under `.claude/skills/` once the scaffold exists; until then the POC's `CLAUDE.md` commands. |
+| Running the stack, rehearsing a race | `rehearse-race` (local stack against a recorded race), `load-race` (a recording into the deployed database), `release` (fast-forward `release` to a CI-green main commit), `retro` (the period's merged PRs into `docs/retros/`), all under `.claude/skills/`. |
 | Finishing a branch | `superpowers:finishing-a-development-branch`. |
 | Acting as a role | `.claude/agents/planner.md` plans and decides; `.claude/agents/implementor-<api|ingest|web>.md` take labelled issues and fan out subagents. |
 
