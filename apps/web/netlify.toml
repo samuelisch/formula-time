@@ -1,0 +1,9 @@
+# Makes the build command and publish directory visible in the repo.
+# Everything else — production branch (release), deploy previews (off),
+# branch deploys (off) — is a site setting the owner sets in the Netlify
+# dashboard (Site configuration -> Build & deploy -> Continuous deployment
+# -> Branches and deploy contexts); this file does not control it.
+[build]
+  base = "apps/web"
+  command = "pnpm --filter @formula-time/web build"
+  publish = "dist"
