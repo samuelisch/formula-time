@@ -125,6 +125,9 @@ the session can be loaded again later without OpenF1.
   `lib: ["ES2022"]`): it holds types and the reducer, not identity
   hashing. Ingest code must not add `node:*` imports to the domain
   package.
+- The root `Dockerfile`'s runtime stage ships this package's `dist` output
+  and production `node_modules` only — no TypeScript sources, no
+  devDependencies — and runs as a non-root user.
 - Config is read from the platform secret store only, never from files in
   the image: `DATABASE_URL`, `OPENF1_LOGIN`, `OPENF1_PASSWORD`,
   `LIVE_SOURCE`, `LIVE_LOG_DIR` (the jsonl recording's directory, default

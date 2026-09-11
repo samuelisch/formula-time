@@ -100,6 +100,9 @@ viewer, which the fan-out design forbids.
 - `@formula-time/domain` is browser-safe: no `node:*` imports (its
   tsconfig enforces `types: []`, `lib: ["ES2022"]`). Types and the reducer
   live there; identity hashing does not.
+- The root `Dockerfile`'s runtime stage ships this package's `dist` output
+  and production `node_modules` only — no TypeScript sources, no
+  devDependencies — and runs as a non-root user.
 - Config is read from the platform secret store, never from files in the
   image: `DATABASE_URL`, `PORT`, `CORS_ORIGIN`, `NODE_ENV`, `EXPORT_DIR`
   (default `./exports`, ADR-0009 §2). `OPENF1_LOGIN`/`OPENF1_PASSWORD`/
