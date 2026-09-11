@@ -30,6 +30,18 @@ computed port collides with something else already listening.
 
 ## Deploy
 
+A release happens only on push to the `release` branch (ADR-0019); push to
+`main` never deploys anything on Railway or on Netlify. `main` is the
+always-CI-green integration branch. Shipping a release is the `release`
+skill (`.claude/skills/release/SKILL.md`): from any checkout, once
+`gh run list --branch main --limit 1` shows CI green,
+`git fetch origin && git push origin origin/main:release` — a
+fast-forward, never a merge, never a direct commit on `release`.
+`.github/workflows/release.yml` then reuses `ci.yml`'s gate (the same
+checks a PR already passed) and runs a `smoke` job that waits for both
+deploys and confirms each serves traffic; a failed smoke job is red on the
+release commit and does not roll anything back.
+
 Railway, two services (`api`, `ingest`) plus a managed `Postgres`, from one
 Docker image built from the root `Dockerfile`. Infrastructure is declared in
 code, not the (deprecated) `railway.json`/`railway.toml` config-as-code
@@ -38,6 +50,7 @@ three services — `api` (builds from the Dockerfile, runs
 `pnpm db:migrate:deploy` as its pre-deploy command, then starts
 `node apps/api/dist/main.js`, healthcheck `/health`) and `ingest` (same
 build, starts `node apps/ingest/dist/main.js` directly, no pre-deploy step).
+Both read their source from the `release` branch.
 
 Two GitHub Actions workflows apply it, driven by the `railway` CLI via
 `railwayapp/config@v1`:
@@ -45,11 +58,20 @@ Two GitHub Actions workflows apply it, driven by the `railway` CLI via
 - `.github/workflows/railway-plan.yml` — on every PR touching
   `.railway/**`, posts the diff against the live environment as a PR
   comment. Never applies anything.
-- `.github/workflows/railway-apply.yml` — on push to `main` (same path
-  filter), applies the plan pinned to the merged PR.
+- `.github/workflows/railway-apply.yml` — on push to `release` (same path
+  filter), applies the plan pinned to the merged PR that last touched
+  `.railway/**`.
 
-Both need a `RAILWAY_TOKEN` repository secret (a Railway project token) —
-the owner adds this once in GitHub repo settings. The first
+The web bundle is built and hosted by Netlify from `apps/web`
+(`apps/web/netlify.toml` has the build command and publish directory) on
+push to `release`; deploy previews and branch deploys are off, so a PR no
+longer gets its own Netlify preview link. Production branch, deploy
+previews, and branch deploys are set in the Netlify dashboard (Site
+configuration -> Build & deploy -> Continuous deployment -> Branches and
+deploy contexts) — an owner-only change.
+
+Both Railway workflows need a `RAILWAY_TOKEN` repository secret (a Railway
+project token) — the owner adds this once in GitHub repo settings. The first
 `railway config plan` is run locally by the owner, to confirm it reads as
 *adopting* the three already-provisioned services (`api`, `ingest`,
 `Postgres` — check the `Postgres` image/version in the diff carefully) and
