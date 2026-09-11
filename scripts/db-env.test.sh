@@ -113,4 +113,26 @@ STUB
 broken_hash_case "an empty hash" 'exit 0'
 broken_hash_case "a non-numeric hash" 'echo "not-a-hex-digest"'
 
+# --- consuming db-env.sh's output: its lines carry no `export`, so a plain
+# `eval "$(scripts/db-env.sh)"` only sets shell-local variables a spawned
+# child process never sees (apps/web/package.json's test:e2e hit exactly
+# this, since Playwright reads WEB_PORT/API_PORT from its own process env).
+# `export $(scripts/db-env.sh)` is the correct idiom -- word-splits the
+# output into `export`'s own arguments, so it lands in the environment a
+# child inherits. Proves the idiom, not just the script's own stdout. ---
+
+child_ports="$(
+  cd "$worktree_repo" || exit 1
+  unset DB_PORT API_PORT WEB_PORT COMPOSE_PROJECT_NAME
+  export $("$script")
+  sh -c 'printf "%s %s %s\n" "$DB_PORT" "$API_PORT" "$WEB_PORT"'
+)"
+
+if [ "$child_ports" = "$first_worktree_ports" ]; then
+  echo "PASS: a child process spawned after 'export \$(db-env.sh)' sees this worktree's own ports"
+else
+  echo "FAIL: child process saw '$child_ports', expected '$first_worktree_ports' (test:e2e's env-export path)"
+  fail=1
+fi
+
 exit $fail
