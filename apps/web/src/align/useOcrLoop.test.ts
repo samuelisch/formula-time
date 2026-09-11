@@ -63,12 +63,13 @@ describe("useOcrLoop", () => {
     vi.useRealTimers();
   });
 
-  it("begin() with no remembered crop scans the frame, and a hit sets the crop and reports it found", async () => {
+  it("begin() with no remembered crop scans the frame, and a hit sets the crop, reports it found, and reaches onSample", async () => {
     // Version 7's recognize(img, {}, { blocks: true }) shape (measured
-    // against the installed library, PR body has the raw keys): lines sit
-    // under blocks[].paragraphs[].lines[], not at the page's top level.
+    // against the installed library): lines sit under
+    // blocks[].paragraphs[].lines[], not at the page's top level; the
+    // requested `text` output is still populated alongside `blocks`.
     const recognize = vi.fn().mockResolvedValue({
-      data: { text: "", blocks: [{ paragraphs: [{ lines: [{ text: "LAP 3/50", bbox: { x0: 100, y0: 20, x1: 200, y1: 40 } }] }] }] },
+      data: { text: "LAP 3/50", blocks: [{ paragraphs: [{ lines: [{ text: "LAP 3/50", bbox: { x0: 100, y0: 20, x1: 200, y1: 40 } }] }] }] },
     });
     const options = makeOptions();
     const { result } = renderHook(() => useOcrLoop(options));
@@ -82,6 +83,40 @@ describe("useOcrLoop", () => {
     expect(recognize).toHaveBeenCalledWith(expect.anything(), {}, { text: true, blocks: true });
     expect(options.crop.current).not.toBeNull();
     expect(options.setStatus).toHaveBeenCalledWith(expect.stringContaining("Found the lap counter (LAP 3/50)"));
+    // The auto-detect scan's own recognize() attempts must reach the
+    // diagnostics line too -- it's the phase a viewer sits in the longest
+    // when the counter isn't found, exactly when they most need to see OCR
+    // is still running.
+    expect(options.onSample).toHaveBeenCalledWith({ text: "LAP 3/50", parsed: true });
+  });
+
+  it("begin() with no remembered crop and no hit still reaches onSample as parsed:false", async () => {
+    const recognize = vi.fn().mockResolvedValue({ data: { text: "PIRELLI", blocks: [] } });
+    const options = makeOptions();
+    const { result } = renderHook(() => useOcrLoop(options));
+
+    await act(async () => {
+      result.current.begin(fakeWorker(recognize));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(options.crop.current).toBeNull();
+    expect(options.onSample).toHaveBeenCalledWith({ text: "PIRELLI", parsed: false });
+  });
+
+  it("a rejected auto-detect recognize() reaches onSample as an error too", async () => {
+    const recognize = vi.fn().mockRejectedValue(new Error("worker crashed"));
+    const options = makeOptions();
+    const { result } = renderHook(() => useOcrLoop(options));
+
+    await act(async () => {
+      result.current.begin(fakeWorker(recognize));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(options.onSample).toHaveBeenCalledWith({ error: "worker crashed" });
   });
 
   it("begin() with a valid remembered crop confirms it without starting a scan", async () => {
@@ -100,6 +135,9 @@ describe("useOcrLoop", () => {
     expect(options.crop.current).toEqual(remembered);
     expect(options.setStatus).toHaveBeenCalledWith("Checking the remembered box…");
     expect(options.setStatus).toHaveBeenCalledWith(expect.stringContaining("Remembered box still shows the lap counter"));
+    // The remembered-crop validation is also a recognize() attempt -- it
+    // must reach the diagnostics line just like every other one.
+    expect(options.onSample).toHaveBeenCalledWith({ text: "LAP 12/58", parsed: true });
   });
 
   it("begin() with an invalid remembered crop discards it and falls back to scanning", async () => {
@@ -117,6 +155,9 @@ describe("useOcrLoop", () => {
 
     expect(options.crop.current).toBeNull();
     expect(options.setStatus).toHaveBeenCalledWith(expect.stringContaining("Scanning the whole window"));
+    // Reported as parsed:false, not as an error -- the recognize() call
+    // succeeded, it just didn't find LAP N/M in this frame.
+    expect(options.onSample).toHaveBeenCalledWith({ text: "SAFETY CAR", parsed: false });
 
     clearStoredCrop(); // cleanup: this test's own write, not shared with other tests via beforeEach's clear
   });

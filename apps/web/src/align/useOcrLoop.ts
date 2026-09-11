@@ -39,9 +39,10 @@ export interface UseOcrLoopOptions {
   /** The lights-out pixel detector fired at `frameAt`; `isRestart`
    * distinguishes a restart from the original race start. */
   onLightsOut: (frameAt: number, isRestart: boolean) => void;
-  /** Every crop-recognize attempt, success or failure -- never the
-   * auto-detect scan's own recognize() calls, which are a separate,
-   * pre-lock concern. */
+  /** Every recognize() attempt this hook makes -- the crop loop, the
+   * auto-detect scan, and the remembered-crop validation alike -- success
+   * or failure. Drives the diagnostics line through every phase, not just
+   * once a crop is locked. */
   onSample: (sample: OcrSample) => void;
   leaderLap: number;
   sessionStatus: string | null | undefined;
@@ -137,6 +138,7 @@ export function useOcrLoop(options: UseOcrLoopOptions): OcrLoopControls {
       drawInto(detectCanvas, video, 0, 0, video.videoWidth, srcH, video.videoWidth * scale, srcH * scale);
       const result = await worker.recognize(detectCanvas, {}, { text: true, blocks: true });
       const hit = findLapLine(result.data.blocks);
+      liveRef.current.onSample({ text: result.data.text, parsed: hit !== null });
       const found = hit
         ? cropFromBBox(
             {
@@ -155,8 +157,11 @@ export function useOcrLoop(options: UseOcrLoopOptions): OcrLoopControls {
         stopAutoDetect();
         liveRef.current.setStatus(`Found the lap counter (${hit!.text.trim()}) — watching`);
       }
-    } catch {
-      /* transient; the next attempt retries */
+    } catch (error) {
+      // Transient; the next attempt retries -- but still surfaced, since
+      // this scan can run for as long as the counter stays unfound, which
+      // is exactly when a viewer most needs to see OCR is still running.
+      liveRef.current.onSample({ error: error instanceof Error ? error.message : "OCR failed" });
     }
     recognizingRef.current = false;
   }, [detectCanvas, stopAutoDetect]);
@@ -188,8 +193,11 @@ export function useOcrLoop(options: UseOcrLoopOptions): OcrLoopControls {
       drawInto(detectCanvas, video, sx, sy, sw, sh, sw * 2, sh * 2);
       const result = await worker.recognize(detectCanvas);
       valid = parseLapText(result.data.text) !== null;
-    } catch {
-      /* treat as invalid */
+      liveRef.current.onSample({ text: result.data.text, parsed: valid });
+    } catch (error) {
+      // Treat as invalid -- but still surfaced, same as every other
+      // recognize() attempt.
+      liveRef.current.onSample({ error: error instanceof Error ? error.message : "OCR failed" });
     }
     recognizingRef.current = false;
     if (valid) {
