@@ -159,3 +159,14 @@ runs the actual production reload of an affected race, not an agent.
   service owns that session, not the loader.
 - Forgetting `--compressed` on the second `curl` and reading the raw
   gzip bytes as if the request had failed.
+
+## Verify a deploy
+
+After any deploy that touches a service, before loading or reloading a race:
+
+```
+railway deployment list -s <service>
+railway logs -s <service> | tail -50
+```
+
+The newest deployment reads SUCCESS and the tail shows no repeated failure line. A repeated line is the fault to fix first; a load on top of a broken service only hides it.
