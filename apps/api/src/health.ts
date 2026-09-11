@@ -1,6 +1,6 @@
-// Wraps the session lifecycle's health with the running build's identity
-// (issue #212) -- kept separate from session-lifecycle.ts so its own
-// HealthResponse shape and tests stay untouched.
+// Wraps the session lifecycle's health with the running build's identity,
+// kept separate from session-lifecycle.ts so its own HealthResponse shape
+// and tests stay untouched.
 import type { HealthResponse } from "./session-lifecycle.js";
 
 export interface HealthWithBuild extends HealthResponse {

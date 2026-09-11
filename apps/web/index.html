@@ -5,11 +5,11 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FormulaTime</title>
-    <!-- Build identity (issue #212): Vite substitutes %VITE_GIT_SHA% at
-         build time from the VITE_GIT_SHA env var; release.yml's smoke job
-         reads this to confirm the served bundle is the released commit,
-         not a stale one. Unreplaced (literal %VITE_GIT_SHA%) when the var
-         is unset, e.g. local dev -- Vite leaves unmatched %NAME% as-is. -->
+    <!-- Vite substitutes %VITE_GIT_SHA% at build time from the
+         VITE_GIT_SHA env var; a release's smoke check reads this to
+         confirm the served bundle is the released commit, not a stale
+         one. Unreplaced (literal %VITE_GIT_SHA%) when the var is unset,
+         e.g. local dev -- Vite leaves unmatched %NAME% as-is. -->
     <meta name="build" content="%VITE_GIT_SHA%" />
   </head>
   <body>

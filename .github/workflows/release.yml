@@ -53,10 +53,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Wait for the api to report the released build
-        # The old build answering healthy is "not yet" (issue #212) -- a
-        # release that never picks up the new SHA must be red. Two
-        # consecutive matching reads, 30s apart, guard against a
-        # mid-restart false positive.
+        # The old build answering healthy is "not yet" -- a release that
+        # never picks up the new SHA must be red. Two consecutive
+        # matching reads, 30s apart, guard against a mid-restart false
+        # positive.
         run: |
           api_url="https://api-production-8fbf2.up.railway.app/health"
           deadline=$((SECONDS + 1200))
