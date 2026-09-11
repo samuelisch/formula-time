@@ -5,11 +5,12 @@
 // pickSession retry loop. `pickSession` is injected so `check()` and
 // `health()` are unit-testable with a fake that returns null, without a
 // real Postgres or projector.
-import type { PrismaClient, Session } from "@formula-time/db";
+import type { Session } from "@formula-time/db";
 import type { RaceState } from "@formula-time/domain";
 
 import type { EventSource } from "./projector/event-source.js";
 import { RaceStateProjector, type ProjectorLog } from "./projector/projector.js";
+import type { SessionsDb } from "./projector/session-picker.js";
 
 export interface HealthResponse {
   ok: true;
@@ -37,10 +38,10 @@ export interface PollHooks {
 }
 
 export interface SessionLifecycleOptions {
-  db: PrismaClient;
+  db: SessionsDb;
   source: EventSource;
   pusher: Pusher;
-  pickSession: (db: PrismaClient) => Promise<Session | null>;
+  pickSession: (db: SessionsDb) => Promise<Session | null>;
   polls: PollHooks;
   log: ProjectorLog;
 }
