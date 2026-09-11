@@ -22,18 +22,13 @@ class FakeRes {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function asRes(fake: FakeRes): any {
-  return fake;
-}
-
 describe("Fanout", () => {
   test("two sockets receive byte-identical buffers from the same push", async () => {
     const fanout = new Fanout();
     const a = new FakeRes();
     const b = new FakeRes();
-    await fanout.join(asRes(a), "gzip");
-    await fanout.join(asRes(b), "gzip");
+    await fanout.join(a, "gzip");
+    await fanout.join(b, "gzip");
 
     await fanout.push({ type: "state", seq: "1" });
 
@@ -46,13 +41,13 @@ describe("Fanout", () => {
   test("a socket joining after two pushes gets the header + only the latest block, which decodes alone", async () => {
     const fanout = new Fanout();
     const early = new FakeRes();
-    await fanout.join(asRes(early), "gzip");
+    await fanout.join(early, "gzip");
 
     await fanout.push({ n: 1 });
     await fanout.push({ n: 2 });
 
     const late = new FakeRes();
-    await fanout.join(asRes(late), "gzip");
+    await fanout.join(late, "gzip");
 
     // header, then exactly one data block (the latest push's, n:2).
     expect(late.chunks).toHaveLength(2);
@@ -69,8 +64,8 @@ describe("Fanout", () => {
     const fanout = new Fanout();
     const slow = new FakeRes();
     const fine = new FakeRes();
-    await fanout.join(asRes(slow), "plain");
-    await fanout.join(asRes(fine), "plain");
+    await fanout.join(slow, "plain");
+    await fanout.join(fine, "plain");
 
     expect(fanout.size()).toBe(2);
 
@@ -85,7 +80,7 @@ describe("Fanout", () => {
   test("overlapping pushes coalesce to the newest payload; intermediate ones are dropped", async () => {
     const fanout = new Fanout();
     const res = new FakeRes();
-    await fanout.join(asRes(res), "plain");
+    await fanout.join(res, "plain");
 
     const p1 = fanout.push({ n: 1 });
     const p2 = fanout.push({ n: 2 });
@@ -153,7 +148,7 @@ describe("Fanout delta pushes (issue #89)", () => {
   test("a delta socket joining before any push gets the catching_up frame, same as today", async () => {
     const fanout = new Fanout();
     const res = new FakeRes();
-    await fanout.join(asRes(res), "plain", "delta");
+    await fanout.join(res, "plain", "delta");
 
     expect(res.chunks).toHaveLength(1);
     expect(res.chunks[0]?.toString("utf8")).toBe('event: status\ndata: {"catching_up":true}\n\n');
@@ -164,7 +159,7 @@ describe("Fanout delta pushes (issue #89)", () => {
     await fanout.push(statePush(1, raceState({ sequence: 1, drivers: { "1": { driver_number: 1 } as never } })));
 
     const res = new FakeRes();
-    await fanout.join(asRes(res), "plain", "delta");
+    await fanout.join(res, "plain", "delta");
     expect(frames(res)).toEqual([{ event: "state", data: statePush(1, raceState({ sequence: 1, drivers: { "1": { driver_number: 1 } as never } })) }]);
 
     await fanout.push(
@@ -186,8 +181,8 @@ describe("Fanout delta pushes (issue #89)", () => {
 
     const legacy = new FakeRes();
     const delta = new FakeRes();
-    await fanout.join(asRes(legacy), "plain", "state");
-    await fanout.join(asRes(delta), "plain", "delta");
+    await fanout.join(legacy, "plain", "state");
+    await fanout.join(delta, "plain", "delta");
 
     await fanout.push(statePush(2, raceState({ sequence: 2 })));
     await fanout.push(statePush(3, raceState({ sequence: 3 })));
@@ -203,8 +198,8 @@ describe("Fanout delta pushes (issue #89)", () => {
 
     const a = new FakeRes();
     const b = new FakeRes();
-    await fanout.join(asRes(a), "plain", "delta");
-    await fanout.join(asRes(b), "plain", "delta");
+    await fanout.join(a, "plain", "delta");
+    await fanout.join(b, "plain", "delta");
 
     await fanout.push(statePush(2, raceState({ sequence: 2, latest_source_time: "2026-01-01T00:00:00Z" })));
 
@@ -217,7 +212,7 @@ describe("Fanout delta pushes (issue #89)", () => {
   test("every 200th push to a delta socket is a full state push (keyframe), not a delta", async () => {
     const fanout = new Fanout();
     const res = new FakeRes();
-    await fanout.join(asRes(res), "plain", "delta");
+    await fanout.join(res, "plain", "delta");
 
     for (let seq = 1; seq <= 200; seq += 1) {
       await fanout.push(statePush(seq, raceState({ sequence: seq })));
@@ -236,12 +231,14 @@ describe("Fanout delta pushes (issue #89)", () => {
     await fanout.push(statePush(1, raceState({ sequence: 1 })));
 
     const res = new FakeRes();
-    await fanout.join(asRes(res), "plain", "delta");
+    await fanout.join(res, "plain", "delta");
 
-    // A malformed state (missing `drivers`) makes diffState throw.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const malformed = { sequence: 2 } as any;
-    await fanout.push(statePush(2, malformed));
+    // A malformed state (missing `drivers`) makes diffState throw. Built as
+    // a plain payload rather than through statePush()/raceState(), which
+    // both require a well-formed RaceState -- push() itself only demands
+    // `object`, so no cast is needed to hand it a deliberately broken one.
+    const malformed = { ...statePush(2, raceState({ sequence: 2 })), state: { sequence: 2 } };
+    await fanout.push(malformed);
 
     const delivered = frames(res);
     expect(delivered[delivered.length - 1]?.event).toBe("state");
@@ -263,7 +260,7 @@ describe("Fanout delta pushes (issue #89)", () => {
     await fanout.push({ ...statePush(1, raceState({ sequence: 1 })), events: [] });
 
     const res = new FakeRes();
-    await fanout.join(asRes(res), "plain", "delta");
+    await fanout.join(res, "plain", "delta");
 
     const applied = [{ event_id: "e1", endpoint: "drivers", source_time: null, payload: { driver_number: 1 } }];
 
@@ -307,13 +304,13 @@ describe("Fanout delta pushes (issue #89)", () => {
     const delta = new FakeRes();
     const fanout = new Fanout();
     await fanout.push(statePush(1, raceState({ sequence: 1 })));
-    await fanout.join(asRes(legacy), "plain", "state");
-    await fanout.join(asRes(delta), "plain", "delta");
+    await fanout.join(legacy, "plain", "state");
+    await fanout.join(delta, "plain", "delta");
 
     await fanout.push(statePush(2, raceState({ sequence: 2 })));
     expect(frames(delta).map((f) => f.event)).toContain("delta");
 
-    fanout.remove(asRes(delta));
+    fanout.remove(delta);
     await fanout.push(statePush(3, raceState({ sequence: 3 })));
     await fanout.push(statePush(4, raceState({ sequence: 4 })));
 

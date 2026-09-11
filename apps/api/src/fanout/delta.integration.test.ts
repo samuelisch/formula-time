@@ -10,8 +10,6 @@
 // (no baseline yet: a `state` push, per the ADR's join contract) and a
 // second push after one more event lands for one driver (a `delta` whose
 // patch touches only that driver).
-import type { ServerResponse } from "node:http";
-
 import { createDb, type PrismaClient } from "@formula-time/db";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
@@ -124,8 +122,7 @@ test("three events fold into one state push; one more event for one driver produ
   });
 
   const res = new FakeRes();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await fanout.join(res as any as ServerResponse, "plain", "delta");
+  await fanout.join(res, "plain", "delta");
 
   try {
     projector.start();
