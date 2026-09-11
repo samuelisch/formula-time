@@ -119,9 +119,15 @@ describe("vote burst", () => {
       const sentOptions = new Map<string, [string, string]>();
 
       const requests: Promise<unknown>[] = [];
-      for (const viewerId of viewerIds) {
+      viewerIds.forEach((viewerId, index) => {
         const pair: [string, string] = Math.random() < 0.5 ? ["1", "44"] : ["44", "1"];
         sentOptions.set(viewerId, pair);
+        // A distinct fake IP per viewer: 1,000 real viewers vote from 1,000
+        // different addresses, never one address. Sharing one address here
+        // would run every viewer's two requests into the vote route's
+        // per-IP rate limit (60/minute) instead of exercising the
+        // conditional-upsert race this test targets.
+        const remoteAddress = `10.${(index >> 16) & 0xff}.${(index >> 8) & 0xff}.${index & 0xff}`;
         for (const optionId of pair) {
           requests.push(
             app.inject({
@@ -129,10 +135,11 @@ describe("vote burst", () => {
               url: "/api/vote",
               headers: { cookie: `viewer_id=${viewerId}` },
               payload: { poll_id: POLL_ID, option_id: optionId },
+              remoteAddress,
             }),
           );
         }
-      }
+      });
 
       const startedAt = Date.now();
       await Promise.all(requests);
