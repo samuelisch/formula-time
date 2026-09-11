@@ -55,6 +55,6 @@ aggregator, and stay on plain console output.
   runbook checks) keep working without edits.
 - Adding a new count field means adding its name to `countFields`'s fixed
   list in `log.ts`, not inventing an ad hoc field at a call site.
-- `openf1/auth.ts`'s one remaining `console.error` (the `expires_in`
-  warning) is unchanged by this decision and is the next candidate if the
-  owner wants every console call gone.
+- `console.error` calls for failures are unchanged by this decision —
+  `main.ts` (2), `writer/writer.ts` (4), and `openf1/auth.ts` (1, the
+  `expires_in` warning) — and are the next candidate for the same logger.
