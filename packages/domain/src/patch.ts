@@ -192,8 +192,15 @@ function applyOp(state: RaceState, op: JsonPatchOp): void {
     if (driver === undefined) {
       throw new Error(`applyPatch: driver "${key}" missing for field patch "${op.path}"`);
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (driver as any)[field] = op.value;
+    // `field` is a specific DriverState key but `op.value` (unknown, from
+    // the wire) can't be checked against that key's own type at compile
+    // time -- a per-field switch mirroring the top-level one above would
+    // need no cast, but here it would just be sixteen near-identical cases
+    // for one already-unsafe write (the patch's producer, diffState, is
+    // this same module, and is what actually keeps them in sync).
+    // `unknown` (not `any`) at least stops the value from silently
+    // widening at every other use of `driver`.
+    (driver as Record<keyof DriverState, unknown>)[field] = op.value;
     return;
   }
 
