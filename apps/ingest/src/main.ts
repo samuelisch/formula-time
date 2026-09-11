@@ -6,6 +6,7 @@ import { createDb } from "@formula-time/db";
 
 import { credentialsFromEnv, createOpenF1Fetcher, OpenF1Auth } from "./openf1/auth.js";
 import { loadConfig } from "./config.js";
+import { countFields, logger } from "./log.js";
 import { createFileFetcher } from "./openf1/file-fetcher.js";
 import { MqttLane } from "./openf1/mqtt-lane.js";
 import { JsonlRecorder } from "./openf1/recorder.js";
@@ -22,9 +23,18 @@ if (!config.databaseUrl) {
   process.exit(1);
 }
 
+// Every lane's and the writer's log(message) callback funnels through here,
+// so a log query can filter by lane and by the counts a message reports
+// without parsing `msg` (apps/ingest/src/log.ts).
+function laneLog(lane: "rest" | "mqtt" | "writer"): (message: string) => void {
+  return (message: string): void => {
+    logger.info({ lane, ...countFields(message) }, message);
+  };
+}
+
 const db = createDb(config.databaseUrl, { max: 1 });
 const queue = new EventQueue<QueueItem>();
-const writer = new EventWriter(db, queue);
+const writer = new EventWriter(db, queue, { log: laneLog("writer") });
 const recorder = new JsonlRecorder(config.liveLogDir);
 
 let fetcher: Fetcher;
@@ -35,7 +45,7 @@ let openf1Login: string | null = null;
 if (config.liveSource === "api") {
   const creds = credentialsFromEnv();
   if (!creds) {
-    console.log(
+    logger.info(
       "ingest: OPENF1_LOGIN/OPENF1_PASSWORD not set; running unauthenticated (historical use only, live will 401).",
     );
   }
@@ -44,7 +54,7 @@ if (config.liveSource === "api") {
   mqttAuth = auth;
   openf1Login = creds?.login ?? null;
 } else {
-  console.log(`ingest: LIVE_SOURCE=${config.liveSource} — replaying a recording instead of OpenF1.`);
+  logger.info(`ingest: LIVE_SOURCE=${config.liveSource} — replaying a recording instead of OpenF1.`);
   fetcher = createFileFetcher(config.liveSource);
 }
 
@@ -72,7 +82,7 @@ const restLane = new RestLane(queue, {
   onNewRows: async (sessionKey, endpoint, rows) => {
     await recorder.appendRows(sessionKey, endpoint, rows);
   },
-  onLog: (line) => console.log(line),
+  onLog: laneLog("rest"),
 });
 
 // The MQTT lane: only against the real OpenF1 broker
@@ -90,17 +100,17 @@ const mqttLane =
         // live.
         getNormalizer: () => restLane.getNormalizer(),
         getSessionKey: () => restLane.status().sessionKey,
-        onLog: (line) => console.log(line),
+        onLog: laneLog("mqtt"),
       })
     : null;
 if (config.mqttEnabled && !mqttLane) {
-  console.log("ingest: MQTT_ENABLED but no OpenF1 credentials/live source; MQTT lane not started.");
+  logger.info("ingest: MQTT_ENABLED but no OpenF1 credentials/live source; MQTT lane not started.");
 }
 
 restLane.start();
 mqttLane?.start();
 writer.run();
-console.log(
+logger.info(
   `ingest: started (REST lane${mqttLane ? " + MQTT lane" : ""} + writer running; discovering a session)`,
 );
 
@@ -108,7 +118,7 @@ let shuttingDown = false;
 process.on("SIGTERM", () => {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log("ingest: SIGTERM received, draining queue");
+  logger.info("ingest: SIGTERM received, draining queue");
   // Wait for any in-flight poll to finish enqueueing (REST) and the MQTT
   // client to end before draining the writer — otherwise a lane still
   // enqueueing lands rows on the queue after the writer has already drained
@@ -118,7 +128,8 @@ process.on("SIGTERM", () => {
   void Promise.all([restLane.stop(), mqttLane ? mqttLane.stop() : Promise.resolve()])
     .then(() => writer.stop())
     .then((totals) => {
-      console.log(`ingest: drained (inserted=${totals.inserted} skipped=${totals.skipped}); exiting`);
+      const message = `ingest: drained (inserted=${totals.inserted} skipped=${totals.skipped}); exiting`;
+      logger.info(countFields(message), message);
       return db.$disconnect();
     })
     .catch((error: unknown) => {
