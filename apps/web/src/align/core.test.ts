@@ -343,7 +343,8 @@ describe("predictFlipWall", () => {
 
 describe("findLapLine: locate the HUD counter among full-frame OCR blocks", () => {
   // Version 7's recognize({ blocks: true }) shape (measured against the
-  // installed library, PR body has the raw keys): Page.blocks[].paragraphs[].lines[].
+  // installed library): Page.blocks[].paragraphs[].lines[], not a
+  // top-level lines array.
   function blocksOf(lines: { text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }[]) {
     return [{ paragraphs: [{ lines }] }];
   }
