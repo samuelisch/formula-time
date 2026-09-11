@@ -43,6 +43,10 @@ One process holding:
   whichever session the projector currently folds (live, the next
   upcoming, or, with neither, the most recent finished one, per
   `pickSession`); it never touches state itself.
+- `Fastify({ trustProxy: true })` (ADR-0022): Railway terminates TLS at its
+  own proxy and forwards the real client address via `X-Forwarded-For`,
+  so `request.ip` is that address rather than the proxy's — required for
+  `POST /api/vote`'s per-IP rate limit to throttle clients individually.
 - **The exporter** — session finished, not yet exported, and holding at
   least one event whose endpoint is not `drivers` (timing data to replay):
   write the immutable file once. Idempotent; retried by the same check. A
