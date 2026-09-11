@@ -74,6 +74,9 @@ importers:
       mqtt:
         specifier: 5.15.2
         version: 5.15.2
+      pino:
+        specifier: 10.3.1
+        version: 10.3.1
 
   apps/web:
     dependencies:

@@ -276,7 +276,7 @@ export class RestLane {
     this.onSession = opts.onSession;
     this.onSessionSelected = opts.onSessionSelected;
     this.onNewRows = opts.onNewRows;
-    this.log = opts.onLog ?? ((line) => console.log(line));
+    this.log = opts.onLog ?? ((): void => {});
   }
 
   public status(): { active: boolean; sessionKey: number | null } {

@@ -1,5 +1,6 @@
 // Config is read from env only: DATABASE_URL, OPENF1_LOGIN, OPENF1_PASSWORD,
-// LIVE_SOURCE, LIVE_LOG_DIR, MQTT_ENABLED. apps/ingest/AGENTS.md: "Config is
+// LIVE_SOURCE, LIVE_LOG_DIR, MQTT_ENABLED, LOG_LEVEL (read by log.ts
+// directly, not through this module). apps/ingest/AGENTS.md: "Config is
 // read from the platform secret store only, never from files in the image."
 
 export interface IngestConfig {

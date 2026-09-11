@@ -225,6 +225,14 @@ describe("loadRecordings", () => {
     expect(db.insertOrder[ENTRY_LIST_2026.length + 2]!.startsWith("weather:")).toBe(true);
   });
 
+  test("the writer's batch progress reaches the same log callback as the loader's own lines", async () => {
+    const db = fakeDb();
+    const logs: string[] = [];
+    await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: (line) => logs.push(line) });
+
+    expect(logs.some((line) => line.startsWith("writer: batch inserted="))).toBe(true);
+  });
+
   test("the session is upserted finished via the override", async () => {
     const db = fakeDb();
     // The ADR-0010 guard refuses any

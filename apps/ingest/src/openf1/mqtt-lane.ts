@@ -221,7 +221,7 @@ export class MqttLane {
     this.username = opts.username;
     this.getNormalizer = opts.getNormalizer;
     this.getSessionKey = opts.getSessionKey;
-    this.log = opts.onLog ?? ((line) => console.log(line));
+    this.log = opts.onLog ?? ((): void => {});
     this.brokerUrl = opts.brokerUrl ?? MQTT_BROKER_URL;
     this.topics = opts.topics ?? MQTT_TOPICS;
     this.refreshIntervalMs = opts.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS;

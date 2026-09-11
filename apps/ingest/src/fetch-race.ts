@@ -369,7 +369,7 @@ export async function fetchRaces(
   const replace = opts.replace ?? false;
 
   const queue = new EventQueue<QueueItem>();
-  const writer = new EventWriter(db, queue);
+  const writer = new EventWriter(db, queue, { log });
 
   let sessionsAttempted = 0;
   let sessionsSkipped = 0;

@@ -45,6 +45,10 @@ export function backoffDelayMs(baseMs: number, consecutiveFailures: number, maxM
 
 export class EventWriter {
   private readonly batchSize: number;
+  // Count-carrying lines route through here (main.ts wires it to the
+  // structured logger with lane="writer"); no-op when the caller doesn't
+  // care, so tests aren't forced to supply one.
+  private readonly log: (message: string) => void;
   private stopped = false;
   private timer: NodeJS.Timeout | null = null;
   // Tracks the drain currently in flight (awaiting `db.event.createMany`) so
@@ -58,9 +62,10 @@ export class EventWriter {
   public constructor(
     private readonly db: EventWriterDb,
     private readonly queue: EventQueue<QueueItem>,
-    opts: { batchSize?: number } = {},
+    opts: { batchSize?: number; log?: (message: string) => void } = {},
   ) {
     this.batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
+    this.log = opts.log ?? ((): void => {});
   }
 
   /**
@@ -135,7 +140,7 @@ export class EventWriter {
       inserted += result.inserted;
       skipped += result.skipped;
       if (result.inserted + result.skipped > 0) {
-        console.log(`writer: batch inserted=${result.inserted} skipped=${result.skipped}`);
+        this.log(`writer: batch inserted=${result.inserted} skipped=${result.skipped}`);
       }
     }
     return { inserted, skipped };
@@ -157,7 +162,7 @@ export class EventWriter {
         .then((result) => {
           this.consecutiveRunFailures = 0;
           if (result && (result.inserted > 0 || result.skipped > 0)) {
-            console.log(`writer: batch inserted=${result.inserted} skipped=${result.skipped}`);
+            this.log(`writer: batch inserted=${result.inserted} skipped=${result.skipped}`);
           }
           return result;
         })

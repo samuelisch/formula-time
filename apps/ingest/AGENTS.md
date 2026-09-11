@@ -129,7 +129,18 @@ the session can be loaded again later without OpenF1.
   the image: `DATABASE_URL`, `OPENF1_LOGIN`, `OPENF1_PASSWORD`,
   `LIVE_SOURCE`, `LIVE_LOG_DIR` (the jsonl recording's directory, default
   `./live-logs`), `MQTT_ENABLED` (default `true` when `OPENF1_LOGIN` is
-  set, else `false` — the free tier has no MQTT).
+  set, else `false` — the free tier has no MQTT), `LOG_LEVEL` (default
+  `info`, read directly by the logger below rather than through `config.ts`).
+- Logging: `src/log.ts` exports a pino logger with base fields `service:
+  "ingest"` and `build` (`RAILWAY_GIT_COMMIT_SHA`, else `"unknown"`), JSON
+  only (no pretty printing — Railway shows JSON fine). The REST lane, the
+  MQTT lane and the writer each report through their `log(message)`
+  callback; `main.ts` wires each to `logger.info({ lane }, message)` with
+  `lane` one of `"rest" | "mqtt" | "writer"`. A message carrying any of
+  `messages=`, `rows=`, `dropped=`, `inserted=`, `skipped=`, `new=`,
+  `foreign=`, `unknown_session=` also gets those counts as structured
+  fields (`countFields()`), so a log query can filter on them instead of
+  parsing `msg`.
 - Vocabulary, defined once for the whole repo: *fold* — reduce over the
   event log into RaceState; ingest appends to that log but never folds
   it. *projector*/*authority* — the class name and the role it plays
