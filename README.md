@@ -59,7 +59,9 @@ three services — `api` (builds from the Dockerfile, runs
 `pnpm db:migrate:deploy` as its pre-deploy command, then starts
 `node apps/api/dist/main.js`, healthcheck `/health`) and `ingest` (same
 build, starts `node apps/ingest/dist/main.js` directly, no pre-deploy step).
-Both read their source from the `release` branch.
+Both read their source from the `release` branch. The Dockerfile's runtime
+stage ships only `dist` output and production dependencies, non-root, with
+the Prisma CLI present for `migrate deploy`.
 
 Two GitHub Actions workflows apply it, driven by the `railway` CLI via
 `railwayapp/config@v1`:
