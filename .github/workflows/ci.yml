@@ -53,7 +53,7 @@ jobs:
           # check-adr-immutable.sh diffs against origin/main.
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         # Version comes from "packageManager" in package.json.
 
       - uses: actions/setup-node@v4
@@ -140,7 +140,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v4
         with:
