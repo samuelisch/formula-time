@@ -91,8 +91,9 @@ describe("handleLapRead: sequences the lap tracker, the lock/apply policy, and t
       };
       const target = fakeTarget();
       // 100ms of handling time between the frame grab (frameAt) and this
-      // call's performance.now() -- compensateTarget's job is exactly to
-      // absorb this, which is what the 1.5s tolerance below is checking.
+      // call's performance.now() -- computeObservedWall's nowPerfMs-frameAt
+      // term is exactly what absorbs this, which is what the 1.5s tolerance
+      // below is checking.
       const status = handleLapRead(15, 4_900, trackers, ctx({ anchors, target }));
 
       expect(status).toMatch(/^Lap 15: /);
