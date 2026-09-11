@@ -53,7 +53,10 @@ Read `docs/` before doing anything. What each part holds:
   `pnpm lint` (ESLint, root `eslint.config.js`) in the hook and in CI
   (ADR-0017); the same plus integration and build in CI on every PR,
   required for merge (ADR-0006). The PR's Verified section is prose about what CI does not
-  cover, never pasted output. `db:up`/`db:down`/`db:migrate:*`/
+  cover, never pasted output. A fake that resolves synchronously cannot
+  test ordering; a test of concurrent writes runs against real Postgres or
+  resolves its fakes out of order on purpose. A test that reads
+  `recordings/` (gitignored) is `test.skipIf(!existsSync(dir))`. `db:up`/`db:down`/`db:migrate:*`/
   `test:integration` derive a per-worktree compose project and Postgres port
   from `scripts/db-env.sh` (README "Local Postgres"), so concurrent worktrees
   never share a database.
@@ -115,7 +118,15 @@ re-review; "none" on a PR that needed a round is a false record. A PR is
 marked ready, or labelled `in-review`, only once `## Verified` holds the
 real result; a placeholder there is a review finding. Slices merge into
 main in order; never merge a later slice into an earlier slice's branch.
-A number in a brief carries the command that produced it. A brief that
+A number in a brief carries the command that produced it, and a number
+quoted as an acceptance criterion is measured before it is written, never
+estimated. The body names the failure paths the deliverable must handle
+(shutdown, a rejected write, a malformed row) and the test for each; a
+happy-path-only brief is a review finding. Before filing an issue or
+opening a PR, check open issues and PRs for the same scope; the owner runs
+more than one session. A PR stacked on another branch is rebased onto
+main with `git rebase --onto` after the base merges; never `git merge
+main` into a stacked branch. A brief that
 lifts an external API client quotes a measured response, not a type
 annotation. A rule that starts something (a fetch, an export, a retry)
 names what stops it.
