@@ -85,6 +85,45 @@ export const CIRCUITS: Record<number, { name: string; totalLaps: number }> = {
   // Official race distance: https://www.formula1.com/en/racing/2026/hungary
   // ("Number of Laps: 70"), retrieved 2026-09-11.
   4: { name: "Hungaroring", totalLaps: 70 },
+  // 2026 Azerbaijan GP (session_key 11377, circuit_key 144, "Baku").
+  // Official race distance: https://www.formula1.com/en/racing/2026/azerbaijan
+  // ("Number of Laps: 51"), retrieved 2026-09-11.
+  144: { name: "Baku", totalLaps: 51 },
+  // 2026 Singapore GP (session_key 11388, circuit_key 61, "Singapore").
+  // Official race distance: https://www.formula1.com/en/racing/2026/singapore
+  // ("Number of Laps: 62"), retrieved 2026-09-11.
+  61: { name: "Singapore", totalLaps: 62 },
+  // 2026 United States GP (session_key 11396, circuit_key 9, "Austin",
+  // Circuit of The Americas). Official race distance:
+  // https://www.formula1.com/en/racing/2026/united-states
+  // ("Number of Laps: 56"), retrieved 2026-09-11.
+  9: { name: "Austin", totalLaps: 56 },
+  // 2026 Mexico City GP (session_key 11404, circuit_key 65, "Mexico City").
+  // Official race distance: https://www.formula1.com/en/racing/2026/mexico
+  // ("Number of Laps: 71"), retrieved 2026-09-11.
+  65: { name: "Mexico City", totalLaps: 71 },
+  // 2026 São Paulo GP (session_key 11412, circuit_key 14, "Interlagos").
+  // Official race distance: https://www.formula1.com/en/racing/2026/brazil
+  // ("Number of Laps: 71"), retrieved 2026-09-11.
+  14: { name: "Interlagos", totalLaps: 71 },
+  // 2026 Las Vegas GP (session_key 11420, circuit_key 152, "Las Vegas").
+  // Official race distance: https://www.formula1.com/en/racing/2026/las-vegas
+  // ("Number of Laps: 50"), retrieved 2026-09-11.
+  152: { name: "Las Vegas", totalLaps: 50 },
+  // 2026 Qatar GP (session_key 11428, circuit_key 150, "Lusail").
+  // Official race distance: https://www.formula1.com/en/racing/2026/qatar
+  // ("Number of Laps: 57"), retrieved 2026-09-11.
+  150: { name: "Lusail", totalLaps: 57 },
+  // 2026 Abu Dhabi GP (session_key 11436, circuit_key 70, "Yas Marina
+  // Circuit"). Official race distance:
+  // https://www.formula1.com/en/racing/2026/united-arab-emirates
+  // ("Number of Laps: 58"), retrieved 2026-09-11.
+  70: { name: "Yas Marina Circuit", totalLaps: 58 },
+  // circuit_key 12 ("Kuala Lumpur") is deliberately absent: session 11731
+  // reports it tagged with country_name "Bahrain" and the same country_key
+  // as the real Sakhir/Bahrain session (11261) — internally inconsistent
+  // (Kuala Lumpur is not in Bahrain, and there is no Malaysia round on the
+  // 2026 calendar). Left out rather than guessed at.
 };
 
 export function totalLapsForCircuit(circuitKey: number): number | null {
