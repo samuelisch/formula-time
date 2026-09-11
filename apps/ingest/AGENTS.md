@@ -9,6 +9,13 @@ else.
 
 ## What this service owns
 
+- `circuits.ts`'s `CIRCUITS` table: the static `circuit_key` -> scheduled
+  race-lap-count map used to set `sessions.total_laps` at discovery, so the
+  poll module knows when the race is done. Each entry's lap count comes
+  from an official source (never memory), cited beside the entry. A new
+  season's circuits are added to this table before that season's first
+  race — a missing entry means `total_laps` stays null and no polls open
+  for that race.
 - Two lanes always on, no failover logic: REST (cadence unchanged from the
   POC, the safety net) and MQTT (the eight named timing topics only, never
   `v1/#`; exactly one connection; re-subscribe on every `connect`).
