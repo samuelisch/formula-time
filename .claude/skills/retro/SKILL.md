@@ -18,7 +18,8 @@ Every PR carries three lines: Summary, Friction, Agent. A retro is a read of tho
    - **Went wrong** — every non-"none" Friction line, grouped by cause when two PRs share one.
    - **Try next time** — one concrete change per cause above: a rule for AGENTS.md, a fix to a skill or hook, an issue-body improvement. Name the file that changes.
 4. Paste the script's table at the bottom under **Evidence**.
-5. Apply any "try next time" item that is a one-line change. Prose changes (AGENTS.md, a skill) may share the retro commit. Changes to hooks or `.claude/settings.json` go in their own commit, so the guardrail edit is read line by line and never rides in with the write-up. Larger items become issues.
+5. Commit the retro and open its PR in the same session, before anything else; an untracked retro is not a record.
+6. Apply any "try next time" item that is a one-line change. Prose changes (AGENTS.md, a skill) may share the retro commit. Changes to hooks or `.claude/settings.json` go in their own commit, so the guardrail edit is read line by line and never rides in with the write-up. Larger items become issues.
 
 ## Common mistakes
 
