@@ -50,45 +50,49 @@ jobs:
   smoke:
     needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
-      - name: Wait for the api to answer healthy twice in a row
-        # Two consecutive healthy reads, 30s apart, guard against a health
-        # check that passes once mid-restart and then flaps.
+      - name: Wait for the api to report the released build
+        # The old build answering healthy is "not yet" (issue #212) -- a
+        # release that never picks up the new SHA must be red. Two
+        # consecutive matching reads, 30s apart, guard against a
+        # mid-restart false positive.
         run: |
           api_url="https://api-production-8fbf2.up.railway.app/health"
-          deadline=$((SECONDS + 900))
+          deadline=$((SECONDS + 1200))
           consecutive_ok=0
           while [ "$SECONDS" -lt "$deadline" ]; do
             body="$(curl -s --max-time 10 "$api_url" || true)"
-            if echo "$body" | grep -q '"ok":true'; then
+            build="$(echo "$body" | grep -o '"build":"[^"]*"' | cut -d'"' -f4)"
+            echo "api build=$build released=$GITHUB_SHA"
+            if [ "$build" = "$GITHUB_SHA" ]; then
               consecutive_ok=$((consecutive_ok + 1))
-              echo "healthy read $consecutive_ok: $body"
               if [ "$consecutive_ok" -ge 2 ]; then
-                echo "api healthy on two consecutive reads"
+                echo "api serving the released build on two consecutive reads"
                 exit 0
               fi
               sleep 30
             else
               consecutive_ok=0
-              echo "not yet healthy: $body"
               sleep 10
             fi
           done
-          echo "api did not answer healthy twice within 15 minutes" >&2
+          echo "api never reported build=$GITHUB_SHA within 20 minutes" >&2
           exit 1
 
-      - name: Confirm the Netlify bundle serves
+      - name: Confirm the Netlify bundle carries the released build
         run: |
           site_url="https://strong-marshmallow-9d4572.netlify.app/"
-          status="$(curl -s -o /tmp/site.html -w '%{http_code}' --max-time 10 "$site_url")"
-          if [ "$status" != "200" ]; then
-            echo "expected HTTP 200 from $site_url, got $status" >&2
-            exit 1
-          fi
-          if ! grep -q '<title>FormulaTime</title>' /tmp/site.html; then
-            echo "response did not contain the bundle's <title>" >&2
-            cat /tmp/site.html >&2
-            exit 1
-          fi
-          echo "netlify bundle served with expected title"
+          deadline=$((SECONDS + 1200))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            status="$(curl -s -o /tmp/site.html -w '%{http_code}' --max-time 10 "$site_url")"
+            build="$(grep -o '<meta name="build" content="[^"]*"' /tmp/site.html | sed -E 's/.*content="([^"]*)"/\1/')"
+            echo "site status=$status build=$build released=$GITHUB_SHA"
+            if [ "$status" = "200" ] && [ "$build" = "$GITHUB_SHA" ]; then
+              echo "netlify bundle serving the released build"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "netlify bundle never reported build=$GITHUB_SHA within 20 minutes" >&2
+          exit 1
