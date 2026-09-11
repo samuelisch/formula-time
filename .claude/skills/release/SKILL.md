@@ -30,16 +30,20 @@ fast-forward of `release` to a `main` commit that has already passed CI.
 
 3. Watch `release.yml` run on the pushed commit. It reuses `ci.yml`'s gate
    (the same checks the PR already passed), then a `smoke` job that waits
-   for both deploys and confirms they serve traffic. A failed smoke job is
-   red on the commit; it does not roll anything back — decide by hand
-   whether to fix forward or roll back (step 5).
+   for both deploys and confirms they serve traffic. It also watches
+   `railway-apply.yml` on the same commit (`gh run list --workflow
+   railway-apply.yml --branch release --limit 1`) — a failed apply fails
+   the release. A failed smoke job is red on the commit; it does not roll
+   anything back — decide by hand whether to fix forward or roll back
+   (step 5).
 
 4. Once green, confirm by hand:
 
-   - `https://api-production-8fbf2.up.railway.app/health` — see the
-     load-race skill's `## Verify` section for the request/response shape
-     this project checks a live deploy against.
-   - `https://strong-marshmallow-9d4572.netlify.app/`
+   - `https://api-production-8fbf2.up.railway.app/health` — confirm
+     `"build"` equals the pushed commit SHA, not just that the response is
+     healthy (an old build answering healthy is not a release).
+   - `https://strong-marshmallow-9d4572.netlify.app/` — confirm the page's
+     `<meta name="build">` equals the same SHA.
 
 ## Rules
 
