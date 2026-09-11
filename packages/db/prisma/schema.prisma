@@ -54,6 +54,7 @@ model Event {
   seq         BigInt    @default(autoincrement()) @unique
   session     Session   @relation(fields: [sessionKey], references: [sessionKey])
   @@index([sessionKey, sourceTime])
+  @@index([sessionKey, seq])
   @@map("events")
 }
 
