@@ -3,10 +3,11 @@
 - **Status:** Proposed (accepted when this PR merges)
 - **Date:** 2026-09-11
 - **Owner:** Samuel Chan
-- **Amends:** ADR-0001 §3 (hosting row: "git-push deploy" reads the
-  `release` branch, not `main`) and ADR-0008 (Decision: "The web bundle is
-  built and hosted by Netlify from `apps/web` on push to `main`" becomes
-  "on push to `release`"; deploy previews and branch deploys are off).
+- **Amends:** ADR-0001 §3 (hosting row: "git-push deploy" names no branch;
+  the deploy this repo has built reads `release`, not `main`) and ADR-0008
+  (Decision: "The web bundle is built and hosted by Netlify from
+  `apps/web` on push to `main`" becomes "on push to `release`"; deploy
+  previews and branch deploys are off).
 
 ## Context
 
