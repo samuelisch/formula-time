@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "preview": "vite preview",
-    "test:e2e": "cd ../.. && playwright test --config apps/web/playwright.config.ts"
+    "test:e2e": "cd ../.. && eval \"$(scripts/db-env.sh)\" && playwright test --config apps/web/playwright.config.ts"
   },
   "dependencies": {
     "@formula-time/domain": "workspace:*",

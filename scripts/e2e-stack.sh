@@ -68,17 +68,24 @@ mkdir -p "$STATE_DIR" "$LOG_DIR"
 : >"$PID_FILE"
 
 cd "$REPO_ROOT"
+
+# COMPOSE_PROJECT_NAME/DB_PORT/API_PORT/WEB_PORT for this worktree -- an
+# already-exported value (e.g. from the test:e2e script that spawned this
+# one) always wins, so this is a no-op when they are already set and a
+# worktree-specific computation otherwise. Read unconditionally, before the
+# DATABASE_URL branch below, so the api/web health checks further down
+# always agree with the ports the api and web dev servers actually bind.
+eval "$(scripts/db-env.sh)"
+
 if [ -z "${DATABASE_URL:-}" ]; then
   pnpm db:up
   : >"$LOCAL_DB_MARKER"
 
-  # Export this worktree's own compose Postgres before migrating it: an
-  # already-exported DATABASE_URL/DATABASE_DIRECT_URL in the invoking shell
-  # (left over from other work) must never leak in here and get migrated
-  # instead of the compose Postgres just started. This branch only runs
-  # when neither was already set (checked above), so it is always this
+  # An already-exported DATABASE_URL/DATABASE_DIRECT_URL in the invoking
+  # shell (left over from other work) must never leak in here and get
+  # migrated instead of the compose Postgres just started. This branch only
+  # runs when neither was already set (checked above), so it is always this
   # worktree's own compose Postgres being exported here.
-  eval "$(scripts/db-env.sh)"
   export DATABASE_URL="postgres://formula:formula@localhost:${DB_PORT}/formula_time"
   export DATABASE_DIRECT_URL="$DATABASE_URL"
 
@@ -114,13 +121,13 @@ echo $! >>"$PID_FILE"
 pnpm dev:web >"$LOG_DIR/web.log" 2>&1 &
 echo $! >>"$PID_FILE"
 
-echo "e2e-stack: waiting for the api and web dev server..."
+echo "e2e-stack: waiting for the api (port $API_PORT) and web dev server (port $WEB_PORT)..."
 ready=false
 for _ in $(seq 1 90); do
   api_ok=false
   web_ok=false
-  curl -sf localhost:3000/health >/dev/null 2>&1 && api_ok=true
-  curl -sf localhost:5173 >/dev/null 2>&1 && web_ok=true
+  curl -sf "localhost:${API_PORT}/health" >/dev/null 2>&1 && api_ok=true
+  curl -sf "localhost:${WEB_PORT}" >/dev/null 2>&1 && web_ok=true
   if [ "$api_ok" = true ] && [ "$web_ok" = true ]; then
     ready=true
     break

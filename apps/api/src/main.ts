@@ -16,7 +16,10 @@ import { liveRoutes } from "./routes/live.js";
 import { racesRoutes } from "./routes/races.js";
 import { createSessionLifecycle } from "./session-lifecycle.js";
 
-const port = Number(process.env.PORT ?? 3000);
+// PORT is the platform's own convention (Railway sets it); API_PORT is the
+// worktree-specific dev port from scripts/db-env.sh, read only when PORT is
+// absent so a deployed service (which always sets PORT) is unaffected.
+const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3000);
 const app = Fastify({ logger: true });
 
 // The web bundle is hosted on its own origin (ADR-0008); allow it here,
