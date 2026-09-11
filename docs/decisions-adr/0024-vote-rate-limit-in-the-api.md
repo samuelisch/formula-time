@@ -1,4 +1,4 @@
-# ADR-0022 — Vote rate limit lives in the api, not the platform edge
+# ADR-0024 — Vote rate limit lives in the api, not the platform edge
 
 - **Status:** Proposed (accepted when this PR merges)
 - **Date:** 2026-09-11

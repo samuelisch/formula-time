@@ -43,7 +43,7 @@ One process holding:
   whichever session the projector currently folds (live, the next
   upcoming, or, with neither, the most recent finished one, per
   `pickSession`); it never touches state itself.
-- `Fastify({ trustProxy: TRUST_PROXY })` (`trust-proxy.ts`, ADR-0022):
+- `Fastify({ trustProxy: TRUST_PROXY })` (`trust-proxy.ts`, ADR-0024):
   Railway connects to this container over its own internal, private
   network, so trusting the private address ranges (`loopback, linklocal,
   uniquelocal`) resolves `request.ip` to the real client address from
