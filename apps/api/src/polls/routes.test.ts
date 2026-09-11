@@ -22,12 +22,13 @@ async function build(): Promise<FastifyInstance> {
   return app;
 }
 
-function vote(app: FastifyInstance, origin?: string) {
+function vote(app: FastifyInstance, origin?: string, remoteAddress = "203.0.113.1") {
   return app.inject({
     method: "POST",
     url: "/api/vote",
     headers: origin === undefined ? {} : { origin },
     payload: { poll_id: "unknown", option_id: "y" },
+    remoteAddress,
   });
 }
 
@@ -112,5 +113,40 @@ describe("POST /api/vote — viewer cookie attributes per env (ADR-0015)", () =>
     const setCookie = String(res.headers["set-cookie"]);
     expect(setCookie).toContain("SameSite=Lax");
     expect(setCookie).not.toContain("Secure");
+  });
+});
+
+describe("POST /api/vote — rate limit, per client IP", () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    app = await build();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    delete process.env.CORS_ORIGIN;
+    delete process.env.NODE_ENV;
+  });
+
+  it("the 61st vote within a minute from one IP gets 429 with the error shape and retry-after", async () => {
+    for (let i = 0; i < 60; i++) {
+      const res = await vote(app, undefined, "203.0.113.9");
+      expect(res.statusCode).toBe(404); // past the limiter: PollModule.vote() answers 404, unknown poll
+    }
+
+    const res = await vote(app, undefined, "203.0.113.9");
+    expect(res.statusCode).toBe(429);
+    expect(res.json()).toEqual({ error: "rate limited" });
+    expect(res.headers["retry-after"]).toBeDefined();
+  });
+
+  it("a different IP is unaffected by another IP's limit", async () => {
+    for (let i = 0; i < 60; i++) {
+      await vote(app, undefined, "203.0.113.10");
+    }
+
+    const res = await vote(app, undefined, "203.0.113.11");
+    expect(res.statusCode).toBe(404);
   });
 });

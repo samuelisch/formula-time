@@ -20,7 +20,11 @@ import { createSessionLifecycle } from "./session-lifecycle.js";
 // worktree-specific dev port from scripts/db-env.sh, read only when PORT is
 // absent so a deployed service (which always sets PORT) is unaffected.
 const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3000);
-const app = Fastify({ logger: true });
+// trustProxy: Railway terminates TLS at its own proxy and forwards the
+// client address in X-Forwarded-For; without this every request would
+// share the proxy's address, and the vote route's per-IP rate limit
+// would throttle every client together instead of individually.
+const app = Fastify({ logger: true, trustProxy: true });
 
 // The web bundle is hosted on its own origin (ADR-0008); allow it here,
 // before any route, so the preflight and the hijacked SSE route see it.
