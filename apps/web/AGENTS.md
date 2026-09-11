@@ -35,7 +35,10 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   `import()` in `src/align/capture.ts` so ordinary viewers never download
   it; worker and core paths are left at the library's CDN defaults --
   Netlify serves this app's bundle, but the OCR worker itself comes from
-  jsDelivr at runtime.
+  jsDelivr at runtime. From version 6 on, `recognize()` returns only the
+  output formats explicitly requested (default `{ text: true }`, no
+  `data.lines`); a caller that needs line geometry passes
+  `{ text: true, blocks: true }` and reads `data.blocks[].paragraphs[].lines[]`.
 - Spoiler safety: a delayed viewer never sees a tally or a result before
   their own lap reaches the lock lap.
 - Scope rule: the UI stays plain until the delivery layer is proven. No

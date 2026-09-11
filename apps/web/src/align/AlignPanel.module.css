@@ -61,6 +61,19 @@
   font-size: 0.8rem;
 }
 
+.diagnostics {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.history {
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+
 .preview {
   width: 100%;
   border-radius: 0.35rem;

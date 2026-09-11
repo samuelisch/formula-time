@@ -4,7 +4,7 @@ import {
   chooseAnchorTarget, compensateTarget,
   redFractionGrid, createLightsOutDetector, countLit, changedFraction,
   createOffsetTracker, predictFlipWall,
-  findLapLine, cropFromBBox,
+  findLapLine, cropFromBBox, summarizeVerdict,
 } from "./core.ts";
 
 describe("parseLapText: OCR text is noisy; the parser is the guard", () => {
@@ -341,7 +341,13 @@ describe("predictFlipWall", () => {
   });
 });
 
-describe("findLapLine: locate the HUD counter among full-frame OCR lines", () => {
+describe("findLapLine: locate the HUD counter among full-frame OCR blocks", () => {
+  // Version 7's recognize({ blocks: true }) shape (measured against the
+  // installed library, PR body has the raw keys): Page.blocks[].paragraphs[].lines[].
+  function blocksOf(lines: { text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }[]) {
+    return [{ paragraphs: [{ lines }] }];
+  }
+
   const lines = [
     { text: "PIRELLI", bbox: { x0: 10, y0: 10, x1: 80, y1: 30 } },
     { text: "LAP 34/72", bbox: { x0: 100, y0: 40, x1: 220, y1: 70 } },
@@ -349,18 +355,54 @@ describe("findLapLine: locate the HUD counter among full-frame OCR lines", () =>
   ];
 
   it("finds the LAP N/M line", () => {
-    const hit = findLapLine(lines);
+    const hit = findLapLine(blocksOf(lines));
     expect(hit).toBeTruthy();
     expect(hit!.bbox.x0).toBe(100);
   });
   it("no counters -> null", () => {
-    expect(findLapLine([{ text: "no counters here", bbox: { x0: 0, y0: 0, x1: 1, y1: 1 } }])).toBeNull();
+    expect(findLapLine(blocksOf([{ text: "no counters here", bbox: { x0: 0, y0: 0, x1: 1, y1: 1 } }]))).toBeNull();
   });
-  it("empty lines -> null", () => {
+  it("empty blocks -> null", () => {
     expect(findLapLine([])).toBeNull();
   });
+  it("null blocks (page has no lines at all) -> null", () => {
+    expect(findLapLine(null)).toBeNull();
+  });
+  it("a block with no paragraphs -> null, doesn't throw", () => {
+    expect(findLapLine([{ paragraphs: [] }])).toBeNull();
+  });
   it("nonsense lap/total rejected by the parser", () => {
-    expect(findLapLine([{ text: "LAP 90/72", bbox: { x0: 0, y0: 0, x1: 1, y1: 1 } }])).toBeNull();
+    expect(findLapLine(blocksOf([{ text: "LAP 90/72", bbox: { x0: 0, y0: 0, x1: 1, y1: 1 } }]))).toBeNull();
+  });
+});
+
+describe("summarizeVerdict: the status sentence policy.ts produces, collapsed to a diagnostics-history label", () => {
+  it("a genuine lock", () => {
+    expect(summarizeVerdict("Locked on lap 3 — aligning at the next lap change")).toBe("locked");
+  });
+  it("a rejected misread names the expected lap", () => {
+    expect(summarizeVerdict("Seeing lap 9 on screen, expected 4 — will re-lock if it persists")).toBe("rejected: expected 4");
+  });
+  it("no anchor yet names the lap", () => {
+    expect(summarizeVerdict("Lap 5 — no anchor yet, will retry at the next lap")).toBe("no anchor for lap 5");
+  });
+  it("a lights-out apply with no anchor yet", () => {
+    expect(summarizeVerdict("Lights out — no anchor yet, will retry at the next lap")).toBe("no anchor for lights out");
+  });
+  it("an applied flip, seeded", () => {
+    expect(summarizeVerdict("Lap 6: seeded — delay 1.2s")).toBe("flip accepted");
+  });
+  it("an applied flip, accepted", () => {
+    expect(summarizeVerdict("Lap 7: accepted — delay 1.2s")).toBe("flip accepted");
+  });
+  it("an applied flip, re-locked", () => {
+    expect(summarizeVerdict("Lap 8: re-locked — delay 1.2s")).toBe("flip accepted");
+  });
+  it("an applied flip, discarded", () => {
+    expect(summarizeVerdict("Lap 9: discarded (too far off) — delay 1.2s")).toBe("flip discarded");
+  });
+  it("a lights-out apply, accepted", () => {
+    expect(summarizeVerdict("Lights out: seeded — delay 0.1s")).toBe("lights out accepted");
   });
 });
 

@@ -1,9 +1,13 @@
-// Covers two `useAligner.ts` cases that `AlignPanel.test.tsx` can't reach
-// (it only ever exercises "starting" and a rejected `getDisplayMedia`): the
-// OCR worker leak on stop/unmount, and the stop-during-setup race. Drives
-// `start()`/`stop()` directly via `renderHook`, with every capture/OCR touch
-// point faked through `UseAlignerOptions` so the async setup chain can be
-// paused and resumed by hand.
+// Covers `useAligner.ts` cases that `AlignPanel.test.tsx` can't reach (it
+// only ever exercises "starting" and a rejected `getDisplayMedia`): the OCR
+// worker leak on stop/unmount, the stop-during-setup race, and the
+// diagnostics state's own initial shape. Drives `start()`/`stop()` directly
+// via `renderHook`, with every capture/OCR touch point faked through
+// `UseAlignerOptions` so the async setup chain can be paused and resumed by
+// hand. The onSample/history plumbing itself -- what turns a recognize()
+// attempt or a lap verdict into diagnostics state -- is exercised at the
+// unit level in useOcrLoop.test.ts and core.test.ts (`summarizeVerdict`),
+// not duplicated here.
 import { act, renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -66,7 +70,7 @@ function fakeStream(): { stream: MediaStream; track: MediaStreamTrack } {
 function fakeWorker(): OcrWorker {
   return {
     setParameters: vi.fn().mockResolvedValue(undefined),
-    recognize: vi.fn().mockResolvedValue({ data: { text: "", lines: [] } }),
+    recognize: vi.fn().mockResolvedValue({ data: { text: "", blocks: null } }),
     terminate: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -155,6 +159,37 @@ describe("useAligner", () => {
     unmount();
 
     expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  // --- Diagnostics initial shape -----------------------------------------
+
+  it("starts with empty diagnostics once capture is running -- no sample yet", async () => {
+    const worker = fakeWorker();
+    const { stream } = fakeStream();
+    const { result } = renderHook(
+      () =>
+        useAligner({
+          loadTesseract: () => Promise.resolve(fakeTesseract),
+          captureDisplayMedia: () => Promise.resolve(stream),
+          createOcrWorker: () => Promise.resolve(worker),
+        }),
+      { wrapper: LiveWrapper },
+    );
+
+    await act(async () => {
+      result.current.start();
+      await flush();
+    });
+    expect(result.current.phase).toBe("running");
+
+    expect(result.current.diagnostics).toEqual({
+      lastText: null,
+      lastError: null,
+      lastSampleAt: null,
+      attempts: 0,
+      accepted: 0,
+      history: [],
+    });
   });
 
   // --- Stop-during-setup race (Bug) -------------------------------------------

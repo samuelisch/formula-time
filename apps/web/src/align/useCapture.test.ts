@@ -23,7 +23,7 @@ function fakeStream(): MediaStream {
 function fakeWorker(): OcrWorker {
   return {
     setParameters: vi.fn().mockResolvedValue(undefined),
-    recognize: vi.fn().mockResolvedValue({ data: { text: "", lines: [] } }),
+    recognize: vi.fn().mockResolvedValue({ data: { text: "", blocks: null } }),
     terminate: vi.fn().mockResolvedValue(undefined),
   };
 }

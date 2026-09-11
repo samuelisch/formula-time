@@ -345,17 +345,35 @@ export function predictFlipWall(anchorIso: string | null | undefined, offsetMs: 
 // Tesseract reports WHERE each recognized line sits. Scan a full-frame OCR
 // result for the first line whose text parses as LAP N/M; its bbox becomes
 // the crop, padded so digit-width changes (9 -> 10, 99 -> 100) stay inside.
+//
+// Shape is the real library's `recognize(image, {}, { blocks: true })`
+// (tesseract.js 7 `Page`/`Block`/`Paragraph`/`Line`, `src/index.d.ts`):
+// lines don't sit at the page's top level, only under
+// `blocks[].paragraphs[].lines[]`. The default `{ text: true }` output
+// used elsewhere in this module never populates `blocks` at all.
 
 export interface OcrLine {
   text: string;
   bbox: { x0: number; y0: number; x1: number; y1: number };
 }
+export interface OcrParagraph {
+  lines: ReadonlyArray<OcrLine>;
+}
+export interface OcrBlock {
+  paragraphs: ReadonlyArray<OcrParagraph>;
+}
 
-export function findLapLine(lines: ReadonlyArray<OcrLine> | null | undefined): OcrLine | null {
-  if (!Array.isArray(lines)) return null;
-  for (const line of lines) {
-    if (!line || typeof line.text !== "string" || !line.bbox) continue;
-    if (parseLapText(line.text) !== null) return { text: line.text, bbox: line.bbox };
+export function findLapLine(blocks: ReadonlyArray<OcrBlock> | null | undefined): OcrLine | null {
+  if (!Array.isArray(blocks)) return null;
+  for (const block of blocks) {
+    if (!block || !Array.isArray(block.paragraphs)) continue;
+    for (const paragraph of block.paragraphs) {
+      if (!paragraph || !Array.isArray(paragraph.lines)) continue;
+      for (const line of paragraph.lines) {
+        if (!line || typeof line.text !== "string" || !line.bbox) continue;
+        if (parseLapText(line.text) !== null) return { text: line.text, bbox: line.bbox };
+      }
+    }
   }
   return null;
 }
@@ -382,4 +400,34 @@ export function cropFromBBox(
     w: (right - left) / frameWidth,
     h: (bottom - top) / frameHeight,
   };
+}
+
+// --- Diagnostics history label ---------------------------------------
+// The status line policy.ts produces (`applyReading`/`createLapVerdictPolicy`)
+// is a full sentence meant for the one-line status; the diagnostics panel
+// needs a short label per verdict for its rolling history instead. Rather
+// than duplicate the verdict computation, this collapses the SAME sentence
+// down to a fixed vocabulary -- it must track the sentence shapes those two
+// functions produce, all of which stay stable unless that policy changes.
+
+export function summarizeVerdict(statusLine: string): string {
+  const noAnchorMatch = statusLine.match(/^(.*) — no anchor yet, will retry at the next lap$/);
+  if (noAnchorMatch) {
+    const label = noAnchorMatch[1]!;
+    const lapMatch = label.match(/^Lap (\d+)$/);
+    return lapMatch ? `no anchor for lap ${lapMatch[1]}` : `no anchor for ${label.toLowerCase()}`;
+  }
+  const lockedMatch = statusLine.match(/^Locked on lap \d+ — aligning at the next lap change$/);
+  if (lockedMatch) return "locked";
+  const rejectedMatch = statusLine.match(/^Seeing lap \d+ on screen, expected (\d+) — will re-lock if it persists$/);
+  if (rejectedMatch) return `rejected: expected ${rejectedMatch[1]}`;
+  const appliedMatch = statusLine.match(/^(.*): (seeded|accepted|re-locked|discarded) /);
+  if (appliedMatch) {
+    const label = appliedMatch[1]!;
+    const verdict = appliedMatch[2]!;
+    const isLights = label.startsWith("Lights") || label.startsWith("Restart lights");
+    const subject = isLights ? "lights out" : "flip";
+    return verdict === "discarded" ? `${subject} discarded` : `${subject} accepted`;
+  }
+  return statusLine;
 }

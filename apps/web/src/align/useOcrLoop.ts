@@ -2,9 +2,10 @@
 // SAMPLE_MS sampling timer, the pixel-diff gate, `findLapLine`/
 // `parseLapText` per sample, auto-locating the HUD counter, and whole-frame
 // lights-out pixel detection. Emits raw readings (a lap number, a
-// lights-out fire) through `onLapReading`/`onLightsOut` -- it never applies
-// a reading to a delay itself; `applyOffset.ts` and the caller
-// (`useAligner.ts`) own that policy.
+// lights-out fire) through `onLapReading`/`onLightsOut`, and every OCR
+// attempt (success or failure) through `onSample` for the diagnostics line
+// -- it never applies a reading to a delay itself; `applyOffset.ts` and the
+// caller (`useAligner.ts`) own that policy.
 import { useCallback, useLayoutEffect, useRef } from "react";
 
 import {
@@ -20,6 +21,12 @@ import { createLightsGate, NO_READ_NUDGE_STATUS, SAMPLE_MS, shouldNudgeNoRead, t
 
 const AUTO_DETECT_MS = 3_000;
 
+/** One `recognize()` attempt in the lap-counter OCR loop -- the raw text
+ * (whether or not it parsed as LAP N/M) on success, or the rejection's
+ * message when the promise rejects. Drives the diagnostics line; this
+ * hook does no formatting of its own. */
+export type OcrSample = { text: string; parsed: boolean } | { error: string };
+
 export interface UseOcrLoopOptions {
   /** The live video frame to sample -- `useCapture`'s `frame()`. */
   frame: () => HTMLVideoElement;
@@ -32,6 +39,10 @@ export interface UseOcrLoopOptions {
   /** The lights-out pixel detector fired at `frameAt`; `isRestart`
    * distinguishes a restart from the original race start. */
   onLightsOut: (frameAt: number, isRestart: boolean) => void;
+  /** Every crop-recognize attempt, success or failure -- never the
+   * auto-detect scan's own recognize() calls, which are a separate,
+   * pre-lock concern. */
+  onSample: (sample: OcrSample) => void;
   leaderLap: number;
   sessionStatus: string | null | undefined;
 }
@@ -124,8 +135,8 @@ export function useOcrLoop(options: UseOcrLoopOptions): OcrLoopControls {
       const scale = Math.min(1.0, 1600 / video.videoWidth) * (zoomTop ? 2 : 1);
       const srcH = zoomTop ? Math.round(video.videoHeight / 2) : video.videoHeight;
       drawInto(detectCanvas, video, 0, 0, video.videoWidth, srcH, video.videoWidth * scale, srcH * scale);
-      const result = await worker.recognize(detectCanvas);
-      const hit = findLapLine(result.data.lines);
+      const result = await worker.recognize(detectCanvas, {}, { text: true, blocks: true });
+      const hit = findLapLine(result.data.blocks);
       const found = hit
         ? cropFromBBox(
             {
@@ -211,8 +222,12 @@ export function useOcrLoop(options: UseOcrLoopOptions): OcrLoopControls {
         try {
           const result = await worker.recognize(recognizeCanvas);
           reading = parseLapText(result.data.text);
-        } catch {
-          /* transient OCR failure -- the next sample retries */
+          liveRef.current.onSample({ text: result.data.text, parsed: reading !== null });
+        } catch (error) {
+          // Surfaced to the diagnostics line instead of swallowed -- the
+          // next sample still retries, but a persistent rejection (e.g. the
+          // worker crashed) is now visible rather than silent.
+          liveRef.current.onSample({ error: error instanceof Error ? error.message : "OCR failed" });
         }
         if (reading && !stoppedRef.current) {
           everReadRef.current = true;
