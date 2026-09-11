@@ -9,7 +9,7 @@ export interface HealthWithBuild extends HealthResponse {
 
 export function healthWithBuild(
   health: HealthResponse,
-  env: Partial<Pick<NodeJS.ProcessEnv, "GIT_SHA">> = process.env,
+  env: Partial<Pick<NodeJS.ProcessEnv, "GIT_SHA" | "RAILWAY_GIT_COMMIT_SHA">> = process.env,
 ): HealthWithBuild {
-  return { ...health, build: env.GIT_SHA ?? "unknown" };
+  return { ...health, build: env.GIT_SHA ?? env.RAILWAY_GIT_COMMIT_SHA ?? "unknown" };
 }

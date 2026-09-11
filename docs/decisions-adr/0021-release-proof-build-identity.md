@@ -17,10 +17,14 @@ passed as a valid release (issue #212).
 
 ## Decision
 
-- The api's `/health` gains `"build": "<git sha>"`, read from the `GIT_SHA`
-  env var the Dockerfile sets from Railway's `RAILWAY_GIT_COMMIT_SHA` build
-  arg. The web bundle embeds the same via `VITE_GIT_SHA` (from Netlify's
-  `COMMIT_REF`) as `<meta name="build">` in `index.html`.
+- The api's `/health` gains `"build": "<git sha>"`, read as
+  `process.env.GIT_SHA ?? process.env.RAILWAY_GIT_COMMIT_SHA ?? "unknown"`
+  -- `GIT_SHA` is an explicit override for local runs and tests; Railway's
+  own runtime variable is what production reports, confirmed present in
+  both `api` and `ingest` containers by measurement (see Consequences).
+  The web bundle embeds the same via `VITE_GIT_SHA` (from Netlify's
+  `COMMIT_REF` -- https://docs.netlify.com/build/configure-builds/environment-variables/)
+  as `<meta name="build">` in `index.html`.
 - `release.yml`'s `smoke` job's existing two steps now wait until the api
   reports `build` equal to `$GITHUB_SHA` (two consecutive reads) and the
   site's build meta equals `$GITHUB_SHA`, instead of only checking
@@ -35,5 +39,19 @@ passed as a valid release (issue #212).
   passing on a bundle with no build identity.
 - `.claude/skills/release/SKILL.md`'s manual verification step now checks
   build identity, not just that the endpoints answer.
+- Measured on the live services (`railway ssh -s api -- env` / `-s
+  ingest -- env`, 2026-09-11): `RAILWAY_GIT_COMMIT_SHA`,
+  `RAILWAY_GIT_BRANCH`, and the other `RAILWAY_GIT_*` variables are
+  present at runtime in both containers with no build-time plumbing
+  needed -- this is why `/health` reads `RAILWAY_GIT_COMMIT_SHA` directly
+  instead of routing it through a Dockerfile `ARG`/`ENV` (reverted from
+  an earlier version of this PR).
+- The api's latest build log reads "load build definition from
+  Dockerfile": with `build.builder` unset in `.railway/railway.ts`,
+  Railway auto-detects the root `Dockerfile`. ADR-0019's sentence ("no
+  `build.builder` here... declaring \"DOCKERFILE\" was drift, never
+  actually applied") means the builder is not *declared* in the IaC
+  file, not that Railway isn't using the Dockerfile -- quoted here as a
+  measured fact; this PR does not amend or edit ADR-0019's text itself.
 
 ADRs affected: 0019 (Decision: release.yml's smoke job content).

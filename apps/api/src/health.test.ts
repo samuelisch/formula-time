@@ -12,4 +12,18 @@ describe("healthWithBuild", () => {
   test('falls back to "unknown" when GIT_SHA is unset', () => {
     expect(healthWithBuild(health, {})).toEqual({ ...health, build: "unknown" });
   });
+
+  test("falls back to RAILWAY_GIT_COMMIT_SHA when GIT_SHA is unset", () => {
+    expect(healthWithBuild(health, { RAILWAY_GIT_COMMIT_SHA: "railwaysha" })).toEqual({
+      ...health,
+      build: "railwaysha",
+    });
+  });
+
+  test("GIT_SHA takes precedence over RAILWAY_GIT_COMMIT_SHA when both are set", () => {
+    expect(healthWithBuild(health, { GIT_SHA: "explicit", RAILWAY_GIT_COMMIT_SHA: "railwaysha" })).toEqual({
+      ...health,
+      build: "explicit",
+    });
+  });
 });

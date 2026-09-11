@@ -17,14 +17,6 @@ RUN pnpm build
 # devDependencies: the `prisma` CLI is one, and `migrate deploy` needs it
 # per ADR-0005) and every package's `dist`. Image size is not a goal yet.
 FROM node:24-slim
-# GIT_SHA identifies the running build: /health reports it so a release's
-# smoke check can tell this build from the previous one. Railway passes
-# the commit SHA as the build arg RAILWAY_GIT_COMMIT_SHA; GIT_SHA defaults
-# to that but can be overridden explicitly (e.g. a local
-# `docker build --build-arg GIT_SHA=...`).
-ARG RAILWAY_GIT_COMMIT_SHA
-ARG GIT_SHA=${RAILWAY_GIT_COMMIT_SHA}
-ENV GIT_SHA=${GIT_SHA}
 RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
 WORKDIR /app
 COPY --from=build /app /app
