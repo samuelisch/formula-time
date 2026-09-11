@@ -1,9 +1,10 @@
 import Fastify from "fastify";
 import { describe, expect, test, vi } from "vitest";
 
-import type { Fanout } from "../fanout/fanout.js";
-import { liveEventsHandler, liveRoutes, liveSnapshotHandler } from "./live.js";
+import { liveEventsHandler, liveRoutes, liveSnapshotHandler, type LiveFanout } from "./live.js";
 
+/** A request satisfying `LiveEventsRequest` (`headers`/`query`/`raw.on`)
+ * plus a test-only `emitClose()` to simulate the client disconnecting. */
 function fakeRequest(acceptEncoding: string | undefined, query: Record<string, unknown> = {}) {
   const closeHandlers: Array<() => void> = [];
   return {
@@ -17,12 +18,12 @@ function fakeRequest(acceptEncoding: string | undefined, query: Record<string, u
       },
       emitClose: () => closeHandlers.forEach((fn) => fn()),
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any;
+  };
 }
 
+/** A reply satisfying both `LiveEventsReply` and `LiveSnapshotReply`. */
 function fakeReply(decorated: Record<string, string> = {}) {
-  const raw = { writeHead: vi.fn() };
+  const raw = { writeHead: vi.fn(), write: vi.fn(() => true), writableLength: 0, destroy: vi.fn() };
   return {
     hijack: vi.fn(),
     raw,
@@ -30,13 +31,12 @@ function fakeReply(decorated: Record<string, string> = {}) {
     header: vi.fn(),
     code: vi.fn(),
     send: vi.fn((body: unknown) => body),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any;
+  };
 }
 
 describe("GET /live/events handler", () => {
   test("cors headers the plugin decorated ride along on the hijacked head; vary is joined", () => {
-    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const fanout: Pick<LiveFanout, "join" | "remove"> = { join: vi.fn(async () => {}), remove: vi.fn() };
     const reply = fakeReply({
       "access-control-allow-origin": "https://web.test",
       "access-control-allow-credentials": "true",
@@ -44,8 +44,7 @@ describe("GET /live/events handler", () => {
     });
     const request = fakeRequest(undefined);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    liveEventsHandler(fanout as any)(request, reply);
+    liveEventsHandler(fanout)(request, reply);
 
     expect(reply.raw.writeHead).toHaveBeenCalledWith(200, {
       "content-type": "text/event-stream; charset=utf-8",
@@ -59,23 +58,21 @@ describe("GET /live/events handler", () => {
   });
 
   test("hijacks the reply and never touches the projector -- only the fanout", () => {
-    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const fanout: Pick<LiveFanout, "join" | "remove"> = { join: vi.fn(async () => {}), remove: vi.fn() };
     const reply = fakeReply();
     const request = fakeRequest("gzip, deflate, br");
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    liveEventsHandler(fanout as any)(request, reply);
+    liveEventsHandler(fanout)(request, reply);
 
     expect(reply.hijack).toHaveBeenCalledTimes(1);
   });
 
   test("gzip accept-encoding: sets the gzip headers and joins with encoding 'gzip'", () => {
-    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const fanout: Pick<LiveFanout, "join" | "remove"> = { join: vi.fn(async () => {}), remove: vi.fn() };
     const reply = fakeReply();
     const request = fakeRequest("gzip, deflate, br");
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    liveEventsHandler(fanout as any)(request, reply);
+    liveEventsHandler(fanout)(request, reply);
 
     expect(reply.raw.writeHead).toHaveBeenCalledWith(200, {
       "content-type": "text/event-stream; charset=utf-8",
@@ -89,12 +86,11 @@ describe("GET /live/events handler", () => {
   });
 
   test("no gzip in accept-encoding: plain headers (no content-encoding), joins with encoding 'plain'", () => {
-    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const fanout: Pick<LiveFanout, "join" | "remove"> = { join: vi.fn(async () => {}), remove: vi.fn() };
     const reply = fakeReply();
     const request = fakeRequest("identity");
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    liveEventsHandler(fanout as any)(request, reply);
+    liveEventsHandler(fanout)(request, reply);
 
     expect(reply.raw.writeHead).toHaveBeenCalledWith(200, {
       "content-type": "text/event-stream; charset=utf-8",
@@ -107,46 +103,42 @@ describe("GET /live/events handler", () => {
   });
 
   test("missing accept-encoding header: treated as plain", () => {
-    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const fanout: Pick<LiveFanout, "join" | "remove"> = { join: vi.fn(async () => {}), remove: vi.fn() };
     const reply = fakeReply();
     const request = fakeRequest(undefined);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    liveEventsHandler(fanout as any)(request, reply);
+    liveEventsHandler(fanout)(request, reply);
 
     expect(fanout.join).toHaveBeenCalledWith(reply.raw, "plain", "state");
   });
 
   test("removes the socket from the fanout when the client closes the connection", () => {
-    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const fanout: Pick<LiveFanout, "join" | "remove"> = { join: vi.fn(async () => {}), remove: vi.fn() };
     const reply = fakeReply();
     const request = fakeRequest("gzip");
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    liveEventsHandler(fanout as any)(request, reply);
+    liveEventsHandler(fanout)(request, reply);
     request.raw.emitClose();
 
     expect(fanout.remove).toHaveBeenCalledWith(reply.raw);
   });
 
   test("?format=delta selects the delta tag", () => {
-    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const fanout: Pick<LiveFanout, "join" | "remove"> = { join: vi.fn(async () => {}), remove: vi.fn() };
     const reply = fakeReply();
     const request = fakeRequest("gzip", { format: "delta" });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    liveEventsHandler(fanout as any)(request, reply);
+    liveEventsHandler(fanout)(request, reply);
 
     expect(fanout.join).toHaveBeenCalledWith(reply.raw, "gzip", "delta");
   });
 
   test("an unrecognised format falls back to the default 'state' tag", () => {
-    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const fanout: Pick<LiveFanout, "join" | "remove"> = { join: vi.fn(async () => {}), remove: vi.fn() };
     const reply = fakeReply();
     const request = fakeRequest("gzip", { format: "something-else" });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    liveEventsHandler(fanout as any)(request, reply);
+    liveEventsHandler(fanout)(request, reply);
 
     expect(fanout.join).toHaveBeenCalledWith(reply.raw, "gzip", "state");
   });
@@ -168,12 +160,10 @@ describe("GET /live/events handler", () => {
 
 describe("GET /live/snapshot handler", () => {
   test("503 with { error } before the first push", () => {
-    const fanout = { snapshotJson: vi.fn(() => null) };
+    const fanout: Pick<LiveFanout, "snapshotJson"> = { snapshotJson: vi.fn(() => null) };
     const reply = fakeReply();
-    const request = fakeRequest(undefined);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = liveSnapshotHandler(fanout as any)(request, reply);
+    const result = liveSnapshotHandler(fanout)(undefined, reply);
 
     expect(reply.code).toHaveBeenCalledWith(503);
     expect(reply.header).toHaveBeenCalledWith("cache-control", "no-store");
@@ -182,12 +172,10 @@ describe("GET /live/snapshot handler", () => {
 
   test("returns the newest state push's JSON, verbatim, with no-store", () => {
     const json = JSON.stringify({ type: "state", seq: "1" });
-    const fanout = { snapshotJson: vi.fn(() => json) };
+    const fanout: Pick<LiveFanout, "snapshotJson"> = { snapshotJson: vi.fn(() => json) };
     const reply = fakeReply();
-    const request = fakeRequest(undefined);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    liveSnapshotHandler(fanout as any)(request, reply);
+    liveSnapshotHandler(fanout)(undefined, reply);
 
     expect(reply.header).toHaveBeenCalledWith("cache-control", "no-store");
     expect(reply.header).toHaveBeenCalledWith("content-type", "application/json");
@@ -198,10 +186,9 @@ describe("GET /live/snapshot handler", () => {
 
 describe("liveRoutes plugin", () => {
   test("registered with prefix /api: the public path is /api/live/events, not /live/events", async () => {
-    const fanout = { join: vi.fn(async () => {}), remove: vi.fn() };
+    const fanout: LiveFanout = { join: vi.fn(async () => {}), remove: vi.fn(), snapshotJson: vi.fn(() => null) };
     const app = Fastify();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await app.register(liveRoutes, { prefix: "/api", fanout: fanout as any as Fanout });
+    await app.register(liveRoutes, { prefix: "/api", fanout });
     await app.ready();
 
     expect(app.hasRoute({ method: "GET", url: "/api/live/events" })).toBe(true);
@@ -211,10 +198,9 @@ describe("liveRoutes plugin", () => {
   });
 
   test("registered with prefix /api: GET /api/live/snapshot exists", async () => {
-    const fanout = { join: vi.fn(async () => {}), remove: vi.fn(), snapshotJson: vi.fn(() => null) };
+    const fanout: LiveFanout = { join: vi.fn(async () => {}), remove: vi.fn(), snapshotJson: vi.fn(() => null) };
     const app = Fastify();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await app.register(liveRoutes, { prefix: "/api", fanout: fanout as any as Fanout });
+    await app.register(liveRoutes, { prefix: "/api", fanout });
     await app.ready();
 
     expect(app.hasRoute({ method: "GET", url: "/api/live/snapshot" })).toBe(true);

@@ -10,11 +10,24 @@
 // race, so the fold has something to serve)." `now` is injected so tests
 // are deterministic. Restart always resolves the same way -- there is no
 // persisted "current session" state.
-import type { PrismaClient, Session } from "@formula-time/db";
+import type { Session } from "@formula-time/db";
 
 const GRACE_MS = 30 * 60 * 1000;
 
-export async function pickSession(db: PrismaClient, now: () => number = () => Date.now()): Promise<Session | null> {
+/** The slice of `PrismaClient` this module actually calls -- narrower than
+ * the full client so a test can hand it a plain in-memory fake instead of a
+ * live database (apps/api/AGENTS.md "Postgres is touched ... never per
+ * viewer", unrelated here but the same narrowing habit). */
+export interface SessionsDb {
+  session: {
+    findFirst(args: {
+      where: { status: Session["status"]; dateEnd?: { gte: Date } };
+      orderBy: { dateStart: "asc" | "desc" };
+    }): Promise<Session | null>;
+  };
+}
+
+export async function pickSession(db: SessionsDb, now: () => number = () => Date.now()): Promise<Session | null> {
   const live = await db.session.findFirst({
     where: { status: "live" },
     orderBy: { dateStart: "desc" },

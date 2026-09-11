@@ -15,7 +15,6 @@
 // /api/live/snapshot` need it even with zero legacy sockets attached), plus
 // the `delta` frame only when a delta socket is attached and this is not a
 // keyframe tick.
-import type { ServerResponse } from "node:http";
 import { constants as zlibConstants, createDeflateRaw, type DeflateRaw } from "node:zlib";
 
 import type { RaceState } from "@formula-time/domain";
@@ -54,8 +53,18 @@ function isStateLike(payload: object): payload is StateLike {
   );
 }
 
+/** The slice of `http.ServerResponse` the fan-out actually writes to --
+ * narrower than the full response so a test can hand it a plain in-memory
+ * sink instead of a real socket. A real `ServerResponse` (`Writable`)
+ * satisfies this already; nothing changes at the production call site. */
+export interface FanoutSink {
+  write(chunk: Buffer): boolean;
+  writableLength: number;
+  destroy(): unknown;
+}
+
 interface Socket {
-  res: ServerResponse;
+  res: FanoutSink;
   encoding: Encoding;
   format: Format;
 }
@@ -154,7 +163,7 @@ export class Fanout {
    * is the same"); a delta socket's subsequent pushes are deltas. A socket
    * joining before any push at all gets the `catching_up` status frame,
    * regardless of format, same as today. */
-  public async join(res: ServerResponse, encoding: Encoding, format: Format = "state"): Promise<void> {
+  public async join(res: FanoutSink, encoding: Encoding, format: Format = "state"): Promise<void> {
     if (encoding === "gzip") {
       res.write(GZIP_HEADER);
     }
@@ -179,7 +188,7 @@ export class Fanout {
     return this.latestStateJson;
   }
 
-  public remove(res: ServerResponse): void {
+  public remove(res: FanoutSink): void {
     for (const socket of this.sockets) {
       if (socket.res === res) {
         this.sockets.delete(socket);
