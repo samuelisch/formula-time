@@ -39,7 +39,6 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(gh pr create *)",
             "command": "\"$CLAUDE_PROJECT_DIR/scripts/check-pr-body.sh\""
           }
         ]
