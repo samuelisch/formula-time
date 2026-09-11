@@ -1,11 +1,13 @@
 name: Railway config apply
 
-# Applies the plan pinned on the merged PR that last touched .railway/**.
-# Re-plans nothing; fails if the environment or the merged tree drifted
-# from what was planned (railwayapp/config's staleness check).
+# Applies the plan pinned on the merge to release that last touched
+# .railway/**. Re-plans nothing; fails if the environment or the merged
+# tree drifted from what was planned (railwayapp/config's staleness check).
+# release only carries commits fast-forwarded from main by the release
+# skill, so this never fires on an ordinary merge to main.
 on:
   push:
-    branches: [main]
+    branches: [release]
     paths:
       - ".railway/**"
 
