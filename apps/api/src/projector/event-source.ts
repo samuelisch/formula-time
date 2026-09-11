@@ -1,7 +1,6 @@
 // The Postgres read seam for the projector. The projector never issues a raw
 // query itself — it only ever calls this interface, so a fake in-memory
 // implementation is enough to unit test the fold.
-import type { PrismaClient } from "@formula-time/db";
 import type { RaceEvent, RawRecord } from "@formula-time/domain";
 
 export interface EventRow {
@@ -19,7 +18,21 @@ export interface EventSource {
   readWindow(sessionKey: bigint, fromSeq: bigint, toSeq: bigint): Promise<EventRow[]>;
 }
 
-export function prismaEventSource(db: PrismaClient): EventSource {
+/** The slice of `PrismaClient` `prismaEventSource` actually calls -- narrower
+ * than the full client so a test can hand it a plain in-memory fake instead
+ * of a live database. */
+export interface EventsDb {
+  event: {
+    findMany(args: {
+      where: { sessionKey: bigint; seq: { gt: bigint; lte?: bigint } };
+      orderBy: { seq: "asc" };
+      take?: number;
+      select: { seq: true; eventId: true; endpoint: true; sourceTime: true; payload: true };
+    }): Promise<EventRow[]>;
+  };
+}
+
+export function prismaEventSource(db: EventsDb): EventSource {
   return {
     async readAfter(sessionKey, afterSeq, limit) {
       return db.event.findMany({
