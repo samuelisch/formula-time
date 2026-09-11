@@ -4,8 +4,8 @@
 // (https://docs.railway.com/infrastructure-as-code). Confirmed against the
 // installed `railway` package's own `dist/iac/index.d.ts` (v3.11.0): the
 // `service()`, `postgres()`, `github()`, `preserve()` signatures and the
-// `build.builder` / `deploy.restartPolicyType` fields used below all exist
-// there, quoted in the deploy-track PR body.
+// `build.buildCommand` / `build.watchPatterns` / `deploy.restartPolicyType`
+// fields used below all exist there, quoted in the deploy-track PR body.
 //
 // One file declares every service in the environment — omitting one here
 // means "delete it" — so all three of the owner's existing Railway services
@@ -23,7 +23,7 @@ import { defineRailway, github, postgres, preserve, project, service } from "rai
 
 export default defineRailway(() => {
   const db = postgres("Postgres");
-  const source = github("samuelisch/formula-time", { branch: "main" });
+  const source = github("samuelisch/formula-time", { branch: "release" });
 
   // Same four secrets on both services (platform fact: variables are on
   // `api` only today; `ingest` gets its own after this lands — declaring
@@ -37,11 +37,27 @@ export default defineRailway(() => {
     OPENF1_PASSWORD: preserve(),
   };
 
-  // Root Dockerfile builds both services; `build.builder: "DOCKERFILE"` is
-  // set explicitly rather than left to Railway's own detection.
+  // build.buildCommand and build.watchPatterns are adopted verbatim from
+  // `railway config plan` run against the live environment (ADR-0019): no
+  // `build.builder` here — the live services have none set, and declaring
+  // "DOCKERFILE" was drift this file introduced, never actually applied.
+  // watchPatterns is widened past each service's own app directory to
+  // `packages/**` and the workspace root files, so a shared-code-only
+  // commit (e.g. #196, #198) is no longer SKIPPED by the service that
+  // needs rebuilding.
   const api = service("api", {
     source,
-    build: { builder: "DOCKERFILE" },
+    build: {
+      buildCommand: "pnpm --filter @formula-time/api build",
+      watchPatterns: [
+        "/apps/api/**",
+        "/packages/**",
+        "/Dockerfile",
+        "/pnpm-lock.yaml",
+        "/package.json",
+        "/pnpm-workspace.yaml",
+      ],
+    },
     start: "node apps/api/dist/main.js",
     preDeploy: "pnpm db:migrate:deploy",
     healthcheck: "/health",
@@ -53,7 +69,17 @@ export default defineRailway(() => {
 
   const ingest = service("ingest", {
     source,
-    build: { builder: "DOCKERFILE" },
+    build: {
+      buildCommand: "pnpm --filter @formula-time/ingest build",
+      watchPatterns: [
+        "/apps/ingest/**",
+        "/packages/**",
+        "/Dockerfile",
+        "/pnpm-lock.yaml",
+        "/package.json",
+        "/pnpm-workspace.yaml",
+      ],
+    },
     start: "node apps/ingest/dist/main.js",
     deploy: { restartPolicyType: "ALWAYS" },
     // MQTT_ENABLED (issue #25 / ADR-0012): config.ts's default already

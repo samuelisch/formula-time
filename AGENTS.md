@@ -107,7 +107,8 @@ branch is done and CI is green, `gh pr ready` → the review bot
 once and posts a verdict: approve on a clean pass, changes requested, or
 owner decision needed → after a fix round, remove and re-add `in-review`
 for a re-review; a push never triggers one → **the owner merges; merging
-is never automated** → label `done` → next `ready`. A local `/review-pr` prints the verdict and
+is never automated** → label `done` → next `ready`. Merging to `main`
+never deploys; a release is the `release` skill. A local `/review-pr` prints the verdict and
 posts nothing, so approvals only ever come from the bot or the owner.
 After a fix round, the implementer updates the PR's Friction line before
 re-review; "none" on a PR that needed a round is a false record. A PR is
