@@ -7,6 +7,7 @@ import { createDb } from "@formula-time/db";
 import { parseAllowedOrigins, registerCors } from "./cors.js";
 import { createExporter } from "./export/exporter.js";
 import { Fanout } from "./fanout/fanout.js";
+import { healthWithBuild } from "./health.js";
 import { PollModule } from "./polls/poll-module.js";
 import { registerPolls } from "./polls/routes.js";
 import { prismaEventSource } from "./projector/event-source.js";
@@ -51,7 +52,7 @@ const lifecycle = createSessionLifecycle({
 
 // /health stays at the root: it is the platform's probe (Railway
 // healthcheck, .railway/railway.ts), not a client route.
-app.get("/health", async () => lifecycle.health());
+app.get("/health", async () => healthWithBuild(lifecycle.health()));
 
 // Every client-facing route lives under /api (owner decision) -- the
 // public path is /api/live/events.

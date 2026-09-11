@@ -57,4 +57,20 @@ describe("release.yml smoke job", () => {
     const wf = loadWorkflow("release.yml");
     expect(wf.jobs.smoke.needs).toBe("plan");
   });
+
+  test("checks the api's reported build against the released commit", () => {
+    const wf = loadWorkflow("release.yml");
+    const steps = wf.jobs.smoke.steps ?? [];
+    const apiStep = steps.find((s) => s.name?.includes("api"));
+    expect(apiStep?.run).toContain("$GITHUB_SHA");
+    expect(apiStep?.run).toContain('"build"');
+  });
+
+  test("checks the netlify bundle's build meta against the released commit", () => {
+    const wf = loadWorkflow("release.yml");
+    const steps = wf.jobs.smoke.steps ?? [];
+    const siteStep = steps.find((s) => s.name?.toLowerCase().includes("netlify"));
+    expect(siteStep?.run).toContain("$GITHUB_SHA");
+    expect(siteStep?.run).toContain('name="build"');
+  });
 });
