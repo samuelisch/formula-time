@@ -1,0 +1,66 @@
+name: Release
+
+# A release is a fast-forward of `release` to a `main` commit (the
+# `release` skill), never an ordinary merge. This workflow is the release
+# gate: the exact same checks a PR already passed (reused from ci.yml, not
+# copied), then a smoke job that waits for Railway and Netlify to finish
+# deploying from this same push and confirms both actually serve traffic.
+# A failed smoke job is red on the release commit; it does not roll
+# anything back — that call is the owner's.
+on:
+  push:
+    branches: [release]
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  smoke:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Wait for the api to answer healthy twice in a row
+        # Two consecutive healthy reads, 30s apart, guard against a health
+        # check that passes once mid-restart and then flaps.
+        run: |
+          api_url="https://api-production-8fbf2.up.railway.app/health"
+          deadline=$((SECONDS + 900))
+          consecutive_ok=0
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            body="$(curl -s --max-time 10 "$api_url" || true)"
+            if echo "$body" | grep -q '"ok":true'; then
+              consecutive_ok=$((consecutive_ok + 1))
+              echo "healthy read $consecutive_ok: $body"
+              if [ "$consecutive_ok" -ge 2 ]; then
+                echo "api healthy on two consecutive reads"
+                exit 0
+              fi
+              sleep 30
+            else
+              consecutive_ok=0
+              echo "not yet healthy: $body"
+              sleep 10
+            fi
+          done
+          echo "api did not answer healthy twice within 15 minutes" >&2
+          exit 1
+
+      - name: Confirm the Netlify bundle serves
+        run: |
+          site_url="https://strong-marshmallow-9d4572.netlify.app/"
+          status="$(curl -s -o /tmp/site.html -w '%{http_code}' --max-time 10 "$site_url")"
+          if [ "$status" != "200" ]; then
+            echo "expected HTTP 200 from $site_url, got $status" >&2
+            exit 1
+          fi
+          if ! grep -q '<title>FormulaTime</title>' /tmp/site.html; then
+            echo "response did not contain the bundle's <title>" >&2
+            cat /tmp/site.html >&2
+            exit 1
+          fi
+          echo "netlify bundle served with expected title"
