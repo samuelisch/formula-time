@@ -3,7 +3,12 @@
 # branch deploys (off) — is a site setting the owner sets in the Netlify
 # dashboard (Site configuration -> Build & deploy -> Continuous deployment
 # -> Branches and deploy contexts); this file does not control it.
+#
+# No `base` here: this is a pnpm workspace with one lockfile at the repo
+# root (`pnpm-lock.yaml`), so the build runs from the repo root, the same
+# way CI and the root `build` script invoke it — `base = "apps/web"` made
+# Netlify's deploy-preview build fail on this PR (observed on PR #211,
+# deploys before this file landed built fine), which is why it is not set.
 [build]
-  base = "apps/web"
   command = "pnpm --filter @formula-time/web build"
-  publish = "dist"
+  publish = "apps/web/dist"
