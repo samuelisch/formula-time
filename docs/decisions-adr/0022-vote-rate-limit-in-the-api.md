@@ -35,11 +35,25 @@ commits, and that holds regardless of request rate.
   same error shape as the route's other errors, with the plugin's
   `retry-after` header. `GET /api/live/events`, `GET /api/polls`, the
   `/api/races*` routes and `/health` are untouched.
-- `Fastify({ logger: true, trustProxy: true })` in `apps/api/src/main.ts`:
-  Railway terminates TLS at its own proxy and forwards the client address
-  via `X-Forwarded-For`. Without `trustProxy`, `request.ip` would be the
-  proxy's own address for every request, and a per-IP limit would throttle
-  every client together instead of individually.
+- `Fastify({ logger: true, trustProxy: TRUST_PROXY })` in
+  `apps/api/src/main.ts` (`TRUST_PROXY`, `apps/api/src/trust-proxy.ts`, is
+  `"loopback, linklocal, uniquelocal"`, the platform-agnostic list of
+  private address ranges): Railway terminates TLS at its own edge and
+  connects to this container over its internal network, so the raw TCP
+  peer this process ever sees is always a private address. Without
+  `trustProxy`, `request.ip` would be that private proxy address for every
+  request, and a per-IP limit would throttle every client together instead
+  of individually. `trustProxy: true` was rejected: it trusts an
+  `X-Forwarded-For` header of arbitrary length, so a client could send
+  extra, self-supplied hops in front of its own address and get a fresh
+  resolved "IP" (and so a fresh rate-limit budget) on every request. This
+  installed Fastify version (`5.12.3`) also fails closed on a numeric
+  `trustProxy` (a hop count) — it always returns `false` from the trust
+  function, which falls back to the raw (private, proxy) socket address for
+  every request and would put every client back in one shared bucket.
+  Trusting the named private ranges instead makes resolution stop at the
+  first hop that is not itself private, which a client cannot spoof by
+  prepending fake hops onto its own header.
 - Measured bound: the 2026-09-08 retro measured "2,000 concurrent votes
   land in about 600 ms with exactly one row per viewer"
   (`docs/retros/2026-09-08-pm.md`) — Postgres's own upsert already absorbs
@@ -55,9 +69,9 @@ commits, and that holds regardless of request rate.
   host that does not provide one. Moving to a platform with an edge limiter
   would make this redundant, not wrong — the api-level limit stays a safe
   floor either way.
-- `trustProxy: true` changes `request.ip` (and `request.hostname`) for
-  every route, not just `/vote` — any future per-IP logic elsewhere in the
-  api inherits the same, correct client address rather than the proxy's.
+- `trustProxy` changes `request.ip` (and `request.hostname`) for every
+  route, not just `/vote` — any future per-IP logic elsewhere in the api
+  inherits the same, correct client address rather than the proxy's.
 - A shared IP (NAT, a school or office network) shares one 60-per-minute
   budget across everyone behind it. Accepted: the harm being bounded is
   load, not fairness between voters, and 60/minute is far above what one

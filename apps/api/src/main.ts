@@ -15,16 +15,18 @@ import { pickSession } from "./projector/session-picker.js";
 import { liveRoutes } from "./routes/live.js";
 import { racesRoutes } from "./routes/races.js";
 import { createSessionLifecycle } from "./session-lifecycle.js";
+import { TRUST_PROXY } from "./trust-proxy.js";
 
 // PORT is the platform's own convention (Railway sets it); API_PORT is the
 // worktree-specific dev port from scripts/db-env.sh, read only when PORT is
 // absent so a deployed service (which always sets PORT) is unaffected.
 const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3000);
-// trustProxy: Railway terminates TLS at its own proxy and forwards the
-// client address in X-Forwarded-For; without this every request would
-// share the proxy's address, and the vote route's per-IP rate limit
-// would throttle every client together instead of individually.
-const app = Fastify({ logger: true, trustProxy: true });
+// trustProxy (see trust-proxy.ts): Railway terminates TLS at its own proxy
+// and forwards the client address in X-Forwarded-For. Without this every
+// request would share the proxy's own address, and the vote route's
+// per-IP rate limit would throttle every client together instead of
+// individually.
+const app = Fastify({ logger: true, trustProxy: TRUST_PROXY });
 
 // The web bundle is hosted on its own origin (ADR-0008); allow it here,
 // before any route, so the preflight and the hijacked SSE route see it.
