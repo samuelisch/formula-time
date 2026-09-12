@@ -2,17 +2,26 @@
 // isolated from useAligner.ts so tests can stub every DOM/media/network
 // touchpoint (`vi.mock` or a direct override) without mocking the whole
 // hook. No policy here: this file only talks to the browser.
-import type { OcrLine } from "./core.ts";
+import type { OcrBlock } from "./core.ts";
 import { isValidCrop, type Crop } from "./policy.ts";
 
+// `blocks` is `null` under the library's default output request
+// (`{ text: true }`, used for a plain text read of a crop); it's only
+// populated when the caller asks for it (`{ text: true, blocks: true }`,
+// used by the whole-frame auto-detect scan, the only reader of it).
 export interface OcrResult {
   text: string;
-  lines: OcrLine[];
+  blocks: OcrBlock[] | null;
+}
+
+export interface OcrOutputRequest {
+  text?: boolean;
+  blocks?: boolean;
 }
 
 export interface OcrWorker {
   setParameters(params: Record<string, string>): Promise<void>;
-  recognize(image: HTMLCanvasElement): Promise<{ data: OcrResult }>;
+  recognize(image: HTMLCanvasElement, options?: Record<string, unknown>, output?: OcrOutputRequest): Promise<{ data: OcrResult }>;
   terminate(): Promise<void>;
 }
 
