@@ -85,7 +85,7 @@ test(
     const now = () => Date.parse("2026-06-01T00:00:00Z"); // well after the session's window
 
     const first = await fetchRaces([SESSION_KEY_NUM], db, fetcher, { now, onLog: () => {} });
-    // 2 drivers + 2 position + 2 laps (start + complete, issue #244) + 1 stint.
+    // 2 drivers + 2 position + 2 laps (start + complete) + 1 stint.
     expect(first).toMatchObject({ inserted: 7, sessionsAttempted: 1, sessionsSkipped: 0, sessionsNotFound: 0 });
 
     const session = await db.session.findUniqueOrThrow({ where: { sessionKey: SESSION_KEY } });
@@ -111,9 +111,8 @@ test(
       "position",
     ]);
 
-    // Row count per lap is two where date_start and lap_duration both exist
-    // (issue #244): a start row and a complete row, with distinct
-    // `source_time`s.
+    // Row count per lap is two where date_start and lap_duration both
+    // exist: a start row and a complete row, with distinct `source_time`s.
     const lapRows = rows.filter((row) => row.endpoint === "laps");
     expect(lapRows).toHaveLength(2);
 

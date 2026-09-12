@@ -120,8 +120,8 @@ function normalized(endpoint: string, payload: RawRecord, sourceTime: string | n
   return { eventId: `${endpoint}:${JSON.stringify(payload)}`, endpoint, sourceTime, payload };
 }
 
-// issue #244: a historical laps row arrives already complete, one row per
-// lap; the live lane instead records it twice — once at lap start with
+// A historical laps row arrives already complete, one row per lap; the
+// live lane instead records it twice — once at lap start with
 // durations/segments still null, once complete. `splitLapRow` reproduces
 // that so the lap counter, the lap markers and the poll clock flip at lap
 // start, not at lap end.
@@ -640,9 +640,9 @@ describe("fetchRaces: happy path — fake fetcher, drivers-then-events, finished
 // `date_start` — otherwise the browser fold's scrub can reveal the lap's
 // final time before the lap actually finished (see
 // `lapsEffectiveSourceTimeIso`'s comment in fetch-race.ts for the full
-// reasoning). Since issue #244, one historical laps row lands as two events
-// (start + complete, see the `splitLapRow` describe block above) — the
-// complete row is the one this adjustment applies to.
+// reasoning). One historical laps row lands as two events (start +
+// complete, see the `splitLapRow` describe block above) — the complete row
+// is the one this adjustment applies to.
 describe("fetchRaces: round 1 fix — a laps row's stored source_time matches its order key", () => {
   test("a laps row with lap_duration is stored at date_start + lap_duration, not raw date_start", async () => {
     const dateStart = "2026-01-01T13:00:00.000Z";
