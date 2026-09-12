@@ -184,8 +184,12 @@ export interface RestLaneOptions {
   tickMs?: number;
   /** Discovery cadence while no session is in its window. Default: every 60 s. */
   discoveryIntervalMs?: number;
-  /** Sessions upsert — called for every session row discovery sees. */
-  onSession?: (session: RawRecord, nowMs: number) => void | Promise<void>;
+  /**
+   * Sessions upsert — called for every session row discovery sees.
+   * `meetingNames` is this tick's `meeting_key -> meeting_name` map (see
+   * `refreshMeetingNames`), for `sessionFieldsFromRaw`'s join.
+   */
+  onSession?: (session: RawRecord, nowMs: number, meetingNames: ReadonlyMap<number, string>) => void | Promise<void>;
   /**
    * Called once, when a session is newly selected as the one being followed
    * (`this.sessionKey` changes) — NOT on every discovery tick like
@@ -194,7 +198,13 @@ export interface RestLaneOptions {
    * 60s while nothing is live.
    */
   onSessionSelected?: (session: RawRecord, nowMs: number) => void | Promise<void>;
-  /** New (already-deduped) rows for one endpoint — feeds the jsonl recorder. */
+  /**
+   * New (already-deduped) rows for one endpoint — feeds the jsonl
+   * recorder. Also fed the followed session's own `meetings` row, once,
+   * the first tick it is available (endpoint `"meetings"`) — so a later
+   * `pnpm ingest:load` of this session's recording can source
+   * `meeting_name` too (`meetingNamesFromRecording`, load-recording.ts).
+   */
   onNewRows?: (sessionKey: number, endpoint: string, rows: RawRecord[]) => void | Promise<void>;
   onLog?: (line: string) => void;
 }
@@ -244,6 +254,22 @@ export class RestLane {
   // just the one currently selected, and discoverOnce() stops running once a
   // session is live, so pollOnce() reuses this snapshot instead of refetching.
   private lastSessions: RawRecord[] = [];
+  // meeting_key -> meeting_name, refetched (`meetings?year=`) once per
+  // discovery tick alongside the sessions snapshot (refreshSessions) — a
+  // fetch failure keeps the previous map rather than clearing it, so a
+  // transient error doesn't blank out every session's meeting_name on the
+  // next upsert.
+  private meetingNames: ReadonlyMap<number, string> = new Map();
+  // The followed session's own meetings row is recorded (via onNewRows,
+  // endpoint "meetings") at most once per session_key — this Set is that
+  // "already fired" marker, same pattern as preRaceRefreshDone above.
+  private readonly meetingRowRecordedFor = new Set<number>();
+  // The raw rows from the most recent successful `refreshMeetingNames`
+  // fetch — kept so the followed-session recording check (which needs to
+  // run AFTER a session is selected, not while `refreshMeetingNames` itself
+  // runs inside `refreshSessions`, before `ensureLiveSession` has picked
+  // one) can reuse this tick's fetch instead of refetching.
+  private lastMeetingRows: RawRecord[] = [];
   // Every session_key whose `sessions` upsert has succeeded at least once
   // (this process). A drivers row tagged to any other key must not be
   // queued: `events.session_key` is a FK, one such row fails the writer's
@@ -316,6 +342,11 @@ export class RestLane {
     // is no rotation while idle).
     if (!selectionFetched) await this.checkFridayFetch(this.lastSessions, nowMs);
 
+    // After ensureLiveSession, so a session selected THIS tick is already
+    // this.session/this.sessionKey — see maybeRecordFollowedMeetingRow's
+    // doc comment for why this can't run any earlier.
+    await this.maybeRecordFollowedMeetingRow();
+
     return { sessionCount: rows.length, live: this.sessionKey !== null };
   }
 
@@ -338,6 +369,10 @@ export class RestLane {
     if (!Array.isArray(sessions)) return null;
     const rows = sessions as RawRecord[];
 
+    // Refreshed alongside the sessions snapshot, once per tick — see
+    // `refreshMeetingNames`'s doc comment.
+    await this.refreshMeetingNames();
+
     // Only race sessions are captured (isRaceSession): a practice,
     // qualifying or sprint row is never upserted, never added to
     // `upserted`, and never added to `knownSessionKeys` — so
@@ -352,7 +387,7 @@ export class RestLane {
     for (const row of rows) {
       if (!isRaceSession(row)) continue;
       try {
-        await this.onSession?.(row, nowMs);
+        await this.onSession?.(row, nowMs, this.meetingNames);
         upserted.add(row);
         const key = Number(row["session_key"]);
         if (Number.isFinite(key)) this.knownSessionKeys.add(key);
@@ -374,6 +409,67 @@ export class RestLane {
     // same way it always did.
     this.lastSessions = rows;
     return { rows, upserted };
+  }
+
+  /**
+   * `meetings?year=<current>`, once per discovery tick — the session row
+   * never carries the Grand Prix name itself, so `sessionFieldsFromRaw`
+   * joins it from this map by `meeting_key`. A fetch failure or a
+   * non-array response leaves the previous tick's map in place rather than
+   * clearing it: a transient error shouldn't blank out every session's
+   * `meeting_name` on the next upsert.
+   */
+  private async refreshMeetingNames(): Promise<void> {
+    let meetings: unknown;
+    try {
+      meetings = await this.fetcher(`${OPENF1_BASE}/meetings?year=${this.year}`);
+    } catch (error) {
+      this.log(`rest: meetings fetch failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.lastMeetingRows = [];
+      return;
+    }
+    if (!Array.isArray(meetings)) {
+      this.lastMeetingRows = [];
+      return;
+    }
+    const rows = meetings as RawRecord[];
+    this.lastMeetingRows = rows;
+    const map = new Map<number, string>();
+    for (const meeting of rows) {
+      const key = Number(meeting["meeting_key"]);
+      const name = meeting["meeting_name"];
+      if (Number.isFinite(key) && typeof name === "string" && name.length > 0) map.set(key, name);
+    }
+    this.meetingNames = map;
+  }
+
+  /**
+   * Records the followed session's own meetings row, once, through
+   * `onNewRows` (endpoint `"meetings"`) — the same jsonl-recorder path
+   * every other endpoint uses, so a later `pnpm ingest:load` of this
+   * session's recording can source `meeting_name` too
+   * (`meetingNamesFromRecording`, load-recording.ts). Matched by the row's
+   * own `meeting_key`, not by index, in case the response ever carries
+   * more than one meeting.
+   *
+   * Must run AFTER a session is selected: `refreshMeetingNames` runs
+   * inside `refreshSessions`, which `ensureLiveSession` (the selection
+   * logic) has not been called yet when a session is newly selected THIS
+   * tick — so this is called separately, once from the end of
+   * `discoverOnce` (covers the just-selected-this-tick case) and once from
+   * `pollOnce`'s periodic sessions refresh (covers the already-following
+   * case), both using `lastMeetingRows` from whichever tick's
+   * `refreshMeetingNames` call most recently succeeded.
+   */
+  private async maybeRecordFollowedMeetingRow(): Promise<void> {
+    if (this.sessionKey === null || this.session === null) return;
+    if (this.meetingRowRecordedFor.has(this.sessionKey)) return;
+    const meetingKey = Number(this.session["meeting_key"]);
+    if (!Number.isFinite(meetingKey)) return;
+    const row = this.lastMeetingRows.find((m) => Number(m["meeting_key"]) === meetingKey);
+    if (!row) return;
+    await this.onNewRows?.(this.sessionKey, "meetings", [row]);
+    this.meetingRowRecordedFor.add(this.sessionKey);
   }
 
   /** Returns whether it made a drivers fetch this tick (the selection fetch). */
@@ -648,6 +744,10 @@ export class RestLane {
     // Friday's retry can fire on a later tick.
     if (nowMs >= this.nextSessionsRefreshAt) {
       await this.refreshSessions(nowMs);
+      // Already following (pollOnce only runs while live) — this covers a
+      // meetings row that becomes available on a later tick than
+      // selection (e.g. this tick's fetch is the first to succeed).
+      await this.maybeRecordFollowedMeetingRow();
       return { endpoint: "sessions", rows: 0, newRows: 0, malformed: 0 };
     }
 

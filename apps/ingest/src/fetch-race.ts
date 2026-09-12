@@ -42,6 +42,8 @@ import type { LoaderDb } from "./load-recording.js";
 import { OpenF1Auth, createOpenF1Fetcher, credentialsFromEnv } from "./openf1/auth.js";
 import { LiveNormalizer, eventId, timestampMillis, timestampValue } from "./openf1/normalize.js";
 import type { NormalizedRow } from "./openf1/normalize.js";
+import { FETCH_SPACING_MS, MAX_RETRIES, RETRY_DELAY_MS, withRetry, withSpacing } from "./openf1/rate-limit.js";
+import type { RetryOptions, Sleep } from "./openf1/rate-limit.js";
 import { JsonlRecorder } from "./openf1/recorder.js";
 import { OPENF1_BASE } from "./openf1/rest-lane.js";
 import type { Fetcher, QueueItem, RawRecord } from "./openf1/types.js";
@@ -49,87 +51,13 @@ import { EventQueue } from "./writer/queue.js";
 import type { DrainResult } from "./writer/writer.js";
 import { EventWriter } from "./writer/writer.js";
 
-// Respect the rate limit: at most 3 requests per second and 30 per minute
-// (a 2.1 s spacing satisfies both) — 2.1s * 30 = 63s per 30 requests, i.e.
-// well under the per-minute cap too, and comfortably under 3/s.
-export const FETCH_SPACING_MS = 2100;
-// Retry a 429 or 5xx after 20 s, at most 3 times.
-export const RETRY_DELAY_MS = 20_000;
-export const MAX_RETRIES = 3;
-
-export type Sleep = (ms: number) => Promise<void>;
-
-const defaultSleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * Enforces a minimum spacing between successive calls through `fetcher`:
- * at most 3 requests per second and 30 per minute. `now`/`sleep`
- * are injectable so the unit test can drive a fake clock without a real
- * wait — `sleep` advancing a shared fake `now` is what makes "8 requests
- * take >= 14.7s of fake time" (7 gaps of 2.1s) provable without the test
- * actually taking 14.7 real seconds.
- */
-export function withSpacing(
-  fetcher: Fetcher,
-  spacingMs: number,
-  opts: { now?: () => number; sleep?: Sleep } = {},
-): Fetcher {
-  const now = opts.now ?? Date.now;
-  const sleep = opts.sleep ?? defaultSleep;
-  let lastCallAt: number | null = null;
-  return async (url: string): Promise<unknown> => {
-    if (lastCallAt !== null) {
-      const elapsed = now() - lastCallAt;
-      if (elapsed < spacingMs) await sleep(spacingMs - elapsed);
-    }
-    lastCallAt = now();
-    return fetcher(url);
-  };
-}
-
-// `createOpenF1Fetcher` (auth.ts) throws `Error("OpenF1 <status> for
-// <url>")` for any non-ok, non-404 response — the same signal `withRetry`
-// below reads to decide whether a failure is retryable, so the two stay
-// consistent without `withRetry` needing its own HTTP layer.
-const STATUS_PATTERN = /OpenF1 (\d+) for/;
-
-function statusFromError(error: unknown): number | null {
-  if (!(error instanceof Error)) return null;
-  const match = STATUS_PATTERN.exec(error.message);
-  return match ? Number(match[1]) : null;
-}
-
-export interface RetryOptions {
-  retryDelayMs?: number;
-  maxRetries?: number;
-  sleep?: Sleep;
-}
-
-/**
- * Retries a 429 or 5xx after `retryDelayMs` (default 20s), up to
- * `maxRetries` times (default 3) — "a 404 is 'no rows', not an error"
- * (handled already, by `createOpenF1Fetcher` returning `[]`, never
- * throwing, so it never reaches here).
- */
-export function withRetry(fetcher: Fetcher, opts: RetryOptions = {}): Fetcher {
-  const retryDelayMs = opts.retryDelayMs ?? RETRY_DELAY_MS;
-  const maxRetries = opts.maxRetries ?? MAX_RETRIES;
-  const sleep = opts.sleep ?? defaultSleep;
-  return async (url: string): Promise<unknown> => {
-    let attempt = 0;
-    for (;;) {
-      try {
-        return await fetcher(url);
-      } catch (error) {
-        const status = statusFromError(error);
-        const retryable = status === 429 || (status !== null && status >= 500 && status < 600);
-        attempt += 1;
-        if (!retryable || attempt > maxRetries) throw error;
-        await sleep(retryDelayMs);
-      }
-    }
-  };
-}
+// The spacing/retry wrapper lives in `openf1/rate-limit.ts` — shared with
+// `load-recording.ts`'s network fallback for a meetings lookup — so both
+// obey the same request budget against the live API. Re-exported here
+// because this module is where callers (and existing tests) already look
+// for it.
+export { FETCH_SPACING_MS, MAX_RETRIES, RETRY_DELAY_MS, withRetry, withSpacing };
+export type { RetryOptions, Sleep };
 
 /**
  * The lap rule: historical laps arrive complete; applied at `date_start`
@@ -337,6 +265,30 @@ async function fetchOneSession(
   const parsedStart = Date.parse(String(session["date_start"] ?? ""));
   const sessionStartMs = Number.isNaN(parsedStart) ? nowMs : parsedStart;
 
+  // `meetings?meeting_key=` — the session row never carries the Grand Prix
+  // name itself (`sessionFieldsFromRaw`'s doc comment). Fetched lazily,
+  // inside `getMeetingNames` below, so it only ever runs once
+  // `writeSessionThroughLoader`'s own guards (still-live, non-race, window
+  // not closed) have already passed — a refused session must cost no
+  // further request. `meetingRow` is captured in this closure's outer
+  // scope so `emitAll` below (which runs after `getMeetingNames`, also
+  // past the guards) can record it to jsonl too.
+  const meetingKey = Number(session["meeting_key"]);
+  let meetingRow: RawRecord | undefined;
+  const getMeetingNames = async (): Promise<ReadonlyMap<number, string>> => {
+    if (!Number.isFinite(meetingKey)) return new Map();
+    try {
+      const raw = await fetcher(`${OPENF1_BASE}/meetings?meeting_key=${meetingKey}`);
+      const rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
+      meetingRow = rows.find((row) => Number(row["meeting_key"]) === meetingKey);
+      const name = meetingRow?.["meeting_name"];
+      return typeof name === "string" && name.length > 0 ? new Map([[meetingKey, name]]) : new Map();
+    } catch (error) {
+      log(`fetch-race: meetings fetch failed for meeting_key=${meetingKey}: ${error instanceof Error ? error.message : String(error)}`);
+      return new Map();
+    }
+  };
+
   const result = await writeSessionThroughLoader(
     session,
     db,
@@ -344,6 +296,7 @@ async function fetchOneSession(
     queue,
     nowMs,
     log,
+    getMeetingNames,
     async (normalizer: LiveNormalizer, sessionKeyNum: number, alreadyFinished: boolean) => {
       // Fetching and normalizing always happens on a
       // rerun (DB-level idempotency comes from `event.createMany({
@@ -354,6 +307,7 @@ async function fetchOneSession(
       // is doing real (first) work for the session.
       const shouldRecord = !alreadyFinished;
       if (shouldRecord) await recorder.writeSession(session, sessionKeyNum);
+      if (shouldRecord && meetingRow) await recorder.appendRows(sessionKeyNum, "meetings", [meetingRow]);
 
       const byEndpoint = new Map<string, NormalizedRow[]>();
       for (const endpoint of RECORDING_ENDPOINT_ORDER) {

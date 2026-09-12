@@ -57,3 +57,54 @@ test("the window closing moves status to finished", async () => {
   const row = await db.session.findUniqueOrThrow({ where: { sessionKey: SESSION_KEY } });
   expect(row.status).toBe("finished");
 });
+
+test("the naming columns are nullable and a re-run with a meetings map fills them on an existing row", async () => {
+  // A discovery without the meetings fetch (or a row from before this
+  // migration) still writes: the three columns default to null.
+  await upsertSession(db, RAW_SESSION, START_MS - 60 * 60 * 1000);
+  const afterFirst = await db.session.findUniqueOrThrow({ where: { sessionKey: SESSION_KEY } });
+  expect(afterFirst.meetingName).toBeNull();
+  expect(afterFirst.circuitShortName).toBeNull();
+  expect(afterFirst.location).toBeNull();
+
+  // A re-run with circuit_short_name/location on the raw row and a
+  // meetings map fills all three on the same, already-existing row.
+  const withNaming: RawRecord = {
+    ...RAW_SESSION,
+    meeting_key: 1293,
+    circuit_short_name: "Monza",
+    location: "Monza",
+  };
+  await upsertSession(db, withNaming, START_MS - 60 * 60 * 1000, {
+    meetingNames: new Map([[1293, "Italian Grand Prix"]]),
+  });
+
+  const rows = await db.session.findMany({ where: { sessionKey: SESSION_KEY } });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.meetingName).toBe("Italian Grand Prix");
+  expect(rows[0]?.circuitShortName).toBe("Monza");
+  expect(rows[0]?.location).toBe("Monza");
+});
+
+test("a later rerun with no meetings map entry does not blank an already-known meeting_name in Postgres", async () => {
+  const withNaming: RawRecord = {
+    ...RAW_SESSION,
+    meeting_key: 1293,
+    circuit_short_name: "Monza",
+    location: "Monza",
+  };
+  await upsertSession(db, withNaming, START_MS - 60 * 60 * 1000, {
+    meetingNames: new Map([[1293, "Italian Grand Prix"]]),
+  });
+
+  // A rerun whose source has no answer this time (no meetings map, and a
+  // raw row with no circuit_short_name/location) must not overwrite the
+  // already-known values with null — Prisma's real `update` must leave
+  // those columns untouched, not just the in-memory fake's.
+  await upsertSession(db, RAW_SESSION, START_MS - 60 * 60 * 1000);
+
+  const row = await db.session.findUniqueOrThrow({ where: { sessionKey: SESSION_KEY } });
+  expect(row.meetingName).toBe("Italian Grand Prix");
+  expect(row.circuitShortName).toBe("Monza");
+  expect(row.location).toBe("Monza");
+});

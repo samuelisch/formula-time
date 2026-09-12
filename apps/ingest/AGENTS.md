@@ -45,6 +45,18 @@ else.
   minutes before the race), not from Friday's meeting-wide fetch, which
   still runs (grouping a meeting from every row it has seen, practice
   included) but only ever writes the race's own tagged rows.
+- `sessions` also carries three nullable naming columns:
+  `circuit_short_name` and `location`, filled by `sessionFieldsFromRaw`
+  (`writer/sessions.ts`) straight from the raw session row, and
+  `meeting_name` (the Grand Prix, e.g. "Spanish Grand Prix" — a country can
+  host two rounds a season, so `country`/`circuit_key` alone don't name a
+  race), joined from a caller-supplied `meeting_key -> meeting_name` map:
+  the REST lane fetches `meetings?year=` once per discovery tick (cached in
+  memory, refreshed alongside the sessions snapshot); the recording loader
+  and `fetch-race` fetch `meetings?meeting_key=` once per session they
+  write. All three default to null when no map entry exists, rather than
+  guessing — a rerun of `upsertSession` (or `--replace`) fills them on an
+  existing row once the map has an answer.
 - The entry list: fetched live per session — at session selection
   (`drivers?session_key=`, retried every 5 min until it returns rows),
   again 5 minutes before the session starts, and meeting-wide from the

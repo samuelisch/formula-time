@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { RawRecord } from "../openf1/types.js";
-import { computeSessionStatus, isRaceSession, upsertSession } from "./sessions.js";
+import { computeSessionStatus, isRaceSession, sessionFieldsFromRaw, upsertSession } from "./sessions.js";
 import type { SessionsDb } from "./sessions.js";
 
 function fakeDb(): SessionsDb & { rows: Map<string, unknown> } {
@@ -12,7 +12,16 @@ function fakeDb(): SessionsDb & { rows: Map<string, unknown> } {
       async upsert(args) {
         const key = args.where.sessionKey.toString();
         if (rows.has(key)) {
-          rows.set(key, { sessionKey: args.where.sessionKey, ...args.update });
+          // Matches Prisma's real `update` semantics: a key present with
+          // value `undefined` (the naming columns, when this run has no
+          // answer) leaves that column untouched, rather than a wholesale
+          // replace of the row.
+          const existing = rows.get(key) as Record<string, unknown>;
+          const merged: Record<string, unknown> = { ...existing, sessionKey: args.where.sessionKey };
+          for (const [field, value] of Object.entries(args.update)) {
+            if (value !== undefined) merged[field] = value;
+          }
+          rows.set(key, merged);
         } else {
           rows.set(key, args.create);
         }
@@ -85,6 +94,43 @@ describe("isRaceSession", () => {
   });
 });
 
+describe("sessionFieldsFromRaw naming fields", () => {
+  const RAW_WITH_MEETING: RawRecord = {
+    ...RAW_SESSION,
+    meeting_key: 1293,
+    circuit_short_name: "Monza",
+    location: "Monza",
+  };
+
+  test("circuit_short_name and location come from the raw row", () => {
+    const fields = sessionFieldsFromRaw(RAW_WITH_MEETING, START_MS + 60 * 1000);
+    expect(fields.circuitShortName).toBe("Monza");
+    expect(fields.location).toBe("Monza");
+  });
+
+  test("meeting_name is joined from the meetingNames map by meeting_key", () => {
+    const meetingNames = new Map([[1293, "Italian Grand Prix"]]);
+    const fields = sessionFieldsFromRaw(RAW_WITH_MEETING, START_MS + 60 * 1000, meetingNames);
+    expect(fields.meetingName).toBe("Italian Grand Prix");
+  });
+
+  test("no meetingNames entry for this meeting_key -> meetingName null", () => {
+    const fields = sessionFieldsFromRaw(RAW_WITH_MEETING, START_MS + 60 * 1000, new Map([[9999, "Other GP"]]));
+    expect(fields.meetingName).toBeNull();
+  });
+
+  test("no meetingNames map at all -> meetingName null", () => {
+    const fields = sessionFieldsFromRaw(RAW_WITH_MEETING, START_MS + 60 * 1000);
+    expect(fields.meetingName).toBeNull();
+  });
+
+  test("circuit_short_name/location absent from the raw row -> null, not empty string", () => {
+    const fields = sessionFieldsFromRaw(RAW_SESSION, START_MS + 60 * 1000);
+    expect(fields.circuitShortName).toBeNull();
+    expect(fields.location).toBeNull();
+  });
+});
+
 describe("upsertSession", () => {
   test("creates a row with fields mapped from the raw OpenF1 record", async () => {
     const db = fakeDb();
@@ -120,6 +166,48 @@ describe("upsertSession", () => {
 
     expect(db.rows.size).toBe(1);
     expect((db.rows.get("11361") as Record<string, unknown>)["status"]).toBe("live");
+  });
+
+  test("meetingNames option flows through into the written row", async () => {
+    const db = fakeDb();
+    const raw: RawRecord = { ...RAW_SESSION, meeting_key: 1293 };
+    await upsertSession(db, raw, START_MS + 60 * 1000, {
+      meetingNames: new Map([[1293, "Italian Grand Prix"]]),
+    });
+
+    const row = db.rows.get("11361") as Record<string, unknown>;
+    expect(row["meetingName"]).toBe("Italian Grand Prix");
+  });
+
+  test("a re-run with a meetings map fills the naming columns on an existing row", async () => {
+    const db = fakeDb();
+    await upsertSession(db, RAW_SESSION, START_MS + 60 * 1000);
+    expect((db.rows.get("11361") as Record<string, unknown>)["meetingName"]).toBeNull();
+
+    const raw: RawRecord = { ...RAW_SESSION, meeting_key: 1293 };
+    await upsertSession(db, raw, START_MS + 60 * 1000, {
+      meetingNames: new Map([[1293, "Italian Grand Prix"]]),
+    });
+    expect((db.rows.get("11361") as Record<string, unknown>)["meetingName"]).toBe("Italian Grand Prix");
+  });
+
+  test("a later rerun with no meetings map entry does not blank an already-known meeting_name", async () => {
+    const db = fakeDb();
+    const raw: RawRecord = { ...RAW_SESSION, meeting_key: 1293, circuit_short_name: "Monza", location: "Monza" };
+    await upsertSession(db, raw, START_MS + 60 * 1000, {
+      meetingNames: new Map([[1293, "Italian Grand Prix"]]),
+    });
+    expect((db.rows.get("11361") as Record<string, unknown>)["meetingName"]).toBe("Italian Grand Prix");
+
+    // A rerun whose source has no answer this time (empty map, and a raw
+    // row with no circuit_short_name/location) must not overwrite the
+    // already-known values with null.
+    await upsertSession(db, RAW_SESSION, START_MS + 60 * 1000);
+
+    const row = db.rows.get("11361") as Record<string, unknown>;
+    expect(row["meetingName"]).toBe("Italian Grand Prix");
+    expect(row["circuitShortName"]).toBe("Monza");
+    expect(row["location"]).toBe("Monza");
   });
 
   test("an invalid date_start is rejected without touching the db", async () => {

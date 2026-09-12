@@ -6,13 +6,25 @@ import type { SessionStatus } from "@formula-time/db";
 import { totalLapsForCircuit } from "../circuits.js";
 import type { RawRecord } from "../openf1/types.js";
 
+/**
+ * The naming columns as `update` sees them: `undefined` (as opposed to
+ * `null`) tells Prisma to leave that column untouched — see
+ * `updateFieldsPreservingNaming`'s doc comment for why `update` needs a
+ * different type here than `create`.
+ */
+interface NamingFieldsForUpdate {
+  meetingName?: string | null;
+  circuitShortName?: string | null;
+  location?: string | null;
+}
+
 /** The slice of the Prisma client the sessions upsert needs — real client or a fake. */
 export interface SessionsDb {
   session: {
     upsert(args: {
       where: { sessionKey: bigint };
       create: SessionFields & { sessionKey: bigint };
-      update: SessionFields;
+      update: Omit<SessionFields, keyof NamingFieldsForUpdate> & NamingFieldsForUpdate;
     }): Promise<unknown>;
   };
 }
@@ -25,6 +37,9 @@ interface SessionFields {
   dateEnd: Date;
   totalLaps: number | null;
   status: SessionStatus;
+  meetingName: string | null;
+  circuitShortName: string | null;
+  location: string | null;
 }
 
 // OpenF1 serves live data from 30 minutes before `date_start` to 30 minutes
@@ -82,6 +97,17 @@ function stringField(raw: RawRecord, ...keys: string[]): string {
   return "";
 }
 
+// Same lookup as stringField, but `null` (not `""`) when absent — for the
+// nullable naming columns, where "no value" and "empty string" must not
+// collide.
+function nullableStringField(raw: RawRecord, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const value = raw[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+
 function validDate(raw: RawRecord, key: string): Date {
   const value = raw[key];
   if (typeof value !== "string" || value.length === 0) {
@@ -94,10 +120,24 @@ function validDate(raw: RawRecord, key: string): Date {
   return date;
 }
 
-export function sessionFieldsFromRaw(raw: RawRecord, nowMs: number): SessionFields {
+/**
+ * `meetingNames` joins on the raw row's own `meeting_key`: the session row
+ * never carries the Grand Prix name itself (`meeting_name` lives on
+ * OpenF1's `meetings` rows), so callers fetch that separately and hand in
+ * the map (RestLane: once per discovery tick, `meetings?year=`; the loader
+ * and fetch-race: once per session, `meetings?meeting_key=`). A missing
+ * entry (no fetch made, or the meeting_key wasn't found) leaves
+ * `meetingName` null rather than guessing.
+ */
+export function sessionFieldsFromRaw(
+  raw: RawRecord,
+  nowMs: number,
+  meetingNames: ReadonlyMap<number, string> = new Map(),
+): SessionFields {
   const dateStart = validDate(raw, "date_start");
   const dateEnd = validDate(raw, "date_end");
   const circuitKey = Number(raw["circuit_key"] ?? 0);
+  const meetingKey = Number(raw["meeting_key"]);
   return {
     name: stringField(raw, "session_name", "session_type"),
     country: stringField(raw, "country_name"),
@@ -106,6 +146,9 @@ export function sessionFieldsFromRaw(raw: RawRecord, nowMs: number): SessionFiel
     dateEnd,
     totalLaps: totalLapsForCircuit(circuitKey),
     status: computeSessionStatus(dateStart, dateEnd, nowMs),
+    meetingName: Number.isFinite(meetingKey) ? (meetingNames.get(meetingKey) ?? null) : null,
+    circuitShortName: nullableStringField(raw, "circuit_short_name"),
+    location: nullableStringField(raw, "location"),
   };
 }
 
@@ -118,6 +161,33 @@ export interface UpsertSessionOptions {
    * not a second upsert function.
    */
   status?: SessionStatus;
+  /** Forwarded to `sessionFieldsFromRaw` — see its doc comment. */
+  meetingNames?: ReadonlyMap<number, string>;
+}
+
+/**
+ * A rerun whose source has no answer for a naming column (no meetings map
+ * entry this tick, a raw row with no `circuit_short_name`/`location`) must
+ * not blank out a value an earlier run already found — `null` here means
+ * "this run doesn't know", not "this row has none". Prisma's `update`
+ * leaves a column untouched when its key is absent from the update object
+ * entirely (as opposed to present and `null`, which sets it to null), so
+ * omitting these three keys — not merely setting them to `null` — when the
+ * computed value is `null` is what makes a rerun additive instead of
+ * overwriting a known value with an unknown one. `create` keeps the
+ * literal `null` unchanged — a brand-new row legitimately has no value yet
+ * until some run's map/row supplies one.
+ */
+function updateFieldsPreservingNaming(
+  fields: SessionFields,
+): Omit<SessionFields, keyof NamingFieldsForUpdate> & NamingFieldsForUpdate {
+  const { meetingName, circuitShortName, location, ...rest } = fields;
+  return {
+    ...rest,
+    ...(meetingName !== null ? { meetingName } : {}),
+    ...(circuitShortName !== null ? { circuitShortName } : {}),
+    ...(location !== null ? { location } : {}),
+  };
 }
 
 /**
@@ -138,11 +208,11 @@ export async function upsertSession(
   opts: UpsertSessionOptions = {},
 ): Promise<void> {
   const sessionKey = sessionKeyOf(raw);
-  const fields = sessionFieldsFromRaw(raw, nowMs);
+  const fields = sessionFieldsFromRaw(raw, nowMs, opts.meetingNames);
   if (opts.status) fields.status = opts.status;
   await db.session.upsert({
     where: { sessionKey },
     create: { sessionKey, ...fields },
-    update: fields,
+    update: updateFieldsPreservingNaming(fields),
   });
 }

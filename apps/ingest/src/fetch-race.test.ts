@@ -403,7 +403,18 @@ function fakeLoaderDb(): LoaderDb & {
     session: {
       async upsert(args) {
         const key = args.where.sessionKey.toString();
-        const row = sessions.has(key) ? { ...args.update } : { ...args.create };
+        // Matches Prisma's real `update` semantics: an `update` key present
+        // with value `undefined` leaves that column untouched instead of a
+        // wholesale replace — see sessions.ts's `updateFieldsPreservingNaming`.
+        let row: { status?: string };
+        if (sessions.has(key)) {
+          row = { ...sessions.get(key) };
+          for (const [field, value] of Object.entries(args.update)) {
+            if (value !== undefined) (row as Record<string, unknown>)[field] = value;
+          }
+        } else {
+          row = { ...args.create };
+        }
         sessions.set(key, row);
         return row;
       },
@@ -550,6 +561,40 @@ describe("fetchRaces: ADR-0010 — refuses a live session, writes nothing for it
     expect(logs).toContain("load: refused 9501: window not closed; the live ingest service owns it");
     expect(requestedUrls).toHaveLength(1);
   });
+
+  test("round-2 review fix: a refused session with a meeting_key makes zero meetings requests", async () => {
+    // meeting_key present (unlike the fixtures above) is what exercises the
+    // ordering bug: the meetings fetch must run only after the guard, so a
+    // refused session costs no meetings request either.
+    const requestedUrls: string[] = [];
+    const fetcher: Fetcher = async (url) => {
+      requestedUrls.push(url);
+      if (url.includes("/sessions?")) {
+        return [
+          {
+            session_key: 9701,
+            meeting_key: 1293,
+            session_name: "Race",
+            country_name: "Italy",
+            circuit_key: 39,
+            date_start: "2026-01-01T13:00:00+00:00",
+            date_end: "2026-01-01T15:00:00+00:00",
+          },
+        ];
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const db = fakeLoaderDb();
+    const result = await fetchRaces([9701], db, fetcher, {
+      now: () => Date.parse("2026-01-01T14:00:00Z"), // squarely inside the window: refused as live
+      onLog: () => {},
+    });
+
+    expect(result.sessionsSkipped).toBe(1);
+    expect(requestedUrls.filter((u) => u.includes("/meetings?"))).toHaveLength(0);
+    expect(requestedUrls).toHaveLength(1); // only the sessions?session_key= lookup
+  });
 });
 
 describe("fetchRaces: issue #168 — refuses a non-race session, writes nothing for it", () => {
@@ -632,6 +677,37 @@ describe("fetchRaces: happy path — fake fetcher, drivers-then-events, finished
     const second = await fetchRaces([9999], db, fetcher, { now, onLog: () => {} });
     expect(second.inserted).toBe(0);
     expect(second.skipped).toBe(2);
+  });
+});
+
+describe("fetchRaces: meeting_name — one meetings?meeting_key= fetch per session", () => {
+  test("the session row gets meeting_name from a meetings?meeting_key= fetch", async () => {
+    const calls: string[] = [];
+    const base = endpointResponses({
+      sessions: [
+        {
+          session_key: 11307,
+          meeting_key: 1250,
+          session_name: "Race",
+          country_name: "Spain",
+          circuit_key: 100,
+          date_start: "2026-06-01T13:00:00+00:00",
+          date_end: "2026-06-01T15:00:00+00:00",
+        },
+      ],
+      meetings: [{ meeting_key: 1250, meeting_name: "Spanish Grand Prix" }],
+    });
+    const fetcher: Fetcher = async (url) => {
+      calls.push(url);
+      return base(url);
+    };
+
+    const db = fakeLoaderDb();
+    const now = () => Date.parse("2026-06-02T00:00:00Z");
+    await fetchRaces([11307], db, fetcher, { now, onLog: () => {} });
+
+    expect(calls.filter((u) => u.includes("/meetings?meeting_key=1250"))).toHaveLength(1);
+    expect((db.sessions.get("11307") as Record<string, unknown>)["meetingName"]).toBe("Spanish Grand Prix");
   });
 });
 

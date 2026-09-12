@@ -30,17 +30,25 @@ enum PollStatus {
 }
 
 model Session {
-  sessionKey  BigInt        @id @map("session_key")
-  name        String
-  country     String
-  circuitKey  Int           @map("circuit_key")
-  dateStart   DateTime      @map("date_start")
-  dateEnd     DateTime      @map("date_end")
-  totalLaps   Int?          @map("total_laps")
-  status      SessionStatus
-  events      Event[]
-  polls       Poll[]
-  export      Export?
+  sessionKey       BigInt        @id @map("session_key")
+  name             String
+  country          String
+  circuitKey       Int           @map("circuit_key")
+  dateStart        DateTime      @map("date_start")
+  dateEnd          DateTime      @map("date_end")
+  totalLaps        Int?          @map("total_laps")
+  status           SessionStatus
+  // The Grand Prix name (e.g. "Spanish Grand Prix", from OpenF1
+  // meetings.meeting_name) and the circuit/location (from OpenF1
+  // sessions.circuit_short_name/location) — distinct rounds at the same
+  // country share `country` but not these. Nullable: an existing row, or a
+  // discovery tick whose meetings fetch failed, still writes.
+  meetingName      String?       @map("meeting_name")
+  circuitShortName String?       @map("circuit_short_name")
+  location         String?       @map("location")
+  events           Event[]
+  polls            Poll[]
+  export           Export?
   @@map("sessions")
 }
 

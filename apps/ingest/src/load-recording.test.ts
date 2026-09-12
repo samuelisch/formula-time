@@ -98,9 +98,20 @@ function fakeDb(): LoaderDb & {
     session: {
       async upsert(args) {
         const key = args.where.sessionKey.toString();
-        const row = sessions.has(key) ? { sessionKey: args.where.sessionKey, ...args.update } : args.create;
+        // Matches Prisma's real `update` semantics: an `update` key present
+        // with value `undefined` leaves that column untouched instead of a
+        // wholesale replace — see sessions.ts's `updateFieldsPreservingNaming`.
+        let row: { status?: string; [key: string]: unknown };
+        if (sessions.has(key)) {
+          row = { ...sessions.get(key), sessionKey: args.where.sessionKey };
+          for (const [field, value] of Object.entries(args.update)) {
+            if (value !== undefined) row[field] = value;
+          }
+        } else {
+          row = { ...args.create };
+        }
         sessions.set(key, row);
-        callLog.push(`upsert:${String(row.status)}`);
+        callLog.push(`upsert:${String(row["status"])}`);
         return row;
       },
       async findUnique(args) {
@@ -260,6 +271,103 @@ describe("loadRecordings", () => {
   });
 });
 
+describe("loadRecordings: meeting_name — one meetings?meeting_key= fetch per session", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "load-recording-meeting-name-test-"));
+    await mkdir(path.join(dir, "raw"), { recursive: true });
+    await writeFile(
+      path.join(dir, "session.json"),
+      JSON.stringify({
+        session: {
+          session_key: 11307,
+          meeting_key: 1250,
+          session_type: "Race",
+          session_name: "Race",
+          date_start: "2026-01-01T13:00:00+00:00",
+          date_end: "2026-01-01T15:00:00+00:00",
+          circuit_key: 39,
+          country_name: "Spain",
+        },
+        discovered_at: "2026-01-01T12:57:00.000Z",
+      }),
+    );
+    await writeFile(
+      path.join(dir, "raw", "meetings.jsonl"),
+      jsonlLine({ meeting_key: 1250, meeting_name: "Spanish Grand Prix" }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("the session row gets meeting_name from raw/meetings.jsonl", async () => {
+    const db = fakeDb();
+    await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
+
+    const row = db.sessions.get("11307");
+    expect(row?.["meetingName"]).toBe("Spanish Grand Prix");
+  });
+});
+
+describe("loadRecordings: meeting_name — live fallback when raw/meetings.jsonl is absent", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "load-recording-meeting-name-fallback-test-"));
+    await mkdir(path.join(dir, "raw"), { recursive: true });
+    await writeFile(
+      path.join(dir, "session.json"),
+      JSON.stringify({
+        session: {
+          session_key: 11307,
+          meeting_key: 1250,
+          session_type: "Race",
+          session_name: "Race",
+          date_start: "2026-01-01T13:00:00+00:00",
+          date_end: "2026-01-01T15:00:00+00:00",
+          circuit_key: 39,
+          country_name: "Spain",
+        },
+        discovered_at: "2026-01-01T12:57:00.000Z",
+      }),
+    );
+    // No raw/meetings.jsonl written for this fixture — the recording
+    // predates this feature.
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("falls back to one live meetings?meeting_key= call through the given meetingsFetcher", async () => {
+    const calls: string[] = [];
+    const meetingsFetcher = async (url: string): Promise<unknown> => {
+      calls.push(url);
+      return [{ meeting_key: 1250, meeting_name: "Spanish Grand Prix" }];
+    };
+
+    const db = fakeDb();
+    await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {}, meetingsFetcher });
+
+    expect(calls).toEqual(["https://api.openf1.org/v1/meetings?meeting_key=1250"]);
+    const row = db.sessions.get("11307");
+    expect(row?.["meetingName"]).toBe("Spanish Grand Prix");
+  });
+
+  test("with no meetingsFetcher configured, meeting_name stays null and one line is logged", async () => {
+    const logs: string[] = [];
+    const db = fakeDb();
+    await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: (line) => logs.push(line) });
+
+    const row = db.sessions.get("11307");
+    expect(row?.["meetingName"]).toBeNull();
+    expect(logs.some((line) => line.includes("no meeting_name source"))).toBe(true);
+  });
+});
+
 // Upserting `finished` before events exist would let the api's exporter
 // (ADR-0009 §2) export the session — once, immutably — before any event
 // existed. So the loader upserts `upcoming` first, writes and drains every
@@ -396,6 +504,49 @@ describe("loadRecordings: ADR-0010 — refuses a live session, writes nothing fo
       expect(totals.sessionsSkipped).toBe(1);
       expect(db.sessions.has("9501")).toBe(false);
       expect(logs).toContain("load: refused 9501: window not closed; the live ingest service owns it");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("round-2 review fix: a refused session with a meeting_key and no raw/meetings.jsonl makes zero live meetings requests", async () => {
+    // meeting_key present, no raw/meetings.jsonl written, and a
+    // meetingsFetcher given — this is what exercises the ordering bug: the
+    // live fallback must run only after the guard, so a refused session
+    // costs no meetings request either.
+    const dir = await mkdtemp(path.join(tmpdir(), "load-recording-refused-meetings-test-"));
+    try {
+      await writeFile(
+        path.join(dir, "session.json"),
+        JSON.stringify({
+          session: {
+            session_key: 9801,
+            meeting_key: 1293,
+            session_type: "Race",
+            session_name: "Race",
+            date_start: "2026-01-01T13:00:00+00:00",
+            date_end: "2026-01-01T15:00:00+00:00",
+            circuit_key: 39,
+            country_name: "Italy",
+          },
+          discovered_at: "2026-01-01T12:57:00.000Z",
+        }),
+      );
+      const calls: string[] = [];
+      const meetingsFetcher = async (url: string): Promise<unknown> => {
+        calls.push(url);
+        return [{ meeting_key: 1293, meeting_name: "Italian Grand Prix" }];
+      };
+
+      const db = fakeDb();
+      const totals = await loadRecordings([dir], db, {
+        now: () => Date.parse("2026-01-01T14:00:00Z"), // squarely inside the window: refused as live
+        onLog: () => {},
+        meetingsFetcher,
+      });
+
+      expect(totals.sessionsSkipped).toBe(1);
+      expect(calls).toHaveLength(0);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
