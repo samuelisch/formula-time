@@ -35,6 +35,7 @@ import { OpenF1Auth, createOpenF1Fetcher, credentialsFromEnv } from "./openf1/au
 import { createFileFetcher, readRecordingEndpoint } from "./openf1/file-fetcher.js";
 import type { RecordedRow } from "./openf1/file-fetcher.js";
 import { LiveNormalizer } from "./openf1/normalize.js";
+import { FETCH_SPACING_MS, withRetry, withSpacing } from "./openf1/rate-limit.js";
 import { OPENF1_BASE, POLL_ROTATION, emitRows } from "./openf1/rest-lane.js";
 import type { Fetcher, QueueItem, RawRecord } from "./openf1/types.js";
 import { EventQueue } from "./writer/queue.js";
@@ -273,8 +274,10 @@ export interface LoadRecordingsOptions {
   /**
    * A live OpenF1 fetcher, used only as a fallback to source `meeting_name`
    * when a recording has no `raw/meetings.jsonl` — see
-   * `meetingNamesForSession`'s doc comment. Undefined when no OpenF1
-   * credentials are configured (the CLI entry's default).
+   * `meetingNamesForSession`'s doc comment. The CLI entry always wires a
+   * rate-limited, unauthenticated-capable one (historical meetings data is
+   * public); undefined here means "no fallback", e.g. a unit test that
+   * wants to pin the file-only path.
    */
   meetingsFetcher?: Fetcher | undefined;
 }
@@ -515,10 +518,12 @@ async function meetingNamesFromRecording(
  * `fetch-race`, after this feature shipped — the REST lane routes its own
  * meetings fetch through the same jsonl-recorder path every other endpoint
  * uses). When that file is absent or has no matching row (an older
- * recording), and `meetingsFetcher` is given (only wired when OpenF1
- * credentials are configured — see the CLI entry below), fall back to one
- * live `meetings?meeting_key=` call through the same OpenF1 client
- * `fetch-race` uses. With neither source available, logs one line and
+ * recording), and `meetingsFetcher` is given, fall back to one live
+ * `meetings?meeting_key=` call through it — the CLI entry below wires a
+ * rate-limited, unauthenticated-capable fetcher (historical meetings data
+ * is public), the same spacing/retry budget `fetch-race`'s own live
+ * requests use; a caller (or a unit test) may omit it to skip the network
+ * fallback entirely. With neither source available, logs one line and
  * returns an empty map — `meeting_name` stays null for this run, same as
  * any other unavailable field.
  */
@@ -536,9 +541,7 @@ async function meetingNamesForSession(
   if (fromFile.size > 0) return fromFile;
 
   if (!meetingsFetcher) {
-    log(
-      `load: session=${sessionKey} no meeting_name source (no raw/meetings.jsonl and no OpenF1 credentials configured)`,
-    );
+    log(`load: session=${sessionKey} no meeting_name source (no raw/meetings.jsonl and no meetingsFetcher given)`);
     return new Map();
   }
 
@@ -718,11 +721,10 @@ if (isMain) {
   }
   const db = createDb(databaseUrl, { max: 1 });
   // The live meetings fallback (meetingNamesForSession's doc comment):
-  // only wired when OpenF1 credentials are configured, same auth the REST
-  // lane and fetch-race use — otherwise a recording with no
-  // raw/meetings.jsonl simply leaves meeting_name null.
-  const creds = credentialsFromEnv();
-  const meetingsFetcher = creds ? createOpenF1Fetcher(new OpenF1Auth(creds)) : undefined;
+  // historical meetings data is public, so this works whether or not
+  // OPENF1_LOGIN/PASSWORD are configured (OpenF1Auth(null) sends no bearer
+  // token) — rate-limited the same way fetch-race's own live requests are.
+  const meetingsFetcher = withRetry(withSpacing(createOpenF1Fetcher(new OpenF1Auth(credentialsFromEnv())), FETCH_SPACING_MS));
   loadRecordings(dirs, db, { replace, meetingsFetcher })
     .then(async (result) => {
       await db.$disconnect();
