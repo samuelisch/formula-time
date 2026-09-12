@@ -43,6 +43,9 @@ beforeAll(async () => {
       dateEnd: new Date("2026-09-08T14:00:00.000Z"),
       totalLaps: 53,
       status: "finished",
+      meetingName: "Exporter Integration Test Grand Prix",
+      circuitShortName: "Testland Circuit",
+      location: "Testville",
     },
   });
   await db.event.createMany({
@@ -135,6 +138,9 @@ test("exports a real session: gzip file matches ADR-0009 §1 exactly; a second r
     date_end: "2026-09-08T14:00:00.000Z",
     total_laps: 53,
     status: "finished",
+    meeting_name: "Exporter Integration Test Grand Prix",
+    circuit_short_name: "Testland Circuit",
+    location: "Testville",
   });
 
   expect(json.events).toHaveLength(3);
