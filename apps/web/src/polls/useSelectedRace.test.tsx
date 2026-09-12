@@ -33,7 +33,18 @@ function settledConnection(): Partial<ReturnType<typeof useLiveStore.getState>> 
 }
 
 const races: RaceIndexEntry[] = [
-  { session_key: 11361, name: "Race", country: "Italy", date_start: "2026-09-06T13:00:00.000Z", date_end: "2026-09-06T15:00:00.000Z", total_laps: 53, exported_at: "2026-09-06T15:10:00.000Z" },
+  {
+    session_key: 11361,
+    name: "Race",
+    country: "Italy",
+    date_start: "2026-09-06T13:00:00.000Z",
+    date_end: "2026-09-06T15:00:00.000Z",
+    total_laps: 53,
+    exported_at: "2026-09-06T15:10:00.000Z",
+    meeting_name: null,
+    circuit_short_name: null,
+    location: null,
+  },
 ];
 
 function stubRacesFetch(data: RaceIndexEntry[] = []): void {
