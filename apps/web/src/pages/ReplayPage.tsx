@@ -12,7 +12,7 @@ import { Board } from "../board/Board.tsx";
 import { DriverPanel } from "../board/DriverPanel.tsx";
 import { BoardSourceProvider } from "../board/useBoardState.ts";
 import { Card } from "../components/Card.tsx";
-import { stringField } from "../lib/format.ts";
+import { raceTitle } from "../lib/format.ts";
 import { fetchRaceFile, fetchRaceIndex } from "../races/api.ts";
 import { foldRace } from "../replay/foldRace.ts";
 import { useReplayPlayback } from "../replay/useReplayPlayback.ts";
@@ -95,13 +95,12 @@ export function ReplayPage() {
   );
 
   const setHeaderOverride = useHeaderStore((state) => state.setOverride);
-  const country = foldQuery.data === undefined ? null : stringField(foldQuery.data.session, "country");
-  const name = foldQuery.data === undefined ? null : stringField(foldQuery.data.session, "name");
+  const title = foldQuery.data === undefined ? null : raceTitle(foldQuery.data.session);
   useEffect(() => {
-    if (country === null || name === null) return;
-    setHeaderOverride(`${country} · ${name} · replay`);
+    if (title === null) return;
+    setHeaderOverride(`${title} · replay`);
     return () => setHeaderOverride(null);
-  }, [country, name, setHeaderOverride]);
+  }, [title, setHeaderOverride]);
 
   if (!validKey) {
     return <Card>Not a valid race.</Card>;

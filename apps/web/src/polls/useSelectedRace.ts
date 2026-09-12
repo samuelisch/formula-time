@@ -33,7 +33,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { useConnection, useSessionMeta, useSessionStatus, useStatusReceived } from "../live/selectors.ts";
-import { stringField } from "../lib/format.ts";
+import { excludeSession, raceTitleDisambiguated } from "../lib/format.ts";
 import { fetchRaceIndex } from "../races/api.ts";
 import type { RaceSelectCurrent } from "../races/RaceSelect.tsx";
 
@@ -106,10 +106,12 @@ export function useSelectedRace(): SelectedRace {
   const selectedKey = paramKey ?? currentSessionKey ?? fallbackKey;
   const historicalKey = !isCurrentSelected && selectedKey !== null ? selectedKey : null;
 
-  const currentLabel =
-    sessionMeta.session !== null
-      ? `${stringField(sessionMeta.session, "country") ?? "—"} · ${stringField(sessionMeta.session, "name") ?? "—"}`
-      : "Current session";
+  // The exporter can write a finished session's own index row within
+  // seconds, so `races` can already hold the current session's own entry
+  // while it is still `displayed` -- excluded here so it never counts as a
+  // collision with itself.
+  const otherRaces = currentSessionKey === null ? races : excludeSession(races, currentSessionKey);
+  const currentLabel = sessionMeta.session !== null ? raceTitleDisambiguated(sessionMeta.session, otherRaces) : "Current session";
   const current = currentSessionKey !== null ? { sessionKey: currentSessionKey, label: currentLabel, status: sessionStatus } : null;
 
   function handleRaceChange(sessionKey: string): void {

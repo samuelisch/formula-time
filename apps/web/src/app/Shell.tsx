@@ -3,22 +3,21 @@ import { NavLink, Outlet } from "react-router";
 
 import { useSessionMeta, useSessionStatus, type SessionStatusValue } from "../live/selectors.ts";
 import { useLiveStream } from "../live/useLiveStream.ts";
-import { stringField } from "../lib/format.ts";
+import { raceTitle, stringField } from "../lib/format.ts";
 import { useHeaderStore } from "./headerStore.ts";
 import styles from "./Shell.module.css";
 
-// The raw OpenF1 fields are "{country_name} · {circuit_short_name}", but the
-// wire never carries those: the projector's sessionAsRawRecord()
-// (apps/api/src/projector/projector.ts) puts the sessions table's own
-// columns on the wire instead -- `country` (not `country_name`) and `name`
-// (the session name, e.g. "Race"; there is no persisted circuit display
-// name at all). Render from the real fields.
+// The projector's sessionAsRawRecord() (apps/api/src/projector/projector.ts)
+// puts the sessions table's own columns on the wire: `country`, `name` (the
+// session name, e.g. "Race"), and `meeting_name` when the session's meeting
+// carries one. `raceTitle` reads those; this guard only decides whether a
+// session is known yet at all.
 function sessionLine(session: RawRecord | null, status: SessionStatusValue | null): string {
   if (session === null) return "Waiting for a session";
   const country = stringField(session, "country");
   const name = stringField(session, "name");
   if (country === null || name === null) return "Waiting for a session";
-  const base = `${country} · ${name}`;
+  const base = raceTitle(session);
   if (status === "finished") return `${base} · finished`;
   if (status === "upcoming") return `${base} · upcoming`;
   return base;

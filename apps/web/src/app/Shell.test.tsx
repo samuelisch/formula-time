@@ -115,6 +115,27 @@ describe("Shell", () => {
     expect(screen.getByRole("link", { name: "Live" })).toBeInTheDocument();
   });
 
+  it("titles the header line by meeting_name when the session carries one", () => {
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ status: "live", name: "Race", country: "Spain", meeting_name: "Spanish Grand Prix" }),
+    });
+    renderShell();
+    expect(screen.getByText("Spanish Grand Prix")).toBeInTheDocument();
+    expect(screen.queryByText("Spain · Race")).not.toBeInTheDocument();
+  });
+
+  it("titles the header line by meeting_name for a second round of the same Grand Prix too", () => {
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ status: "finished", name: "Race", country: "Spain", meeting_name: "Spanish Grand Prix" }),
+    });
+    renderShell();
+    expect(screen.getByText("Spanish Grand Prix · finished")).toBeInTheDocument();
+  });
+
   it("shows waiting-for-a-session when the session record is missing a field", () => {
     resetStore({
       connection: "open",

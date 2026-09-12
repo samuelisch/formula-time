@@ -4,6 +4,13 @@
 // (app.js), lifted for the typed board.
 import type { Gap, RawRecord } from "@formula-time/domain";
 
+import type { RaceIndexEntry } from "../races/api.ts";
+
+/** Either shape a race's naming fields arrive in: the historical index
+ * (`RaceIndexEntry`, typed fields) or a live/replay session (`RawRecord`,
+ * fields read loosely). Both carry the same field names. */
+type RaceLike = RawRecord | RaceIndexEntry;
+
 /** `String(value)`, or `fallback` for null, undefined, and the empty string. */
 export function text(value: unknown, fallback = "—"): string {
   if (value === null || value === undefined || value === "") return fallback;
@@ -72,4 +79,48 @@ export function date(iso: string | null | undefined): string {
   const millis = Date.parse(iso);
   if (Number.isNaN(millis)) return "—";
   return new Date(millis).toISOString().slice(0, 10);
+}
+
+/** A race's display title: `meeting_name` when present, else `"<country> · <name>"`.
+ * Reads a `RaceIndexEntry` or a session `RawRecord` the same way, through `stringField`. */
+export function raceTitle(session: RaceLike): string {
+  const record = session as unknown as RawRecord;
+  const meetingName = stringField(record, "meeting_name");
+  if (meetingName !== null) return meetingName;
+  return `${stringField(record, "country") ?? "—"} · ${stringField(record, "name") ?? "—"}`;
+}
+
+/** A race's display subtitle: `"<circuit_short_name> · <location> · <date>"`, dropping any missing or unparseable part. */
+export function raceSubtitle(session: RaceLike): string {
+  const record = session as unknown as RawRecord;
+  const circuit = stringField(record, "circuit_short_name");
+  const location = stringField(record, "location");
+  const dateStart = stringField(record, "date_start");
+  const formattedDate = dateStart === null || Number.isNaN(Date.parse(dateStart)) ? null : date(dateStart);
+  return [circuit, location, formattedDate].filter((part): part is string => part !== null).join(" · ");
+}
+
+/** `races` without the entry whose `session_key` matches `sessionKey` -- so
+ * a session can be disambiguated against every *other* race without ever
+ * matching its own entry in the historical index (present within seconds
+ * of a session finishing, even while it is still the current session). */
+export function excludeSession(races: RaceIndexEntry[], sessionKey: string | number): RaceIndexEntry[] {
+  const key = String(sessionKey);
+  return races.filter((race) => String(race.session_key) !== key);
+}
+
+/** `raceTitle(session)`, with `" (<year>)"` appended only when some race in
+ * `races` reads the same title -- so a session (current or historical)
+ * that would otherwise share a display name with another race in the same
+ * list still reads as distinct. Falls back to the plain title when there is
+ * no `date_start` to take a year from. */
+export function raceTitleDisambiguated(session: RaceLike, races: RaceIndexEntry[]): string {
+  const title = raceTitle(session);
+  const collides = races.some((race) => raceTitle(race) === title);
+  if (!collides) return title;
+
+  const dateStart = stringField(session as unknown as RawRecord, "date_start");
+  if (dateStart === null || Number.isNaN(Date.parse(dateStart))) return title;
+  const year = new Date(dateStart).getUTCFullYear();
+  return `${title} (${year})`;
 }
