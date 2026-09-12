@@ -239,6 +239,41 @@ describe("RestLane discovery", () => {
     await lane.discoverOnce();
     expect(onSession).toHaveBeenNthCalledWith(2, SESSION, START - 2 * WINDOW, new Map([[1293, "Italian Grand Prix"]]));
   });
+
+  test("onNewRows fires once for endpoint 'meetings' with the followed session's own row, matched by meeting_key", async () => {
+    const followedSession: RawRecord = { ...SESSION, meeting_key: 1293 };
+    const meetings = [
+      { meeting_key: 1400, meeting_name: "Wrong Meeting" }, // a different meeting_key: must not be picked
+      { meeting_key: 1293, meeting_name: "Italian Grand Prix" },
+    ];
+    const { fetcher } = fakeFetcher({ sessions: [followedSession], drivers: [], meetings });
+    const onNewRows = vi.fn();
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START, onNewRows, onLog: () => {} });
+
+    await lane.discoverOnce(); // selects followedSession (inside its live window)
+
+    const meetingCalls = onNewRows.mock.calls.filter((c) => c[1] === "meetings");
+    expect(meetingCalls).toHaveLength(1);
+    expect(meetingCalls[0]).toEqual([11361, "meetings", [{ meeting_key: 1293, meeting_name: "Italian Grand Prix" }]]);
+
+    // A later tick must not fire it again for the same session_key.
+    await lane.discoverOnce();
+    expect(onNewRows.mock.calls.filter((c) => c[1] === "meetings")).toHaveLength(1);
+  });
+
+  test("no 'meetings' row is recorded when no meetings row matches the followed session's meeting_key", async () => {
+    const followedSession: RawRecord = { ...SESSION, meeting_key: 1293 };
+    const meetings = [{ meeting_key: 1400, meeting_name: "Wrong Meeting" }];
+    const { fetcher } = fakeFetcher({ sessions: [followedSession], drivers: [], meetings });
+    const onNewRows = vi.fn();
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START, onNewRows, onLog: () => {} });
+
+    await lane.discoverOnce();
+
+    expect(onNewRows.mock.calls.filter((c) => c[1] === "meetings")).toHaveLength(0);
+  });
 });
 
 describe("RestLane: races only (issue #168)", () => {
