@@ -5,11 +5,16 @@
 
 import { describe, expect, test } from "vitest";
 
+import { RaceStateReducer, createInitialState } from "@formula-time/domain";
+import type { RaceEvent } from "@formula-time/domain";
+
 import type { NormalizedRow } from "./openf1/normalize.js";
 import type { Fetcher, RawRecord } from "./openf1/types.js";
 import {
   fetchRaces,
+  lapsEffectiveSourceTimeIso,
   orderForEmission,
+  splitLapRow,
   withRetry,
   withSpacing,
 } from "./fetch-race.js";
@@ -114,6 +119,122 @@ describe("withRetry", () => {
 function normalized(endpoint: string, payload: RawRecord, sourceTime: string | null): NormalizedRow {
   return { eventId: `${endpoint}:${JSON.stringify(payload)}`, endpoint, sourceTime, payload };
 }
+
+// issue #244: a historical laps row arrives already complete, one row per
+// lap; the live lane instead records it twice — once at lap start with
+// durations/segments still null, once complete. `splitLapRow` reproduces
+// that so the lap counter, the lap markers and the poll clock flip at lap
+// start, not at lap end.
+describe("splitLapRow", () => {
+  const DATE_START = "2026-01-01T13:51:29.800Z";
+  const LAP_DURATION = 86.305;
+
+  function lapRow(): NormalizedRow {
+    return normalized(
+      "laps",
+      {
+        driver_number: 63,
+        lap_number: 10,
+        date_start: DATE_START,
+        lap_duration: LAP_DURATION,
+        duration_sector_1: 28.306,
+        duration_sector_2: 29.439,
+        duration_sector_3: 28.56,
+        i1_speed: 297,
+        i2_speed: 301,
+        st_speed: 305,
+        is_pit_out_lap: false,
+        segments_sector_1: [2048, 2048],
+        segments_sector_2: [2048, 2048],
+        segments_sector_3: [2048, 2048],
+      },
+      DATE_START,
+    );
+  }
+
+  test("a lap row with date_start and lap_duration yields two rows with distinct event ids", () => {
+    const [startRow, completeRow] = splitLapRow(lapRow());
+
+    expect(startRow).toBeDefined();
+    expect(completeRow).toBeDefined();
+    expect(startRow!.eventId).not.toBe(completeRow!.eventId);
+  });
+
+  test("the start row carries date_start with the lap's durations/segments nulled", () => {
+    const [startRow] = splitLapRow(lapRow());
+
+    expect(startRow!.payload["date_start"]).toBe(DATE_START);
+    expect(startRow!.payload["driver_number"]).toBe(63);
+    expect(startRow!.payload["lap_number"]).toBe(10);
+    for (const field of [
+      "lap_duration",
+      "duration_sector_1",
+      "duration_sector_2",
+      "duration_sector_3",
+      "i1_speed",
+      "i2_speed",
+      "st_speed",
+      "segments_sector_1",
+      "segments_sector_2",
+      "segments_sector_3",
+    ]) {
+      expect(startRow!.payload[field]).toBeNull();
+    }
+    expect(lapsEffectiveSourceTimeIso(startRow!)).toBe(DATE_START);
+  });
+
+  test("the complete row is the original row, applied at date_start + lap_duration", () => {
+    const original = lapRow();
+    const [, completeRow] = splitLapRow(original);
+
+    expect(completeRow).toBe(original);
+    expect(lapsEffectiveSourceTimeIso(completeRow!)).toBe(
+      new Date(Date.parse(DATE_START) + LAP_DURATION * 1000).toISOString(),
+    );
+  });
+
+  test("a row missing date_start is not split", () => {
+    const row = normalized("laps", { driver_number: 63, lap_number: 10, lap_duration: 86.305 }, null);
+    expect(splitLapRow(row)).toEqual([row]);
+  });
+
+  test("a row missing lap_duration is not split", () => {
+    const row = normalized("laps", { driver_number: 63, lap_number: 10, date_start: DATE_START }, DATE_START);
+    expect(splitLapRow(row)).toEqual([row]);
+  });
+
+  test("a non-laps row is never split", () => {
+    const row = normalized("position", { driver_number: 63, date: DATE_START }, DATE_START);
+    expect(splitLapRow(row)).toEqual([row]);
+  });
+
+  function toRaceEvent(row: NormalizedRow): RaceEvent {
+    return {
+      event_id: row.eventId,
+      endpoint: row.endpoint,
+      source_time: lapsEffectiveSourceTimeIso(row),
+      payload: row.payload,
+    };
+  }
+
+  test("folding both rows through RaceStateReducer sets current_lap at the start row's time, lap_duration only at the complete row's time", () => {
+    const state = createInitialState({ sessions: [], drivers: [{ driver_number: 63 }] });
+    const reducer = new RaceStateReducer(state);
+    const [startRow, completeRow] = splitLapRow(lapRow());
+
+    reducer.apply(toRaceEvent(startRow!));
+    expect(state.drivers["63"]!.current_lap).toBe(10);
+    expect(state.drivers["63"]!.lap_duration).toBeNull();
+    expect(state.latest_source_time).toBe(DATE_START);
+
+    reducer.apply(toRaceEvent(completeRow!));
+    expect(state.drivers["63"]!.current_lap).toBe(10);
+    expect(state.drivers["63"]!.lap_duration).toBe(LAP_DURATION);
+    expect(state.latest_source_time).toBe(
+      new Date(Date.parse(DATE_START) + LAP_DURATION * 1000).toISOString(),
+    );
+  });
+});
 
 describe("orderForEmission", () => {
   const SESSION_START_MS = Date.parse("2026-01-01T13:00:00Z");
@@ -519,7 +640,9 @@ describe("fetchRaces: happy path — fake fetcher, drivers-then-events, finished
 // `date_start` — otherwise the browser fold's scrub can reveal the lap's
 // final time before the lap actually finished (see
 // `lapsEffectiveSourceTimeIso`'s comment in fetch-race.ts for the full
-// reasoning).
+// reasoning). Since issue #244, one historical laps row lands as two events
+// (start + complete, see the `splitLapRow` describe block above) — the
+// complete row is the one this adjustment applies to.
 describe("fetchRaces: round 1 fix — a laps row's stored source_time matches its order key", () => {
   test("a laps row with lap_duration is stored at date_start + lap_duration, not raw date_start", async () => {
     const dateStart = "2026-01-01T13:00:00.000Z";
@@ -541,8 +664,13 @@ describe("fetchRaces: round 1 fix — a laps row's stored source_time matches it
     const now = () => Date.parse("2026-06-01T00:00:00Z");
     await fetchRaces([8001], db, fetcher, { now, onLog: () => {} });
 
-    const lapEvent = [...db.events.values()].find((event) => event.endpoint === "laps");
-    expect(lapEvent?.sourceTime?.toISOString()).toBe("2026-01-01T13:01:30.000Z"); // dateStart + 90s
+    const lapEvents = [...db.events.values()].filter((event) => event.endpoint === "laps");
+    expect(lapEvents).toHaveLength(2); // start row + complete row
+    const times = lapEvents.map((event) => event.sourceTime?.toISOString()).sort();
+    expect(times).toEqual([
+      "2026-01-01T13:00:00.000Z", // start row: raw date_start
+      "2026-01-01T13:01:30.000Z", // complete row: dateStart + 90s
+    ]);
   });
 });
 

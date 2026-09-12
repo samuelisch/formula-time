@@ -40,7 +40,7 @@ import { loadConfig } from "./config.js";
 import { RECORDING_ENDPOINT_ORDER, writeSessionThroughLoader } from "./load-recording.js";
 import type { LoaderDb } from "./load-recording.js";
 import { OpenF1Auth, createOpenF1Fetcher, credentialsFromEnv } from "./openf1/auth.js";
-import { LiveNormalizer, timestampMillis, timestampValue } from "./openf1/normalize.js";
+import { LiveNormalizer, eventId, timestampMillis, timestampValue } from "./openf1/normalize.js";
 import type { NormalizedRow } from "./openf1/normalize.js";
 import { JsonlRecorder } from "./openf1/recorder.js";
 import { OPENF1_BASE } from "./openf1/rest-lane.js";
@@ -140,26 +140,77 @@ export function withRetry(fetcher: Fetcher, opts: RetryOptions = {}): Fetcher {
  * This adjusted time is used for BOTH the emission order key
  * (`orderKeyMs` below) AND the row's persisted `source_time`, not only the
  * order key. A live capture emits a laps row more than once as it fills in
- * over the lap (the
- * normalizer's unadjusted `date_start` reflects that: the row a viewer sees
- * mid-lap really does only have partial data). A historical fetch gets
- * exactly one, already-complete row per lap. Storing that one row's
+ * over the lap (the normalizer's unadjusted `date_start` reflects that: the
+ * row a viewer sees mid-lap really does only have partial data). A
+ * historical fetch instead gets one already-complete row per lap;
+ * `splitLapRow` below turns that one row into the same two versions a live
+ * capture would have produced — a start row (durations/segments nulled,
+ * `lap_duration` absent so this function leaves it at raw `date_start`) and
+ * the complete row (unchanged, adjusted here). Storing the complete row's
  * `source_time` as the unadjusted `date_start` would let the browser fold's
  * scrub (`foldAt`/`truncationBoundary` in apps/web, which walks `seq` order
  * and stops at the first event whose OWN `source_time` exceeds the scrub
  * target) include the lap's final time/sectors for any scrub target between
  * the lap's start and its true finish — exactly the spoiler this adjustment
- * exists to prevent. So a laps row's stored `source_time` must be the same
- * adjusted instant as its order key, not the raw `date_start` the
+ * exists to prevent. So the complete row's stored `source_time` must be the
+ * same adjusted instant as its order key, not the raw `date_start` the
  * `LiveNormalizer` computes for every other purpose.
  */
-function lapsEffectiveSourceTimeIso(row: NormalizedRow): string | null {
+export function lapsEffectiveSourceTimeIso(row: NormalizedRow): string | null {
   if (row.endpoint !== "laps") return row.sourceTime;
   const dateStart = timestampMillis(timestampValue(row.payload["date_start"]));
   if (dateStart === null) return row.sourceTime;
   const lapDuration = row.payload["lap_duration"];
   const ms = typeof lapDuration === "number" ? dateStart + lapDuration * 1000 : dateStart;
   return new Date(ms).toISOString();
+}
+
+// Fields still null in the earliest version the live recorder captures of a
+// lap row — measured against `recordings/11361/raw/laps.jsonl` (driver 44,
+// lap 5: `date_start` set, every field below null, nothing else populated
+// yet). A historical fetch gets one already-complete row per lap; splitting
+// it reproduces that same two-version shape so the counter, the lap marker
+// and the poll clock flip at lap start rather than at lap end.
+const LAP_START_NULL_FIELDS = [
+  "lap_duration",
+  "duration_sector_1",
+  "duration_sector_2",
+  "duration_sector_3",
+  "i1_speed",
+  "i2_speed",
+  "st_speed",
+  "segments_sector_1",
+  "segments_sector_2",
+  "segments_sector_3",
+] as const;
+
+/**
+ * Splits one historical laps row into the two the live lane records: a
+ * start row (this same payload with the fields above nulled, so it carries
+ * only what's known when the lap begins) and the complete row (the payload
+ * unchanged). The two payloads differ, so `eventId` differs too — both
+ * survive `createMany({ skipDuplicates })`.
+ *
+ * A row missing `date_start` or `lap_duration` cannot be split — the caller
+ * still has only the complete-row shape to emit, same as before this
+ * function existed.
+ */
+export function splitLapRow(row: NormalizedRow): NormalizedRow[] {
+  if (row.endpoint !== "laps") return [row];
+  const dateStart = timestampValue(row.payload["date_start"]);
+  const lapDuration = row.payload["lap_duration"];
+  if (dateStart === null || typeof lapDuration !== "number") return [row];
+
+  const startPayload: RawRecord = { ...row.payload };
+  for (const field of LAP_START_NULL_FIELDS) startPayload[field] = null;
+
+  const startRow: NormalizedRow = {
+    eventId: eventId("laps", startPayload),
+    endpoint: "laps",
+    sourceTime: dateStart,
+    payload: startPayload,
+  };
+  return [startRow, row];
 }
 
 /**
@@ -309,7 +360,9 @@ async function fetchOneSession(
         const raw = await fetcher(`${OPENF1_BASE}/${endpoint}?session_key=${sessionKeyNum}`);
         const rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
         const { rows: normalized } = normalizer.normalize(endpoint, rows);
-        byEndpoint.set(endpoint, normalized);
+        // Split for emission only — the jsonl recording below still records
+        // one raw OpenF1 row per lap, the response actually received.
+        byEndpoint.set(endpoint, endpoint === "laps" ? normalized.flatMap(splitLapRow) : normalized);
         log(`fetch-race: session=${sessionKeyNum} endpoint=${endpoint} rows=${rows.length} new=${normalized.length}`);
         if (shouldRecord && normalized.length > 0) {
           await recorder.appendRows(sessionKeyNum, endpoint, normalized.map((row) => row.payload));

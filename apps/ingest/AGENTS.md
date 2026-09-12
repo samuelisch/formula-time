@@ -92,14 +92,26 @@ in `.claude/skills/load-race/SKILL.md`.
 `DATABASE_URL=... [OPENF1_LOGIN=... OPENF1_PASSWORD=...] pnpm
 ingest:fetch-race <session_key> [<session_key> ...]` pulls a finished
 historical session straight from OpenF1 instead of replaying a recording —
-one endpoint request at a time, rate-limited and retried on a 429 or 5xx —
-ordered for emission by `source_time` (a laps row placed at its end, not
-its start, so a scrub mid-lap can never reveal its final time; a stints
-row placed at its lap's start). It shares the loader's write path
+one endpoint request at a time, rate-limited and retried on a 429 or 5xx.
+A historical laps row arrives already complete, one row per lap; the live
+lane instead sees each lap row twice, once at lap start (durations and
+segments still null) and once complete. `fetch-race` reproduces both: a
+start row at `date_start` with `lap_duration`, `duration_sector_1..3`,
+`i1_speed`, `i2_speed`, `st_speed` and the `segments_sector_*` arrays
+nulled, and the complete row at `date_start + lap_duration` so a scrub
+mid-lap can never reveal its final time. The two payloads differ, so their
+`eventId` differs and both survive `createMany({ skipDuplicates })` — this
+is what makes the lap counter, the lap markers and the poll clock flip at
+lap start instead of at lap end, matching the live lane. A row missing
+`date_start` or `lap_duration` cannot be split and emits only the complete
+row, as before. Emission is ordered by `source_time` (the lap rule above;
+a stints row placed at its lap's start). It shares the loader's write path
 (`upcoming` → events → `finished`, the ADR-0010 guard, idempotency) and
 also writes the fetched rows as a recording under
 `LIVE_LOG_DIR/<session_key>/raw/<endpoint>.jsonl` plus `session.json`, so
-the session can be loaded again later without OpenF1.
+the session can be loaded again later without OpenF1 — that recording
+keeps the one raw row per lap actually received from OpenF1; the split
+happens only at emission time, not in the recording.
 
 ## OpenF1 facts that shape this code
 
