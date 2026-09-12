@@ -635,6 +635,37 @@ describe("fetchRaces: happy path — fake fetcher, drivers-then-events, finished
   });
 });
 
+describe("fetchRaces: meeting_name — one meetings?meeting_key= fetch per session", () => {
+  test("the session row gets meeting_name from a meetings?meeting_key= fetch", async () => {
+    const calls: string[] = [];
+    const base = endpointResponses({
+      sessions: [
+        {
+          session_key: 11307,
+          meeting_key: 1250,
+          session_name: "Race",
+          country_name: "Spain",
+          circuit_key: 100,
+          date_start: "2026-06-01T13:00:00+00:00",
+          date_end: "2026-06-01T15:00:00+00:00",
+        },
+      ],
+      meetings: [{ meeting_key: 1250, meeting_name: "Spanish Grand Prix" }],
+    });
+    const fetcher: Fetcher = async (url) => {
+      calls.push(url);
+      return base(url);
+    };
+
+    const db = fakeLoaderDb();
+    const now = () => Date.parse("2026-06-02T00:00:00Z");
+    await fetchRaces([11307], db, fetcher, { now, onLog: () => {} });
+
+    expect(calls.filter((u) => u.includes("/meetings?meeting_key=1250"))).toHaveLength(1);
+    expect((db.sessions.get("11307") as Record<string, unknown>)["meetingName"]).toBe("Spanish Grand Prix");
+  });
+});
+
 // A laps row's persisted `source_time` must be the same adjusted instant
 // (`date_start + lap_duration`) as its emission order key, not the raw
 // `date_start` — otherwise the browser fold's scrub can reveal the lap's

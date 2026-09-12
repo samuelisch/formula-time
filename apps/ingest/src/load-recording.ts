@@ -35,7 +35,7 @@ import { createFileFetcher, readRecordingEndpoint } from "./openf1/file-fetcher.
 import type { RecordedRow } from "./openf1/file-fetcher.js";
 import { LiveNormalizer } from "./openf1/normalize.js";
 import { OPENF1_BASE, POLL_ROTATION, emitRows } from "./openf1/rest-lane.js";
-import type { QueueItem, RawRecord } from "./openf1/types.js";
+import type { Fetcher, QueueItem, RawRecord } from "./openf1/types.js";
 import { EventQueue } from "./writer/queue.js";
 import type { DrainResult, EventWriterDb } from "./writer/writer.js";
 import { EventWriter } from "./writer/writer.js";
@@ -305,6 +305,34 @@ export interface WriteSessionThroughLoaderOptions {
 }
 
 /**
+ * `meetings?meeting_key=<key>` once, for the one session `writeSessionThroughLoader`
+ * is about to write — the session row itself never carries the Grand Prix
+ * name (`sessionFieldsFromRaw`'s doc comment). Returns an empty map (never
+ * throws) when the session has no `meeting_key`, the fetch fails, or the
+ * response carries no usable `meeting_name`: `meeting_name` then stays
+ * null, same as any other unavailable field, rather than blocking the
+ * write.
+ */
+async function fetchMeetingNames(
+  fetcher: Fetcher,
+  session: RawRecord,
+  log: (line: string) => void,
+): Promise<ReadonlyMap<number, string>> {
+  const meetingKey = Number(session["meeting_key"]);
+  if (!Number.isFinite(meetingKey)) return new Map();
+  let raw: unknown;
+  try {
+    raw = await fetcher(`${OPENF1_BASE}/meetings?meeting_key=${meetingKey}`);
+  } catch (error) {
+    log(`load: meetings fetch failed for meeting_key=${meetingKey}: ${error instanceof Error ? error.message : String(error)}`);
+    return new Map();
+  }
+  const rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
+  const name = rows[0]?.["meeting_name"];
+  return typeof name === "string" && name.length > 0 ? new Map([[meetingKey, name]]) : new Map();
+}
+
+/**
  * The write path shared by the recording loader and `fetch-race`
  * (ADR-0009: "a fetched race reaches the exporter the same way a loaded
  * one does"): validate the session key, apply the ADR-0010 live guard,
@@ -313,6 +341,10 @@ export interface WriteSessionThroughLoaderOptions {
  * row is normalized with the same LiveNormalizer), drain (or, with
  * `--replace`, delete-then-drain as one transaction), print the verify
  * line, and only then upsert `finished` — see the inline comments below.
+ * `fetcher` is used only for the one `meetings?meeting_key=` lookup
+ * (`fetchMeetingNames`) — the loader passes its recording's file fetcher,
+ * fetch-race its live OpenF1 fetcher; neither is used for anything else
+ * here (every other endpoint is read/fetched by the caller's `emitAll`).
  */
 export async function writeSessionThroughLoader(
   session: RawRecord,
@@ -321,6 +353,7 @@ export async function writeSessionThroughLoader(
   queue: EventQueue<QueueItem>,
   nowMs: number,
   log: (line: string) => void,
+  fetcher: Fetcher,
   emitAll: (normalizer: LiveNormalizer, sessionKey: number, alreadyFinished: boolean) => Promise<void>,
   opts: WriteSessionThroughLoaderOptions = {},
 ): Promise<WriteSessionThroughLoaderResult> {
@@ -400,9 +433,13 @@ export async function writeSessionThroughLoader(
   // session back to `upcoming` and then straight back to `finished`. The
   // final `upsertSession(..., { status: "finished" })` below still runs
   // either way, so the net effect is unchanged: still finished.
+  // Once per session written (not per upsert call below — the same map is
+  // reused for the "upcoming" and "finished" upserts).
+  const meetingNames = await fetchMeetingNames(fetcher, session, log);
+
   const alreadyFinished = existing?.status === "finished";
   if (!alreadyFinished) {
-    await upsertSession(db, session, nowMs, { status: "upcoming" });
+    await upsertSession(db, session, nowMs, { status: "upcoming", meetingNames });
   }
 
   const normalizer = new LiveNormalizer();
@@ -468,7 +505,7 @@ export async function writeSessionThroughLoader(
   // and the next `pnpm ingest:load` (or `pnpm ingest:fetch-race`) of the
   // same session finishes it — idempotent, per `loadRecordings`'s own doc
   // comment above.
-  await upsertSession(db, session, nowMs, { status: "finished" });
+  await upsertSession(db, session, nowMs, { status: "finished", meetingNames });
 
   return { skipped: false, drainResult };
 }
@@ -492,6 +529,7 @@ async function loadOneSession(
     queue,
     nowMs,
     log,
+    createFileFetcher(dir),
     async (normalizer, sessionKey) => {
       // The static entry list, "exactly as session selection does" (same
       // `emitRows` path rest-lane.ts's `ensureLiveSession` uses) — so the

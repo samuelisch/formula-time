@@ -344,6 +344,7 @@ async function fetchOneSession(
     queue,
     nowMs,
     log,
+    fetcher,
     async (normalizer: LiveNormalizer, sessionKeyNum: number, alreadyFinished: boolean) => {
       // Fetching and normalizing always happens on a
       // rerun (DB-level idempotency comes from `event.createMany({

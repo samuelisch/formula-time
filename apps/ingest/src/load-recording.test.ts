@@ -260,6 +260,47 @@ describe("loadRecordings", () => {
   });
 });
 
+describe("loadRecordings: meeting_name — one meetings?meeting_key= fetch per session", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "load-recording-meeting-name-test-"));
+    await mkdir(path.join(dir, "raw"), { recursive: true });
+    await writeFile(
+      path.join(dir, "session.json"),
+      JSON.stringify({
+        session: {
+          session_key: 11307,
+          meeting_key: 1250,
+          session_type: "Race",
+          session_name: "Race",
+          date_start: "2026-01-01T13:00:00+00:00",
+          date_end: "2026-01-01T15:00:00+00:00",
+          circuit_key: 39,
+          country_name: "Spain",
+        },
+        discovered_at: "2026-01-01T12:57:00.000Z",
+      }),
+    );
+    await writeFile(
+      path.join(dir, "raw", "meetings.jsonl"),
+      jsonlLine({ meeting_key: 1250, meeting_name: "Spanish Grand Prix" }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("the session row gets meeting_name from raw/meetings.jsonl", async () => {
+    const db = fakeDb();
+    await loadRecordings([dir], db, { now: () => FAR_FUTURE_NOW, onLog: () => {} });
+
+    const row = db.sessions.get("11307");
+    expect(row?.["meetingName"]).toBe("Spanish Grand Prix");
+  });
+});
+
 // Upserting `finished` before events exist would let the api's exporter
 // (ADR-0009 §2) export the session — once, immutably — before any event
 // existed. So the loader upserts `upcoming` first, writes and drains every
