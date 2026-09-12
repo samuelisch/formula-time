@@ -27,6 +27,9 @@ export interface RaceIndexEntry {
   date_end: string;
   total_laps: number | null;
   exported_at: string;
+  meeting_name: string | null;
+  circuit_short_name: string | null;
+  location: string | null;
 }
 
 /** `GET /api/races`, sorted by `date_start` descending (server-side, as served). */

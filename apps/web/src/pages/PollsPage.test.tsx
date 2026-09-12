@@ -49,6 +49,9 @@ const races: RaceIndexEntry[] = [
     date_end: "2026-09-06T15:00:00.000Z",
     total_laps: 53,
     exported_at: "2026-09-06T15:10:00.000Z",
+    meeting_name: null,
+    circuit_short_name: null,
+    location: null,
   },
   {
     session_key: 11200,
@@ -58,6 +61,9 @@ const races: RaceIndexEntry[] = [
     date_end: "2026-08-30T15:00:00.000Z",
     total_laps: 72,
     exported_at: "2026-08-30T15:10:00.000Z",
+    meeting_name: null,
+    circuit_short_name: null,
+    location: null,
   },
 ];
 

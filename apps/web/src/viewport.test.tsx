@@ -352,6 +352,9 @@ describe("Every page mounts cleanly at phone width", () => {
         date_end: "2026-09-06T15:00:00.000Z",
         total_laps: 2,
         exported_at: raceFile.exported_at,
+        meeting_name: null,
+        circuit_short_name: null,
+        location: null,
       },
     ];
     // Routed by URL, same as the real api: the index (ReplayPage's own
