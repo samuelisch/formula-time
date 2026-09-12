@@ -120,7 +120,7 @@ export function raceTitleDisambiguated(session: RaceLike, races: RaceIndexEntry[
   if (!collides) return title;
 
   const dateStart = stringField(session as unknown as RawRecord, "date_start");
-  if (dateStart === null) return title;
+  if (dateStart === null || Number.isNaN(Date.parse(dateStart))) return title;
   const year = new Date(dateStart).getUTCFullYear();
   return `${title} (${year})`;
 }

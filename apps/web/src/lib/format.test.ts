@@ -213,6 +213,13 @@ describe("raceTitleDisambiguated", () => {
     const races = [makeRace({ session_key: 1, meeting_name: "Spanish Grand Prix" })];
     expect(raceTitleDisambiguated({ meeting_name: "Spanish Grand Prix" }, races)).toBe("Spanish Grand Prix");
   });
+
+  it("falls back to the plain title when a colliding session's date_start is unparseable, rather than rendering (NaN)", () => {
+    const races = [makeRace({ session_key: 1, meeting_name: "Spanish Grand Prix", date_start: "2025-06-01T13:00:00.000Z" })];
+    expect(raceTitleDisambiguated({ meeting_name: "Spanish Grand Prix", date_start: "not-a-date" }, races)).toBe(
+      "Spanish Grand Prix",
+    );
+  });
 });
 
 describe("excludeSession", () => {
