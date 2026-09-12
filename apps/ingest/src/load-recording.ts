@@ -324,12 +324,13 @@ export interface WriteSessionThroughLoaderOptions {
  * row is normalized with the same LiveNormalizer), drain (or, with
  * `--replace`, delete-then-drain as one transaction), print the verify
  * line, and only then upsert `finished` — see the inline comments below.
- * `meetingNames` is precomputed by the caller (the loader reads its own
- * recording's `raw/meetings.jsonl`, `fetch-race` fetches
- * `meetings?meeting_key=` live) and only threaded through to the two
- * `upsertSession` calls below — each caller's own way of sourcing it
- * differs too much (a file read vs. a rate-limited network call) to share
- * here.
+ * `getMeetingNames` is the caller's own way of sourcing the map (the
+ * loader reads its own recording's `raw/meetings.jsonl`, `fetch-race`
+ * fetches `meetings?meeting_key=` live) — called at most once, and only
+ * AFTER every guard below has passed (never for a session refused as
+ * still-live, not a race, or not yet closed): a refused session must cost
+ * no further request, exactly like every other endpoint this function's
+ * caller fetches only once the guard has passed.
  */
 export async function writeSessionThroughLoader(
   session: RawRecord,
@@ -338,7 +339,7 @@ export async function writeSessionThroughLoader(
   queue: EventQueue<QueueItem>,
   nowMs: number,
   log: (line: string) => void,
-  meetingNames: ReadonlyMap<number, string>,
+  getMeetingNames: () => Promise<ReadonlyMap<number, string>>,
   emitAll: (normalizer: LiveNormalizer, sessionKey: number, alreadyFinished: boolean) => Promise<void>,
   opts: WriteSessionThroughLoaderOptions = {},
 ): Promise<WriteSessionThroughLoaderResult> {
@@ -418,6 +419,11 @@ export async function writeSessionThroughLoader(
   // session back to `upcoming` and then straight back to `finished`. The
   // final `upsertSession(..., { status: "finished" })` below still runs
   // either way, so the net effect is unchanged: still finished.
+  // Every guard above has passed — only now is a meetings request (a file
+  // read, or a live/rate-limited network call) actually spent on this
+  // session. Called once and reused for both upserts below.
+  const meetingNames = await getMeetingNames();
+
   const alreadyFinished = existing?.status === "finished";
   if (!alreadyFinished) {
     await upsertSession(db, session, nowMs, { status: "upcoming", meetingNames });
@@ -575,9 +581,6 @@ async function loadOneSession(
   meetingsFetcher: Fetcher | undefined,
 ): Promise<LoadOneSessionResult> {
   const sessionKeyForMeetings = Number(session["session_key"]);
-  const meetingNames = Number.isFinite(sessionKeyForMeetings)
-    ? await meetingNamesForSession(dir, sessionKeyForMeetings, session, meetingsFetcher, log)
-    : new Map<number, string>();
   return writeSessionThroughLoader(
     session,
     db,
@@ -585,7 +588,10 @@ async function loadOneSession(
     queue,
     nowMs,
     log,
-    meetingNames,
+    async () =>
+      Number.isFinite(sessionKeyForMeetings)
+        ? meetingNamesForSession(dir, sessionKeyForMeetings, session, meetingsFetcher, log)
+        : new Map<number, string>(),
     async (normalizer, sessionKey) => {
       // The static entry list, "exactly as session selection does" (same
       // `emitRows` path rest-lane.ts's `ensureLiveSession` uses) — so the

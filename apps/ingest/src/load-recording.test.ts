@@ -509,6 +509,49 @@ describe("loadRecordings: ADR-0010 — refuses a live session, writes nothing fo
     }
   });
 
+  test("round-2 review fix: a refused session with a meeting_key and no raw/meetings.jsonl makes zero live meetings requests", async () => {
+    // meeting_key present, no raw/meetings.jsonl written, and a
+    // meetingsFetcher given — this is what exercises the ordering bug: the
+    // live fallback must run only after the guard, so a refused session
+    // costs no meetings request either.
+    const dir = await mkdtemp(path.join(tmpdir(), "load-recording-refused-meetings-test-"));
+    try {
+      await writeFile(
+        path.join(dir, "session.json"),
+        JSON.stringify({
+          session: {
+            session_key: 9801,
+            meeting_key: 1293,
+            session_type: "Race",
+            session_name: "Race",
+            date_start: "2026-01-01T13:00:00+00:00",
+            date_end: "2026-01-01T15:00:00+00:00",
+            circuit_key: 39,
+            country_name: "Italy",
+          },
+          discovered_at: "2026-01-01T12:57:00.000Z",
+        }),
+      );
+      const calls: string[] = [];
+      const meetingsFetcher = async (url: string): Promise<unknown> => {
+        calls.push(url);
+        return [{ meeting_key: 1293, meeting_name: "Italian Grand Prix" }];
+      };
+
+      const db = fakeDb();
+      const totals = await loadRecordings([dir], db, {
+        now: () => Date.parse("2026-01-01T14:00:00Z"), // squarely inside the window: refused as live
+        onLog: () => {},
+        meetingsFetcher,
+      });
+
+      expect(totals.sessionsSkipped).toBe(1);
+      expect(calls).toHaveLength(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a finished session (window closed) still loads", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "load-recording-finished-window-test-"));
     try {

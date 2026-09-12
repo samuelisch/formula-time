@@ -265,26 +265,29 @@ async function fetchOneSession(
   const parsedStart = Date.parse(String(session["date_start"] ?? ""));
   const sessionStartMs = Number.isNaN(parsedStart) ? nowMs : parsedStart;
 
-  // `meetings?meeting_key=` once, up front — the session row never carries
-  // the Grand Prix name itself (`sessionFieldsFromRaw`'s doc comment). The
-  // matched row is also recorded to jsonl below (only when `shouldRecord`,
-  // same idempotent-recording rule as every other endpoint), so a later
-  // `pnpm ingest:load` of this same fetched recording can source
-  // `meeting_name` too (`meetingNamesFromRecording`, load-recording.ts).
+  // `meetings?meeting_key=` — the session row never carries the Grand Prix
+  // name itself (`sessionFieldsFromRaw`'s doc comment). Fetched lazily,
+  // inside `getMeetingNames` below, so it only ever runs once
+  // `writeSessionThroughLoader`'s own guards (still-live, non-race, window
+  // not closed) have already passed — a refused session must cost no
+  // further request. `meetingRow` is captured in this closure's outer
+  // scope so `emitAll` below (which runs after `getMeetingNames`, also
+  // past the guards) can record it to jsonl too.
   const meetingKey = Number(session["meeting_key"]);
-  let meetingNames: ReadonlyMap<number, string> = new Map();
   let meetingRow: RawRecord | undefined;
-  if (Number.isFinite(meetingKey)) {
+  const getMeetingNames = async (): Promise<ReadonlyMap<number, string>> => {
+    if (!Number.isFinite(meetingKey)) return new Map();
     try {
       const raw = await fetcher(`${OPENF1_BASE}/meetings?meeting_key=${meetingKey}`);
       const rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
       meetingRow = rows.find((row) => Number(row["meeting_key"]) === meetingKey);
       const name = meetingRow?.["meeting_name"];
-      if (typeof name === "string" && name.length > 0) meetingNames = new Map([[meetingKey, name]]);
+      return typeof name === "string" && name.length > 0 ? new Map([[meetingKey, name]]) : new Map();
     } catch (error) {
       log(`fetch-race: meetings fetch failed for meeting_key=${meetingKey}: ${error instanceof Error ? error.message : String(error)}`);
+      return new Map();
     }
-  }
+  };
 
   const result = await writeSessionThroughLoader(
     session,
@@ -293,7 +296,7 @@ async function fetchOneSession(
     queue,
     nowMs,
     log,
-    meetingNames,
+    getMeetingNames,
     async (normalizer: LiveNormalizer, sessionKeyNum: number, alreadyFinished: boolean) => {
       // Fetching and normalizing always happens on a
       // rerun (DB-level idempotency comes from `event.createMany({

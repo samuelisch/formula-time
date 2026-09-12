@@ -561,6 +561,40 @@ describe("fetchRaces: ADR-0010 — refuses a live session, writes nothing for it
     expect(logs).toContain("load: refused 9501: window not closed; the live ingest service owns it");
     expect(requestedUrls).toHaveLength(1);
   });
+
+  test("round-2 review fix: a refused session with a meeting_key makes zero meetings requests", async () => {
+    // meeting_key present (unlike the fixtures above) is what exercises the
+    // ordering bug: the meetings fetch must run only after the guard, so a
+    // refused session costs no meetings request either.
+    const requestedUrls: string[] = [];
+    const fetcher: Fetcher = async (url) => {
+      requestedUrls.push(url);
+      if (url.includes("/sessions?")) {
+        return [
+          {
+            session_key: 9701,
+            meeting_key: 1293,
+            session_name: "Race",
+            country_name: "Italy",
+            circuit_key: 39,
+            date_start: "2026-01-01T13:00:00+00:00",
+            date_end: "2026-01-01T15:00:00+00:00",
+          },
+        ];
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const db = fakeLoaderDb();
+    const result = await fetchRaces([9701], db, fetcher, {
+      now: () => Date.parse("2026-01-01T14:00:00Z"), // squarely inside the window: refused as live
+      onLog: () => {},
+    });
+
+    expect(result.sessionsSkipped).toBe(1);
+    expect(requestedUrls.filter((u) => u.includes("/meetings?"))).toHaveLength(0);
+    expect(requestedUrls).toHaveLength(1); // only the sessions?session_key= lookup
+  });
 });
 
 describe("fetchRaces: issue #168 — refuses a non-race session, writes nothing for it", () => {
