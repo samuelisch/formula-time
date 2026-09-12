@@ -139,6 +139,21 @@ describe("useSelectedRace", () => {
     expect(result.current.current).toEqual({ sessionKey: "9999", label: "Italy · Race", status: "live" });
   });
 
+  it("labels the current session by meeting_name when the push carries one", () => {
+    resetStore({
+      ...settledConnection(),
+      displayed: makePush(
+        { session_key: "9999" },
+        { session: { session_key: "9999", country: "Italy", name: "Race", meeting_name: "Italian Grand Prix", status: "live" } },
+      ),
+    });
+    stubRacesFetch(races);
+
+    const { result } = renderSelectedRace();
+
+    expect(result.current.current).toEqual({ sessionKey: "9999", label: "Italian Grand Prix", status: "live" });
+  });
+
   it("an explicit ?race= param wins immediately, ignoring settling", () => {
     resetStore(); // connection stays "connecting" -- never settles
     stubRacesFetch(races);

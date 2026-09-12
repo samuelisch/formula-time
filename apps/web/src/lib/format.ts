@@ -99,3 +99,19 @@ export function raceSubtitle(session: RaceLike): string {
   const formattedDate = dateStart === null ? null : date(dateStart);
   return [circuit, location, formattedDate].filter((part): part is string => part !== null).join(" · ");
 }
+
+/** `raceTitle(session)`, with `" (<year>)"` appended only when some race in
+ * `races` reads the same title -- so a session (current or historical)
+ * that would otherwise share a display name with another race in the same
+ * list still reads as distinct. Falls back to the plain title when there is
+ * no `date_start` to take a year from. */
+export function raceTitleDisambiguated(session: RaceLike, races: RaceIndexEntry[]): string {
+  const title = raceTitle(session);
+  const collides = races.some((race) => raceTitle(race) === title);
+  if (!collides) return title;
+
+  const dateStart = stringField(session as unknown as RawRecord, "date_start");
+  if (dateStart === null) return title;
+  const year = new Date(dateStart).getUTCFullYear();
+  return `${title} (${year})`;
+}
