@@ -68,8 +68,8 @@ const restLane = new RestLane(queue, {
   // Every session row discovery sees, every discovery tick: upsert only.
   // The jsonl recorder's session.json write does NOT belong here — see
   // onSessionSelected below.
-  onSession: async (session, nowMs) => {
-    await upsertSession(db, session, nowMs);
+  onSession: async (session, nowMs, meetingNames) => {
+    await upsertSession(db, session, nowMs, { meetingNames });
   },
   // Once per newly-selected session, not once per discovery tick:
   // recorder.writeSession() living in onSession instead re-creates/

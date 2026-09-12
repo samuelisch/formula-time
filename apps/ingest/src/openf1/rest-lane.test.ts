@@ -115,7 +115,7 @@ describe("RestLane discovery", () => {
 
     await lane.discoverOnce();
 
-    expect(onSession).toHaveBeenCalledWith(SESSION, START - 2 * WINDOW);
+    expect(onSession).toHaveBeenCalledWith(SESSION, START - 2 * WINDOW, expect.any(Map));
     expect(lane.status().active).toBe(false); // outside the live window still
   });
 
@@ -165,8 +165,8 @@ describe("RestLane discovery", () => {
     // Both rows were still handed to onSession, in order — the throw on the
     // first didn't stop the loop.
     expect(onSession).toHaveBeenCalledTimes(2);
-    expect(onSession).toHaveBeenNthCalledWith(1, bad, START);
-    expect(onSession).toHaveBeenNthCalledWith(2, SESSION, START);
+    expect(onSession).toHaveBeenNthCalledWith(1, bad, START, expect.any(Map));
+    expect(onSession).toHaveBeenNthCalledWith(2, SESSION, START, expect.any(Map));
     // And ensureLiveSession() still ran on the good session despite the bad
     // one throwing first.
     expect(outcome.live).toBe(true);
@@ -200,6 +200,44 @@ describe("RestLane discovery", () => {
     await lane.discoverOnce();
 
     expect(lane.status()).toEqual({ active: true, sessionKey: 11361 });
+  });
+
+  test("discovery fetches meetings?year= once per tick and passes the resulting map to onSession", async () => {
+    const meetings = [{ meeting_key: 1293, meeting_name: "Italian Grand Prix" }];
+    const { fetcher, calls } = fakeFetcher({ sessions: [SESSION], drivers: [], meetings });
+    const onSession = vi.fn();
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START - 2 * WINDOW, onSession, onLog: () => {} });
+
+    await lane.discoverOnce();
+
+    expect(calls.filter((u) => u.includes("/meetings?"))).toHaveLength(1);
+    expect(onSession).toHaveBeenCalledWith(SESSION, START - 2 * WINDOW, new Map([[1293, "Italian Grand Prix"]]));
+  });
+
+  test("a meetings fetch failure keeps the previous tick's map instead of clearing it", async () => {
+    let shouldFail = false;
+    const meetings = [{ meeting_key: 1293, meeting_name: "Italian Grand Prix" }];
+    const fetcher = async (url: string): Promise<unknown> => {
+      const parsed = new URL(url);
+      const endpoint = parsed.pathname.split("/").at(-1) ?? "";
+      if (endpoint === "meetings") {
+        if (shouldFail) throw new Error("network error");
+        return meetings;
+      }
+      if (endpoint === "sessions") return [SESSION];
+      return [];
+    };
+    const onSession = vi.fn();
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START - 2 * WINDOW, onSession, onLog: () => {} });
+
+    await lane.discoverOnce();
+    expect(onSession).toHaveBeenNthCalledWith(1, SESSION, START - 2 * WINDOW, new Map([[1293, "Italian Grand Prix"]]));
+
+    shouldFail = true;
+    await lane.discoverOnce();
+    expect(onSession).toHaveBeenNthCalledWith(2, SESSION, START - 2 * WINDOW, new Map([[1293, "Italian Grand Prix"]]));
   });
 });
 
@@ -259,7 +297,7 @@ describe("RestLane: races only (issue #168)", () => {
     await lane.discoverOnce();
 
     expect(onSession).toHaveBeenCalledTimes(1);
-    expect(onSession).toHaveBeenCalledWith(RACE_ROW, expect.any(Number));
+    expect(onSession).toHaveBeenCalledWith(RACE_ROW, expect.any(Number), expect.any(Map));
     const knownSessionKeys = (lane as unknown as { knownSessionKeys: Set<number> }).knownSessionKeys;
     expect(knownSessionKeys).toEqual(new Set([40004]));
   });
@@ -419,6 +457,7 @@ describe("RestLane.stop() and an in-flight tick (SIGTERM race)", () => {
     const fetcher = (url: string): Promise<unknown> => {
       if (url.includes("/sessions")) return Promise.resolve([SESSION]);
       if (url.includes("/drivers")) return Promise.resolve([]);
+      if (url.includes("/meetings")) return Promise.resolve([]);
       // The rotation poll (first endpoint in POLL_ROTATION is "position"):
       // left pending until the test resolves it, simulating a slow network
       // call still in flight when stop() is called.
@@ -925,7 +964,9 @@ describe("RestLane: drivers fetch budget (issue #39)", () => {
 
     const refresh = await lane.pollOnce(); // the live loop's sessions refresh (60 s cadence) is also due: its own tick
     expect(refresh?.endpoint).toBe("sessions");
-    expect(calls.every((u) => u.includes("/sessions?"))).toBe(true);
+    // The sessions snapshot refresh also refreshes meetingNames (once per
+    // tick, alongside it) — every call this tick is one or the other.
+    expect(calls.every((u) => u.includes("/sessions?") || u.includes("/meetings?"))).toBe(true);
     calls = [];
 
     const resumed = await lane.pollOnce(); // must resume at rotation index 1, not 2
