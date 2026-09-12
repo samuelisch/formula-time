@@ -12,7 +12,16 @@ function fakeDb(): SessionsDb & { rows: Map<string, unknown> } {
       async upsert(args) {
         const key = args.where.sessionKey.toString();
         if (rows.has(key)) {
-          rows.set(key, { sessionKey: args.where.sessionKey, ...args.update });
+          // Matches Prisma's real `update` semantics: a key present with
+          // value `undefined` (the naming columns, when this run has no
+          // answer) leaves that column untouched, rather than a wholesale
+          // replace of the row.
+          const existing = rows.get(key) as Record<string, unknown>;
+          const merged: Record<string, unknown> = { ...existing, sessionKey: args.where.sessionKey };
+          for (const [field, value] of Object.entries(args.update)) {
+            if (value !== undefined) merged[field] = value;
+          }
+          rows.set(key, merged);
         } else {
           rows.set(key, args.create);
         }
@@ -180,6 +189,25 @@ describe("upsertSession", () => {
       meetingNames: new Map([[1293, "Italian Grand Prix"]]),
     });
     expect((db.rows.get("11361") as Record<string, unknown>)["meetingName"]).toBe("Italian Grand Prix");
+  });
+
+  test("a later rerun with no meetings map entry does not blank an already-known meeting_name", async () => {
+    const db = fakeDb();
+    const raw: RawRecord = { ...RAW_SESSION, meeting_key: 1293, circuit_short_name: "Monza", location: "Monza" };
+    await upsertSession(db, raw, START_MS + 60 * 1000, {
+      meetingNames: new Map([[1293, "Italian Grand Prix"]]),
+    });
+    expect((db.rows.get("11361") as Record<string, unknown>)["meetingName"]).toBe("Italian Grand Prix");
+
+    // A rerun whose source has no answer this time (empty map, and a raw
+    // row with no circuit_short_name/location) must not overwrite the
+    // already-known values with null.
+    await upsertSession(db, RAW_SESSION, START_MS + 60 * 1000);
+
+    const row = db.rows.get("11361") as Record<string, unknown>;
+    expect(row["meetingName"]).toBe("Italian Grand Prix");
+    expect(row["circuitShortName"]).toBe("Monza");
+    expect(row["location"]).toBe("Monza");
   });
 
   test("an invalid date_start is rejected without touching the db", async () => {

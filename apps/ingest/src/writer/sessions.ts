@@ -6,13 +6,25 @@ import type { SessionStatus } from "@formula-time/db";
 import { totalLapsForCircuit } from "../circuits.js";
 import type { RawRecord } from "../openf1/types.js";
 
+/**
+ * The naming columns as `update` sees them: `undefined` (as opposed to
+ * `null`) tells Prisma to leave that column untouched — see
+ * `updateFieldsPreservingNaming`'s doc comment for why `update` needs a
+ * different type here than `create`.
+ */
+interface NamingFieldsForUpdate {
+  meetingName?: string | null;
+  circuitShortName?: string | null;
+  location?: string | null;
+}
+
 /** The slice of the Prisma client the sessions upsert needs — real client or a fake. */
 export interface SessionsDb {
   session: {
     upsert(args: {
       where: { sessionKey: bigint };
       create: SessionFields & { sessionKey: bigint };
-      update: SessionFields;
+      update: Omit<SessionFields, keyof NamingFieldsForUpdate> & NamingFieldsForUpdate;
     }): Promise<unknown>;
   };
 }
@@ -154,6 +166,31 @@ export interface UpsertSessionOptions {
 }
 
 /**
+ * A rerun whose source has no answer for a naming column (no meetings map
+ * entry this tick, a raw row with no `circuit_short_name`/`location`) must
+ * not blank out a value an earlier run already found — `null` here means
+ * "this run doesn't know", not "this row has none". Prisma's `update`
+ * leaves a column untouched when its key is absent from the update object
+ * entirely (as opposed to present and `null`, which sets it to null), so
+ * omitting these three keys — not merely setting them to `null` — when the
+ * computed value is `null` is what makes a rerun additive instead of
+ * overwriting a known value with an unknown one. `create` keeps the
+ * literal `null` unchanged — a brand-new row legitimately has no value yet
+ * until some run's map/row supplies one.
+ */
+function updateFieldsPreservingNaming(
+  fields: SessionFields,
+): Omit<SessionFields, keyof NamingFieldsForUpdate> & NamingFieldsForUpdate {
+  const { meetingName, circuitShortName, location, ...rest } = fields;
+  return {
+    ...rest,
+    ...(meetingName !== null ? { meetingName } : {}),
+    ...(circuitShortName !== null ? { circuitShortName } : {}),
+    ...(location !== null ? { location } : {}),
+  };
+}
+
+/**
  * Upserts the `sessions` row for a raw OpenF1 `sessions` record. `nowMs`
  * drives the `upcoming` / `live` / `finished` status
  * unless `opts.status` overrides it.
@@ -176,6 +213,6 @@ export async function upsertSession(
   await db.session.upsert({
     where: { sessionKey },
     create: { sessionKey, ...fields },
-    update: fields,
+    update: updateFieldsPreservingNaming(fields),
   });
 }
