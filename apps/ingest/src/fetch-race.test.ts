@@ -720,9 +720,7 @@ describe("fetchRaces: the endpoint summary log counts emitted (post-split) rows,
 
 // The recording (`RaceRecorder`) is a durable artefact of what OpenF1
 // actually returned; it must not carry the emission-time lap split, or a
-// reload of it would no longer replay OpenF1's real rows one-for-one (see
-// the "Needs owner" note on the PR about `load-recording.ts` not knowing
-// about the split).
+// reload of it would no longer replay OpenF1's real rows one-for-one.
 describe("fetchRaces: the recording keeps OpenF1's raw rows, one per historical lap, while the queue gets two", () => {
   test("the recorder receives the single pre-split laps row; the event queue receives the start row and the complete row", async () => {
     const dateStart = "2026-01-01T13:00:00.000Z";
