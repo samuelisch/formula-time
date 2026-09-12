@@ -33,7 +33,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { useConnection, useSessionMeta, useSessionStatus, useStatusReceived } from "../live/selectors.ts";
-import { stringField } from "../lib/format.ts";
+import { raceTitleDisambiguated } from "../lib/format.ts";
 import { fetchRaceIndex } from "../races/api.ts";
 import type { RaceSelectCurrent } from "../races/RaceSelect.tsx";
 
@@ -106,10 +106,7 @@ export function useSelectedRace(): SelectedRace {
   const selectedKey = paramKey ?? currentSessionKey ?? fallbackKey;
   const historicalKey = !isCurrentSelected && selectedKey !== null ? selectedKey : null;
 
-  const currentLabel =
-    sessionMeta.session !== null
-      ? `${stringField(sessionMeta.session, "country") ?? "—"} · ${stringField(sessionMeta.session, "name") ?? "—"}`
-      : "Current session";
+  const currentLabel = sessionMeta.session !== null ? raceTitleDisambiguated(sessionMeta.session, races) : "Current session";
   const current = currentSessionKey !== null ? { sessionKey: currentSessionKey, label: currentLabel, status: sessionStatus } : null;
 
   function handleRaceChange(sessionKey: string): void {

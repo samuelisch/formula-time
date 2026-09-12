@@ -13,24 +13,18 @@
 // only ever show a historical race as selected when its `value` explicitly
 // names one, the caller's content and the selector can't drift apart.
 import type { SessionStatusValue } from "../live/selectors.ts";
-import { raceTitle } from "../lib/format.ts";
+import { raceTitleDisambiguated } from "../lib/format.ts";
 import type { RaceIndexEntry } from "./api.ts";
 import styles from "./RaceSelect.module.css";
 
-/** `raceTitle` for each race, with `" (<year>)"` appended only to the races
- * whose title collides with another race's in the same list -- so two
- * rounds sharing a meeting name (e.g. two years of the same Grand Prix)
- * still read as distinct options. */
+/** `raceTitleDisambiguated` for each race against the rest of the list, so
+ * two rounds sharing a meeting name (e.g. two years of the same Grand
+ * Prix) still read as distinct options. */
 function optionLabels(races: RaceIndexEntry[]): Map<number, string> {
-  const withTitles = races.map((race) => ({ race, title: raceTitle(race) }));
-  const counts = new Map<string, number>();
-  for (const { title } of withTitles) counts.set(title, (counts.get(title) ?? 0) + 1);
-
   const labels = new Map<number, string>();
-  for (const { race, title } of withTitles) {
-    const ambiguous = (counts.get(title) ?? 0) > 1;
-    const year = new Date(race.date_start).getUTCFullYear();
-    labels.set(race.session_key, ambiguous ? `${title} (${year})` : title);
+  for (const race of races) {
+    const others = races.filter((other) => other.session_key !== race.session_key);
+    labels.set(race.session_key, raceTitleDisambiguated(race, others));
   }
   return labels;
 }
