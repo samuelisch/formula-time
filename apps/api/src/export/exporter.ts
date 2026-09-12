@@ -139,9 +139,11 @@ async function readAllEvents(db: PrismaClient, sessionKey: bigint): Promise<Expo
   return events;
 }
 
-/** ADR-0009 §1, exactly: `schema`, top-level `exported_at`, the session
- * fields, and `events` -- the four `RaceEvent` fields the fold reads
- * (`packages/domain`), nothing else. BigInt keys serialise as numbers. */
+/** `schema`, top-level `exported_at`, the session fields (ADR-0009 §1's
+ * fields plus the three nullable naming fields `meeting_name`,
+ * `circuit_short_name` and `location`, additive and nullable so `schema`
+ * stays 1), and `events` -- the four `RaceEvent` fields the fold reads
+ * (`packages/domain`). BigInt keys serialise as numbers. */
 function buildDoc(session: Session, exportedAt: Date, events: ExportEvent[]): ExportDoc {
   return {
     schema: 1,

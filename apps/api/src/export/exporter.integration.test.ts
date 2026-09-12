@@ -110,7 +110,7 @@ afterAll(async () => {
   await db.$disconnect();
 });
 
-test("exports a real session: gzip file matches ADR-0009 §1 exactly; a second runOnce writes nothing more", async () => {
+test("exports a real session: gzip file matches ADR-0009 §1 plus the three naming fields; a second runOnce writes nothing more", async () => {
   dir = await mkdtemp(join(tmpdir(), "exporter-integration-"));
   const exporter = createExporter({ db, dir, log: () => {} });
 
