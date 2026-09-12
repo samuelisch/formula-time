@@ -718,6 +718,42 @@ describe("fetchRaces: the endpoint summary log counts emitted (post-split) rows,
   });
 });
 
+// The recording (`RaceRecorder`) is a durable artefact of what OpenF1
+// actually returned; it must not carry the emission-time lap split, or a
+// reload of it would no longer replay OpenF1's real rows one-for-one (see
+// the "Needs owner" note on the PR about `load-recording.ts` not knowing
+// about the split).
+describe("fetchRaces: the recording keeps OpenF1's raw rows, one per historical lap, while the queue gets two", () => {
+  test("the recorder receives the single pre-split laps row; the event queue receives the start row and the complete row", async () => {
+    const dateStart = "2026-01-01T13:00:00.000Z";
+    const fetcher = endpointResponses({
+      sessions: [
+        {
+          session_key: 8004,
+          session_name: "Race",
+          country_name: "Italy",
+          circuit_key: 39,
+          date_start: "2026-01-01T13:00:00+00:00",
+          date_end: "2026-01-01T15:00:00+00:00",
+        },
+      ],
+      laps: [{ session_key: 8004, driver_number: 1, lap_number: 1, date_start: dateStart, lap_duration: 90 }],
+    });
+
+    const db = fakeLoaderDb();
+    const { recorder, calls } = fakeRecorder();
+    const now = () => Date.parse("2026-06-01T00:00:00Z");
+
+    await fetchRaces([8004], db, fetcher, { now, onLog: () => {}, recorder });
+
+    const lapsAppend = calls.appendRowsCalls.find((call) => call.endpoint === "laps");
+    expect(lapsAppend?.rowCount).toBe(1); // the recording keeps OpenF1's one raw row for this lap
+
+    const lapEvents = [...db.events.values()].filter((event) => event.endpoint === "laps");
+    expect(lapEvents).toHaveLength(2); // the queue/database got the start row and the complete row
+  });
+});
+
 // `writeSessionThroughLoader` hands `emitAll` a brand new `LiveNormalizer`
 // per call, so every fetched row looks "new" to it again on a rerun —
 // without a guard, the jsonl recording (unlike the idempotent DB write)
