@@ -13,8 +13,27 @@
 // only ever show a historical race as selected when its `value` explicitly
 // names one, the caller's content and the selector can't drift apart.
 import type { SessionStatusValue } from "../live/selectors.ts";
+import { raceTitle } from "../lib/format.ts";
 import type { RaceIndexEntry } from "./api.ts";
 import styles from "./RaceSelect.module.css";
+
+/** `raceTitle` for each race, with `" (<year>)"` appended only to the races
+ * whose title collides with another race's in the same list -- so two
+ * rounds sharing a meeting name (e.g. two years of the same Grand Prix)
+ * still read as distinct options. */
+function optionLabels(races: RaceIndexEntry[]): Map<number, string> {
+  const withTitles = races.map((race) => ({ race, title: raceTitle(race) }));
+  const counts = new Map<string, number>();
+  for (const { title } of withTitles) counts.set(title, (counts.get(title) ?? 0) + 1);
+
+  const labels = new Map<number, string>();
+  for (const { race, title } of withTitles) {
+    const ambiguous = (counts.get(title) ?? 0) > 1;
+    const year = new Date(race.date_start).getUTCFullYear();
+    labels.set(race.session_key, ambiguous ? `${title} (${year})` : title);
+  }
+  return labels;
+}
 
 export interface RaceSelectCurrent {
   sessionKey: string;
@@ -41,6 +60,7 @@ const STATUS_LABEL: Record<SessionStatusValue, string> = {
 
 export function RaceSelect({ current, races, value, onChange, id }: RaceSelectProps) {
   const historicalRaces = races.filter((race) => String(race.session_key) !== current?.sessionKey);
+  const labels = optionLabels(historicalRaces);
 
   return (
     <select id={id} aria-label="Select race" className={styles.select} value={value} onChange={(event) => onChange(event.target.value)}>
@@ -56,7 +76,7 @@ export function RaceSelect({ current, races, value, onChange, id }: RaceSelectPr
       )}
       {historicalRaces.map((race) => (
         <option key={race.session_key} value={String(race.session_key)}>
-          {race.country} · {race.name}
+          {labels.get(race.session_key)}
         </option>
       ))}
     </select>
