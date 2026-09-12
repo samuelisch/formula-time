@@ -674,6 +674,50 @@ describe("fetchRaces: round 1 fix — a laps row's stored source_time matches it
   });
 });
 
+// The per-endpoint log line reports how many rows actually reach the
+// queue, not how many the normalizer saw — those differ for laps once a
+// row is split, and a log a human greps for row counts must count the
+// thing it names.
+describe("fetchRaces: the endpoint summary log counts emitted (post-split) rows, not just normalized rows", () => {
+  test("a laps row that splits into two logs emitted=2 alongside the pre-split new=1", async () => {
+    const fetcher = endpointResponses({
+      sessions: [
+        {
+          session_key: 8003,
+          session_name: "Race",
+          country_name: "Italy",
+          circuit_key: 39,
+          date_start: "2026-01-01T13:00:00+00:00",
+          date_end: "2026-01-01T15:00:00+00:00",
+        },
+      ],
+      laps: [
+        {
+          session_key: 8003,
+          driver_number: 1,
+          lap_number: 1,
+          date_start: "2026-01-01T13:00:00.000Z",
+          lap_duration: 90,
+        },
+      ],
+    });
+
+    const db = fakeLoaderDb();
+    const now = () => Date.parse("2026-06-01T00:00:00Z");
+    const logs: string[] = [];
+    await fetchRaces([8003], db, fetcher, { now, onLog: (line) => logs.push(line) });
+
+    const lapsLine = logs.find((line) => line.includes("endpoint=laps"));
+    expect(lapsLine).toContain("new=1"); // one row normalized/recorded
+    expect(lapsLine).toContain("emitted=2"); // two rows reached the queue after the split
+
+    // A non-laps endpoint never splits: new and emitted stay equal.
+    const positionLine = logs.find((line) => line.includes("endpoint=position"));
+    expect(positionLine).toContain("new=0");
+    expect(positionLine).toContain("emitted=0");
+  });
+});
+
 // `writeSessionThroughLoader` hands `emitAll` a brand new `LiveNormalizer`
 // per call, so every fetched row looks "new" to it again on a rerun —
 // without a guard, the jsonl recording (unlike the idempotent DB write)

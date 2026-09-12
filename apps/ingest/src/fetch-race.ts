@@ -362,8 +362,14 @@ async function fetchOneSession(
         const { rows: normalized } = normalizer.normalize(endpoint, rows);
         // Split for emission only — the jsonl recording below still records
         // one raw OpenF1 row per lap, the response actually received.
-        byEndpoint.set(endpoint, endpoint === "laps" ? normalized.flatMap(splitLapRow) : normalized);
-        log(`fetch-race: session=${sessionKeyNum} endpoint=${endpoint} rows=${rows.length} new=${normalized.length}`);
+        const emitted = endpoint === "laps" ? normalized.flatMap(splitLapRow) : normalized;
+        byEndpoint.set(endpoint, emitted);
+        // `new` is what the normalizer saw (and what the recording gets);
+        // `emitted` is what actually reaches the queue — the two diverge
+        // once a laps row splits into a start row and a complete row.
+        log(
+          `fetch-race: session=${sessionKeyNum} endpoint=${endpoint} rows=${rows.length} new=${normalized.length} emitted=${emitted.length}`,
+        );
         if (shouldRecord && normalized.length > 0) {
           await recorder.appendRows(sessionKeyNum, endpoint, normalized.map((row) => row.payload));
         }
