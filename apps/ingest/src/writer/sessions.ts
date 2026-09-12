@@ -25,6 +25,9 @@ interface SessionFields {
   dateEnd: Date;
   totalLaps: number | null;
   status: SessionStatus;
+  meetingName: string | null;
+  circuitShortName: string | null;
+  location: string | null;
 }
 
 // OpenF1 serves live data from 30 minutes before `date_start` to 30 minutes
@@ -82,6 +85,17 @@ function stringField(raw: RawRecord, ...keys: string[]): string {
   return "";
 }
 
+// Same lookup as stringField, but `null` (not `""`) when absent — for the
+// nullable naming columns, where "no value" and "empty string" must not
+// collide.
+function nullableStringField(raw: RawRecord, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const value = raw[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+
 function validDate(raw: RawRecord, key: string): Date {
   const value = raw[key];
   if (typeof value !== "string" || value.length === 0) {
@@ -94,10 +108,24 @@ function validDate(raw: RawRecord, key: string): Date {
   return date;
 }
 
-export function sessionFieldsFromRaw(raw: RawRecord, nowMs: number): SessionFields {
+/**
+ * `meetingNames` joins on the raw row's own `meeting_key`: the session row
+ * never carries the Grand Prix name itself (`meeting_name` lives on
+ * OpenF1's `meetings` rows), so callers fetch that separately and hand in
+ * the map (RestLane: once per discovery tick, `meetings?year=`; the loader
+ * and fetch-race: once per session, `meetings?meeting_key=`). A missing
+ * entry (no fetch made, or the meeting_key wasn't found) leaves
+ * `meetingName` null rather than guessing.
+ */
+export function sessionFieldsFromRaw(
+  raw: RawRecord,
+  nowMs: number,
+  meetingNames: ReadonlyMap<number, string> = new Map(),
+): SessionFields {
   const dateStart = validDate(raw, "date_start");
   const dateEnd = validDate(raw, "date_end");
   const circuitKey = Number(raw["circuit_key"] ?? 0);
+  const meetingKey = Number(raw["meeting_key"]);
   return {
     name: stringField(raw, "session_name", "session_type"),
     country: stringField(raw, "country_name"),
@@ -106,6 +134,9 @@ export function sessionFieldsFromRaw(raw: RawRecord, nowMs: number): SessionFiel
     dateEnd,
     totalLaps: totalLapsForCircuit(circuitKey),
     status: computeSessionStatus(dateStart, dateEnd, nowMs),
+    meetingName: Number.isFinite(meetingKey) ? (meetingNames.get(meetingKey) ?? null) : null,
+    circuitShortName: nullableStringField(raw, "circuit_short_name"),
+    location: nullableStringField(raw, "location"),
   };
 }
 
@@ -118,6 +149,8 @@ export interface UpsertSessionOptions {
    * not a second upsert function.
    */
   status?: SessionStatus;
+  /** Forwarded to `sessionFieldsFromRaw` — see its doc comment. */
+  meetingNames?: ReadonlyMap<number, string>;
 }
 
 /**
@@ -138,7 +171,7 @@ export async function upsertSession(
   opts: UpsertSessionOptions = {},
 ): Promise<void> {
   const sessionKey = sessionKeyOf(raw);
-  const fields = sessionFieldsFromRaw(raw, nowMs);
+  const fields = sessionFieldsFromRaw(raw, nowMs, opts.meetingNames);
   if (opts.status) fields.status = opts.status;
   await db.session.upsert({
     where: { sessionKey },

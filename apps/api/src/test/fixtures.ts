@@ -13,6 +13,9 @@ export function fakeSession(overrides: Partial<Session> = {}): Session {
     dateEnd: new Date("2026-09-06T15:00:00.000Z"),
     totalLaps: 50,
     status: "live",
+    meetingName: null,
+    circuitShortName: null,
+    location: null,
     ...overrides,
   };
 }
