@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clock, duration, gapText, lapTime, number, pitStopText, text } from "./format.ts";
+import { clock, duration, gapText, lapTime, number, pitStopText, raceSubtitle, raceTitle, text } from "./format.ts";
 
 describe("text", () => {
   it("falls back on null, undefined, and empty string", () => {
@@ -109,5 +109,54 @@ describe("clock", () => {
 
   it("renders HH:MM:SS UTC from an ISO source time", () => {
     expect(clock("2026-09-08T13:05:07.000Z")).toBe("13:05:07 UTC");
+  });
+});
+
+describe("raceTitle", () => {
+  it("uses meeting_name when present", () => {
+    expect(raceTitle({ meeting_name: "Spanish Grand Prix", country: "Spain", name: "Race" })).toBe("Spanish Grand Prix");
+  });
+
+  it("falls back to country · name when meeting_name is absent", () => {
+    expect(raceTitle({ country: "Italy", name: "Race" })).toBe("Italy · Race");
+  });
+
+  it("falls back to country · name when meeting_name is null", () => {
+    expect(raceTitle({ meeting_name: null, country: "Italy", name: "Race" })).toBe("Italy · Race");
+  });
+
+  it("renders the em dash for a missing country or name in the fallback", () => {
+    expect(raceTitle({ name: "Race" })).toBe("— · Race");
+    expect(raceTitle({ country: "Italy" })).toBe("Italy · —");
+  });
+});
+
+describe("raceSubtitle", () => {
+  it("joins circuit_short_name, location, and the formatted date, dropping missing parts", () => {
+    expect(
+      raceSubtitle({
+        circuit_short_name: "Barcelona-Catalunya",
+        location: "Montmeló",
+        date_start: "2026-06-14T13:00:00.000Z",
+      }),
+    ).toBe("Barcelona-Catalunya · Montmeló · 2026-06-14");
+  });
+
+  it("drops a missing circuit_short_name", () => {
+    expect(raceSubtitle({ location: "Montmeló", date_start: "2026-06-14T13:00:00.000Z" })).toBe("Montmeló · 2026-06-14");
+  });
+
+  it("drops a missing location", () => {
+    expect(raceSubtitle({ circuit_short_name: "Barcelona-Catalunya", date_start: "2026-06-14T13:00:00.000Z" })).toBe(
+      "Barcelona-Catalunya · 2026-06-14",
+    );
+  });
+
+  it("renders just the date when circuit_short_name and location are both absent", () => {
+    expect(raceSubtitle({ date_start: "2026-06-14T13:00:00.000Z" })).toBe("2026-06-14");
+  });
+
+  it("drops the date when date_start is missing or unparseable", () => {
+    expect(raceSubtitle({ circuit_short_name: "Barcelona-Catalunya" })).toBe("Barcelona-Catalunya");
   });
 });

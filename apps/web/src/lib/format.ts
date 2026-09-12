@@ -4,6 +4,13 @@
 // (app.js), lifted for the typed board.
 import type { Gap, RawRecord } from "@formula-time/domain";
 
+import type { RaceIndexEntry } from "../races/api.ts";
+
+/** Either shape a race's naming fields arrive in: the historical index
+ * (`RaceIndexEntry`, typed fields) or a live/replay session (`RawRecord`,
+ * fields read loosely). Both carry the same field names. */
+type RaceLike = RawRecord | RaceIndexEntry;
+
 /** `String(value)`, or `fallback` for null, undefined, and the empty string. */
 export function text(value: unknown, fallback = "—"): string {
   if (value === null || value === undefined || value === "") return fallback;
@@ -72,4 +79,23 @@ export function date(iso: string | null | undefined): string {
   const millis = Date.parse(iso);
   if (Number.isNaN(millis)) return "—";
   return new Date(millis).toISOString().slice(0, 10);
+}
+
+/** A race's display title: `meeting_name` when present, else `"<country> · <name>"`.
+ * Reads a `RaceIndexEntry` or a session `RawRecord` the same way, through `stringField`. */
+export function raceTitle(session: RaceLike): string {
+  const record = session as unknown as RawRecord;
+  const meetingName = stringField(record, "meeting_name");
+  if (meetingName !== null) return meetingName;
+  return `${stringField(record, "country") ?? "—"} · ${stringField(record, "name") ?? "—"}`;
+}
+
+/** A race's display subtitle: `"<circuit_short_name> · <location> · <date>"`, dropping any missing part. */
+export function raceSubtitle(session: RaceLike): string {
+  const record = session as unknown as RawRecord;
+  const circuit = stringField(record, "circuit_short_name");
+  const location = stringField(record, "location");
+  const dateStart = stringField(record, "date_start");
+  const formattedDate = dateStart === null ? null : date(dateStart);
+  return [circuit, location, formattedDate].filter((part): part is string => part !== null).join(" · ");
 }
