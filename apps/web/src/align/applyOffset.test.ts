@@ -66,6 +66,46 @@ describe("handleLapRead: sequences the lap tracker, the lock/apply policy, and t
     expect(status).toMatch(/^Lap 6: /);
     expect(target.seekTo).toHaveBeenCalledTimes(1);
   });
+
+  // A replay target's seekTo(atMs) places the playback clock directly on
+  // the source-time axis (useReplayTimeTarget.ts passes it straight to
+  // playback.seek), so the value handleLapRead calls it with IS the
+  // landing position -- this measures that landing directly against the
+  // flipped-to lap's own marker, standing in for a live screen-share
+  // capture (this environment can't drive a real getDisplayMedia track).
+  it("a 14->15 flip lands the seek within 1.5s of lap 15's own marker", () => {
+    const perfNow = vi.spyOn(performance, "now").mockReturnValue(5_000);
+    try {
+      const trackers = createReadingTrackers();
+      const lap15Marker = "2026-09-06T13:12:34.000Z";
+      const anchorsAtLap14: Anchors = { lights_out: null, laps: [{ lap: 14, source_time: "2026-09-06T13:11:00.000Z" }], restarts: [] };
+      handleLapRead(14, 4_800, trackers, ctx({ anchors: anchorsAtLap14 })); // locks on 14, unanchored -- lap 14 isn't lap 1
+
+      const anchors: Anchors = {
+        lights_out: null,
+        laps: [
+          { lap: 14, source_time: "2026-09-06T13:11:00.000Z" },
+          { lap: 15, source_time: lap15Marker },
+        ],
+        restarts: [],
+      };
+      const target = fakeTarget();
+      // 100ms of handling time between the frame grab (frameAt) and this
+      // call's performance.now() -- computeObservedWall's nowPerfMs-frameAt
+      // term is exactly what absorbs this, which is what the 1.5s tolerance
+      // below is checking.
+      const status = handleLapRead(15, 4_900, trackers, ctx({ anchors, target }));
+
+      expect(status).toMatch(/^Lap 15: /);
+      const seekTo = vi.mocked(target.seekTo);
+      expect(seekTo).toHaveBeenCalledTimes(1);
+      const landedAtMs = seekTo.mock.calls[0]![0];
+      const deltaMs = Math.abs(landedAtMs - Date.parse(lap15Marker));
+      expect(deltaMs).toBeLessThanOrEqual(1_500);
+    } finally {
+      perfNow.mockRestore();
+    }
+  });
 });
 
 describe("handleLightsOutRead: always an anchored observation, no lock phase", () => {

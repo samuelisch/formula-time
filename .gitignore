@@ -33,3 +33,7 @@ live-logs/
 # Playwright's own run output (traces, the HTML report)
 apps/web/test-results/
 apps/web/playwright-report/
+
+# tesseract.js's language data, downloaded to cwd the first time
+# lapCounterOcr.node.test.ts (OCR_FIXTURES=1) runs -- not repo content
+*.traineddata
