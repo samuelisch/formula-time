@@ -59,6 +59,12 @@ One process holding:
   session is stale, and re-exported the same way, once its events log holds
   a row received after the export's timestamp — a reload is picked up on
   the next tick rather than served stale forever.
+- The races index (`GET /api/races`), the export's `session` object, and
+  the live push's `state.session` all carry `meeting_name`,
+  `circuit_short_name` and `location` alongside the fields above — the
+  same three nullable `sessions` columns (ADR-0025), read straight
+  through and never guessed: a session row with none of them writes
+  `null` on all three surfaces, the same as any other unavailable field.
 
 This service is the sole writer of `polls` and `votes`. It reads `sessions`
 and `events`; it never writes `events`. Vote acknowledgement: acknowledge

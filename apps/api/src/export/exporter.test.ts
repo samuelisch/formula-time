@@ -24,6 +24,9 @@ interface FakeSessionRow {
   dateEnd: Date;
   totalLaps: number | null;
   status: "upcoming" | "live" | "finished";
+  meetingName: string | null;
+  circuitShortName: string | null;
+  location: string | null;
 }
 
 interface FakeEventRow {
@@ -52,6 +55,9 @@ function session(sessionKey: bigint, status: FakeSessionRow["status"]): FakeSess
     dateEnd: new Date("2026-09-08T14:00:00.000Z"),
     totalLaps: 50,
     status,
+    meetingName: null,
+    circuitShortName: null,
+    location: null,
   };
 }
 
@@ -199,6 +205,48 @@ describe("createExporter", () => {
     expect(json.schema).toBe(1);
     expect(json.exported_at).toBe(row?.exportedAt.toISOString());
     expect(json.events).toHaveLength(2);
+  });
+
+  test("the exported session object carries meeting_name, circuit_short_name and location, null when the row has none", async () => {
+    const db = makeFakeDb();
+    db.sessions.push({ ...session(5n, "finished"), meetingName: null, circuitShortName: null, location: null });
+    db.events.push(event(5n, 1n));
+
+    const dir = join(tmpRoot, "named-out");
+    const exporter = createExporter({ db: db as unknown as PrismaClient, dir, log: vi.fn() });
+    await exporter.runOnce();
+
+    const gz = await readFile(join(dir, "5.json.gz"));
+    const json = JSON.parse((await gunzipAsync(gz)).toString("utf-8")) as {
+      session: { meeting_name: string | null; circuit_short_name: string | null; location: string | null };
+    };
+    expect(json.session.meeting_name).toBeNull();
+    expect(json.session.circuit_short_name).toBeNull();
+    expect(json.session.location).toBeNull();
+  });
+
+  test("the exported session object passes through non-null meeting_name, circuit_short_name and location", async () => {
+    const db = makeFakeDb();
+    const named = session(12n, "finished");
+    named.meetingName = "Italian Grand Prix";
+    named.circuitShortName = "Monza";
+    named.location = "Monza";
+    db.sessions.push(named);
+    db.events.push(event(12n, 1n));
+
+    const dir = join(tmpRoot, "named-out-2");
+    const exporter = createExporter({ db: db as unknown as PrismaClient, dir, log: vi.fn() });
+    await exporter.runOnce();
+
+    const gz = await readFile(join(dir, "12.json.gz"));
+    const json = JSON.parse((await gunzipAsync(gz)).toString("utf-8")) as {
+      session: { meeting_name: string | null; circuit_short_name: string | null; location: string | null };
+    };
+    expect(json.session).toMatchObject({
+      meeting_name: "Italian Grand Prix",
+      circuit_short_name: "Monza",
+      location: "Monza",
+    });
   });
 
   test("finished, already has an exports row: untouched", async () => {

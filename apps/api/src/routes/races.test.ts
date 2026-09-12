@@ -23,6 +23,9 @@ interface FakeSessionRow {
   dateStart: Date;
   dateEnd: Date;
   totalLaps: number | null;
+  meetingName: string | null;
+  circuitShortName: string | null;
+  location: string | null;
 }
 
 interface FakeExportRow {
@@ -43,6 +46,9 @@ function exportRow(sessionKey: bigint, overrides: Partial<FakeSessionRow & { exp
       dateStart: overrides.dateStart ?? new Date("2026-09-08T12:00:00.000Z"),
       dateEnd: overrides.dateEnd ?? new Date("2026-09-08T14:00:00.000Z"),
       totalLaps: overrides.totalLaps ?? 50,
+      meetingName: overrides.meetingName ?? null,
+      circuitShortName: overrides.circuitShortName ?? null,
+      location: overrides.location ?? null,
     },
   };
 }
@@ -150,6 +156,9 @@ describe("GET /api/races", () => {
         date_end: "2026-09-08T14:00:00.000Z",
         total_laps: 50,
         exported_at: "2026-09-08T18:00:00.000Z",
+        meeting_name: null,
+        circuit_short_name: null,
+        location: null,
       },
       {
         session_key: 1,
@@ -159,8 +168,40 @@ describe("GET /api/races", () => {
         date_end: "2026-09-08T14:00:00.000Z",
         total_laps: 50,
         exported_at: "2026-09-08T18:00:00.000Z",
+        meeting_name: null,
+        circuit_short_name: null,
+        location: null,
       },
     ]);
+  });
+
+  test("index carries meeting_name, circuit_short_name and location; null when the session has none", async () => {
+    const named = exportRow(3n, {
+      meetingName: "Italian Grand Prix",
+      circuitShortName: "Monza",
+      location: "Monza",
+    });
+    const unnamed = exportRow(4n, { dateStart: new Date("2026-01-01T00:00:00.000Z") });
+    const db = makeFakeDb([named, unnamed]);
+    const exporter = makeFakeExporter(dir, gz);
+    const app = buildApp(db, exporter, dir);
+
+    const res = await app.inject({ url: "/api/races" });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const namedEntry = body.find((r: { session_key: number }) => r.session_key === 3);
+    const unnamedEntry = body.find((r: { session_key: number }) => r.session_key === 4);
+    expect(namedEntry).toMatchObject({
+      meeting_name: "Italian Grand Prix",
+      circuit_short_name: "Monza",
+      location: "Monza",
+    });
+    expect(unnamedEntry).toMatchObject({
+      meeting_name: null,
+      circuit_short_name: null,
+      location: null,
+    });
   });
 
   test("empty index", async () => {

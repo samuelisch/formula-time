@@ -71,6 +71,9 @@ function sessionAsRawRecord(session: Session): RawRecord {
     date_end: session.dateEnd.toISOString(),
     total_laps: session.totalLaps,
     status: session.status,
+    meeting_name: session.meetingName,
+    circuit_short_name: session.circuitShortName,
+    location: session.location,
   };
 }
 
