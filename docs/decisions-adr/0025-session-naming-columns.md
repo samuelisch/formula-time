@@ -50,10 +50,12 @@ meeting_name` map, since the session row never carries it:
   feature shipped — the REST lane routes its own meetings fetch through
   the same `onNewRows` → jsonl-recorder path every other endpoint uses);
   when that file is absent or empty (an older recording), it falls back to
-  one live `meetings?meeting_key=` call through the same OpenF1 client
-  `fetch-race` uses, only when OpenF1 credentials are configured in the
-  environment. With neither source available, it logs one line and leaves
-  `meeting_name` null for that run.
+  one live `meetings?meeting_key=` call, rate-limited and retried the same
+  way `fetch-race`'s own live requests are (`openf1/rate-limit.ts`, shared
+  by both) — unauthenticated when no OpenF1 credentials are configured,
+  since historical meetings data is public. With neither source available
+  (the fallback itself omitted, e.g. by a caller that wants the file-only
+  path), it logs one line and leaves `meeting_name` null for that run.
 - Every source that returns more than one row (a shared/root-mode
   recording, an unexpected API response) is filtered to the row whose own
   `meeting_key` matches the session's before its `meeting_name` is taken —
@@ -92,12 +94,12 @@ object everywhere it already appears, null until a write populates them.
   `country` doesn't).
 - One extra OpenF1 request per discovery tick (REST lane) and per session
   written (loader, `fetch-race`) — within the existing rate budget for all
-  three call sites; the loader's live fallback adds at most one more,
-  and only when its recording lacks `raw/meetings.jsonl` and credentials
-  are configured.
+  three call sites; the loader's live fallback adds at most one more, only
+  when its recording lacks `raw/meetings.jsonl`, and shares `fetch-race`'s
+  rate limiter rather than a separate budget.
 - A row written before this feature shipped, or loaded from a recording
   that predates it, keeps `meeting_name` null until some run supplies an
   answer (a rerun, `--replace`, or the loader's live fallback) — the
-  owner's planned re-run (shared with the lap-row-normalisation work,
-  issue #244) is what actually populates it for sessions already in the
-  database, not this migration by itself.
+  owner's planned `--replace` re-run of already-loaded sessions is what
+  actually populates it for sessions already in the database, not this
+  migration by itself.
