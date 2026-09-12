@@ -74,9 +74,9 @@ unavailable field — never a guess.
 
 ## API-side exposure
 
-As the api slice (issue #246, PR #250, stacked on this branch) lands, the
-three columns will also surface, nullable, wherever a session is already
-described to a client or exported, unchanged in shape otherwise:
+As a following api change lands, the three columns will also surface,
+nullable, wherever a session is already described to a client or
+exported, unchanged in shape otherwise:
 
 - `GET /api/races` — each entry gains `meeting_name`, `circuit_short_name`,
   `location`.
@@ -86,8 +86,9 @@ described to a client or exported, unchanged in shape otherwise:
 
 No new resource, no new schema version — additive fields on the session
 object everywhere it already appears, null until a write populates them.
-This PR (the ingest slice) does not itself touch any of the three; until
-#250 merges, the api continues to omit these fields from all three shapes.
+This change (the ingest slice: storing the three columns) does not itself
+touch any of the three api shapes; the api continues to omit these fields
+from all three until that following change lands.
 
 ## Consequences
 
