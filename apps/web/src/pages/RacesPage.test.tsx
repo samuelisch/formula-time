@@ -89,6 +89,9 @@ const races: RaceIndexEntry[] = [
     date_end: "2026-09-06T15:00:00.000Z",
     total_laps: 53,
     exported_at: "2026-09-06T15:10:00.000Z",
+    meeting_name: null,
+    circuit_short_name: null,
+    location: null,
   },
   {
     session_key: 11200,
@@ -98,6 +101,36 @@ const races: RaceIndexEntry[] = [
     date_end: "2026-08-30T15:00:00.000Z",
     total_laps: 72,
     exported_at: "2026-08-30T15:10:00.000Z",
+    meeting_name: null,
+    circuit_short_name: null,
+    location: null,
+  },
+];
+
+const spanishRounds: RaceIndexEntry[] = [
+  {
+    session_key: 11500,
+    name: "Race",
+    country: "Spain",
+    date_start: "2025-06-01T13:00:00.000Z",
+    date_end: "2025-06-01T15:00:00.000Z",
+    total_laps: 66,
+    exported_at: "2025-06-01T15:10:00.000Z",
+    meeting_name: "Spanish Grand Prix",
+    circuit_short_name: "Barcelona-Catalunya",
+    location: "Montmeló",
+  },
+  {
+    session_key: 11600,
+    name: "Race",
+    country: "Spain",
+    date_start: "2026-06-14T13:00:00.000Z",
+    date_end: "2026-06-14T15:00:00.000Z",
+    total_laps: 57,
+    exported_at: "2026-06-14T15:10:00.000Z",
+    meeting_name: "Spanish Grand Prix",
+    circuit_short_name: "Madring",
+    location: "Madrid",
   },
 ];
 
@@ -169,6 +202,16 @@ describe("RacesPage", () => {
     const italyLink = screen.getByRole("link", { name: /Italy · Race/ });
     expect(italyLink).toHaveAttribute("href", "/races/11361");
     expect(screen.getByText("2026-09-06 · 53 laps")).toBeInTheDocument();
+  });
+
+  it("titles a row by meeting_name and shows a distinct subtitle for two rounds of the same Grand Prix", async () => {
+    stubFetch(spanishRounds);
+    renderPage();
+
+    await waitFor(() => expect(screen.getAllByText("Spanish Grand Prix")).toHaveLength(2));
+
+    expect(screen.getByText("Barcelona-Catalunya · Montmeló · 2025-06-01 · 66 laps")).toBeInTheDocument();
+    expect(screen.getByText("Madring · Madrid · 2026-06-14 · 57 laps")).toBeInTheDocument();
   });
 
   it("shows Could not load past races on a failed fetch, and Retry loads the races", async () => {

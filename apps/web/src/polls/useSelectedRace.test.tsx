@@ -33,7 +33,18 @@ function settledConnection(): Partial<ReturnType<typeof useLiveStore.getState>> 
 }
 
 const races: RaceIndexEntry[] = [
-  { session_key: 11361, name: "Race", country: "Italy", date_start: "2026-09-06T13:00:00.000Z", date_end: "2026-09-06T15:00:00.000Z", total_laps: 53, exported_at: "2026-09-06T15:10:00.000Z" },
+  {
+    session_key: 11361,
+    name: "Race",
+    country: "Italy",
+    date_start: "2026-09-06T13:00:00.000Z",
+    date_end: "2026-09-06T15:00:00.000Z",
+    total_laps: 53,
+    exported_at: "2026-09-06T15:10:00.000Z",
+    meeting_name: null,
+    circuit_short_name: null,
+    location: null,
+  },
 ];
 
 function stubRacesFetch(data: RaceIndexEntry[] = []): void {
@@ -126,6 +137,108 @@ describe("useSelectedRace", () => {
     expect(result.current.selectedKey).toBe("9999");
     expect(result.current.historicalKey).toBeNull();
     expect(result.current.current).toEqual({ sessionKey: "9999", label: "Italy · Race", status: "live" });
+  });
+
+  it("labels the current session by meeting_name when the push carries one", () => {
+    resetStore({
+      ...settledConnection(),
+      displayed: makePush(
+        { session_key: "9999" },
+        { session: { session_key: "9999", country: "Italy", name: "Race", meeting_name: "Italian Grand Prix", status: "live" } },
+      ),
+    });
+    stubRacesFetch(races);
+
+    const { result } = renderSelectedRace();
+
+    expect(result.current.current).toEqual({ sessionKey: "9999", label: "Italian Grand Prix", status: "live" });
+  });
+
+  it("does not append a year to the current label when the index's only same-titled entry is the current session's own (already exported)", async () => {
+    resetStore({
+      ...settledConnection(),
+      displayed: makePush(
+        { session_key: "9999" },
+        {
+          session: {
+            session_key: "9999",
+            country: "Italy",
+            name: "Race",
+            meeting_name: "Italian Grand Prix",
+            date_start: "2026-09-08T13:00:00.000Z",
+            status: "finished",
+          },
+        },
+      ),
+    });
+    // The exporter can write the finished session's own index row within
+    // seconds, so the current session's own entry can be in `races` while
+    // it is still `displayed` -- that must not read as a collision.
+    stubRacesFetch([
+      ...races,
+      {
+        session_key: 9999,
+        name: "Race",
+        country: "Italy",
+        date_start: "2026-09-08T13:00:00.000Z",
+        date_end: "2026-09-08T15:00:00.000Z",
+        total_laps: 53,
+        exported_at: "2026-09-08T15:10:00.000Z",
+        meeting_name: "Italian Grand Prix",
+        circuit_short_name: null,
+        location: null,
+      },
+    ]);
+
+    const { result } = renderSelectedRace();
+    // The label is right even before `GET /api/races` resolves (nothing to
+    // collide with yet); flush past its resolution so this actually
+    // exercises the self-match case, not just the empty-index one.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.current?.label).toBe("Italian Grand Prix");
+  });
+
+  it("still appends a year to the current label when a different race in the index shares its title", async () => {
+    resetStore({
+      ...settledConnection(),
+      displayed: makePush(
+        { session_key: "9999" },
+        {
+          session: {
+            session_key: "9999",
+            country: "Spain",
+            name: "Race",
+            meeting_name: "Spanish Grand Prix",
+            date_start: "2026-06-14T13:00:00.000Z",
+            status: "finished",
+          },
+        },
+      ),
+    });
+    stubRacesFetch([
+      {
+        session_key: 11500,
+        name: "Race",
+        country: "Spain",
+        date_start: "2025-06-01T13:00:00.000Z",
+        date_end: "2025-06-01T15:00:00.000Z",
+        total_laps: 66,
+        exported_at: "2025-06-01T15:10:00.000Z",
+        meeting_name: "Spanish Grand Prix",
+        circuit_short_name: "Barcelona-Catalunya",
+        location: "Montmeló",
+      },
+    ]);
+
+    const { result } = renderSelectedRace();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.current?.label).toBe("Spanish Grand Prix (2026)");
   });
 
   it("an explicit ?race= param wins immediately, ignoring settling", () => {

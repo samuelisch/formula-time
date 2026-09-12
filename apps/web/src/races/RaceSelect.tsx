@@ -13,8 +13,20 @@
 // only ever show a historical race as selected when its `value` explicitly
 // names one, the caller's content and the selector can't drift apart.
 import type { SessionStatusValue } from "../live/selectors.ts";
+import { excludeSession, raceTitleDisambiguated } from "../lib/format.ts";
 import type { RaceIndexEntry } from "./api.ts";
 import styles from "./RaceSelect.module.css";
+
+/** `raceTitleDisambiguated` for each race against the rest of the list
+ * (never itself), so two rounds sharing a meeting name (e.g. two years of
+ * the same Grand Prix) still read as distinct options. */
+function optionLabels(races: RaceIndexEntry[]): Map<number, string> {
+  const labels = new Map<number, string>();
+  for (const race of races) {
+    labels.set(race.session_key, raceTitleDisambiguated(race, excludeSession(races, race.session_key)));
+  }
+  return labels;
+}
 
 export interface RaceSelectCurrent {
   sessionKey: string;
@@ -41,6 +53,7 @@ const STATUS_LABEL: Record<SessionStatusValue, string> = {
 
 export function RaceSelect({ current, races, value, onChange, id }: RaceSelectProps) {
   const historicalRaces = races.filter((race) => String(race.session_key) !== current?.sessionKey);
+  const labels = optionLabels(historicalRaces);
 
   return (
     <select id={id} aria-label="Select race" className={styles.select} value={value} onChange={(event) => onChange(event.target.value)}>
@@ -56,7 +69,7 @@ export function RaceSelect({ current, races, value, onChange, id }: RaceSelectPr
       )}
       {historicalRaces.map((race) => (
         <option key={race.session_key} value={String(race.session_key)}>
-          {race.country} · {race.name}
+          {labels.get(race.session_key)}
         </option>
       ))}
     </select>

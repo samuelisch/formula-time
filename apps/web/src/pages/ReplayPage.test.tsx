@@ -54,6 +54,9 @@ function makeIndexEntry(overrides: Partial<RaceIndexEntry> = {}): RaceIndexEntry
     date_end: "2026-09-06T15:00:00.000Z",
     total_laps: 2,
     exported_at: RACE_FILE.exported_at,
+    meeting_name: null,
+    circuit_short_name: null,
+    location: null,
     ...overrides,
   };
 }

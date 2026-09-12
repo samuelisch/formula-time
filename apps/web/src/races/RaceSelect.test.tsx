@@ -13,6 +13,9 @@ const races: RaceIndexEntry[] = [
     date_end: "2026-09-06T15:00:00.000Z",
     total_laps: 53,
     exported_at: "2026-09-06T15:10:00.000Z",
+    meeting_name: null,
+    circuit_short_name: null,
+    location: null,
   },
   {
     session_key: 11200,
@@ -22,6 +25,36 @@ const races: RaceIndexEntry[] = [
     date_end: "2026-08-30T15:00:00.000Z",
     total_laps: 72,
     exported_at: "2026-08-30T15:10:00.000Z",
+    meeting_name: null,
+    circuit_short_name: null,
+    location: null,
+  },
+];
+
+const spanishRounds: RaceIndexEntry[] = [
+  {
+    session_key: 11500,
+    name: "Race",
+    country: "Spain",
+    date_start: "2025-06-01T13:00:00.000Z",
+    date_end: "2025-06-01T15:00:00.000Z",
+    total_laps: 66,
+    exported_at: "2025-06-01T15:10:00.000Z",
+    meeting_name: "Spanish Grand Prix",
+    circuit_short_name: "Barcelona-Catalunya",
+    location: "Montmeló",
+  },
+  {
+    session_key: 11600,
+    name: "Race",
+    country: "Spain",
+    date_start: "2026-06-14T13:00:00.000Z",
+    date_end: "2026-06-14T15:00:00.000Z",
+    total_laps: 57,
+    exported_at: "2026-06-14T15:10:00.000Z",
+    meeting_name: "Spanish Grand Prix",
+    circuit_short_name: "Madring",
+    location: "Madrid",
   },
 ];
 
@@ -94,5 +127,14 @@ describe("RaceSelect", () => {
     select.dispatchEvent(new Event("change", { bubbles: true }));
 
     expect(onChange).toHaveBeenCalledWith("11200");
+  });
+
+  it("titles two rounds of the same Grand Prix by meeting_name, appending the year to tell them apart", () => {
+    render(<RaceSelect current={null} races={spanishRounds} value="" onChange={vi.fn()} />);
+
+    const options = screen.getAllByRole("option") as HTMLOptionElement[];
+    const labels = options.map((option) => option.textContent);
+    expect(labels).toContain("Spanish Grand Prix (2025)");
+    expect(labels).toContain("Spanish Grand Prix (2026)");
   });
 });
