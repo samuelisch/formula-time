@@ -24,6 +24,9 @@ interface FakeSessionRow {
   dateEnd: Date;
   totalLaps: number | null;
   status: "upcoming" | "live" | "finished";
+  meetingName: string | null;
+  circuitShortName: string | null;
+  location: string | null;
 }
 
 interface FakeEventRow {
@@ -52,6 +55,9 @@ function session(sessionKey: bigint, status: FakeSessionRow["status"]): FakeSess
     dateEnd: new Date("2026-09-08T14:00:00.000Z"),
     totalLaps: 50,
     status,
+    meetingName: "Test Grand Prix",
+    circuitShortName: "Testland Circuit",
+    location: "Testville",
   };
 }
 
@@ -199,6 +205,47 @@ describe("createExporter", () => {
     expect(json.schema).toBe(1);
     expect(json.exported_at).toBe(row?.exportedAt.toISOString());
     expect(json.events).toHaveLength(2);
+  });
+
+  test("session object carries meeting_name, circuit_short_name and location; null when the row has none", async () => {
+    const db = makeFakeDb();
+    db.sessions.push(session(12n, "finished"));
+    db.events.push(event(12n, 1n));
+
+    const withNaming = createExporter({
+      db: db as unknown as PrismaClient,
+      dir: join(tmpRoot, "with-naming"),
+      log: vi.fn(),
+    });
+    await withNaming.runOnce();
+    const withNamingJson = JSON.parse(
+      (await gunzipAsync(await readFile(join(tmpRoot, "with-naming", "12.json.gz")))).toString("utf-8"),
+    ) as { session: { meeting_name: string | null; circuit_short_name: string | null; location: string | null } };
+    expect(withNamingJson.session.meeting_name).toBe("Test Grand Prix");
+    expect(withNamingJson.session.circuit_short_name).toBe("Testland Circuit");
+    expect(withNamingJson.session.location).toBe("Testville");
+
+    const bare = makeFakeDb();
+    bare.sessions.push({
+      ...session(13n, "finished"),
+      meetingName: null,
+      circuitShortName: null,
+      location: null,
+    });
+    bare.events.push(event(13n, 1n));
+
+    const withoutNaming = createExporter({
+      db: bare as unknown as PrismaClient,
+      dir: join(tmpRoot, "without-naming"),
+      log: vi.fn(),
+    });
+    await withoutNaming.runOnce();
+    const withoutNamingJson = JSON.parse(
+      (await gunzipAsync(await readFile(join(tmpRoot, "without-naming", "13.json.gz")))).toString("utf-8"),
+    ) as { session: { meeting_name: string | null; circuit_short_name: string | null; location: string | null } };
+    expect(withoutNamingJson.session.meeting_name).toBeNull();
+    expect(withoutNamingJson.session.circuit_short_name).toBeNull();
+    expect(withoutNamingJson.session.location).toBeNull();
   });
 
   test("finished, already has an exports row: untouched", async () => {
