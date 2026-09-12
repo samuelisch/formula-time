@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { clock, duration, gapText, lapTime, number, pitStopText, raceSubtitle, raceTitle, raceTitleDisambiguated, text } from "./format.ts";
+import {
+  clock,
+  duration,
+  excludeSession,
+  gapText,
+  lapTime,
+  number,
+  pitStopText,
+  raceSubtitle,
+  raceTitle,
+  raceTitleDisambiguated,
+  text,
+} from "./format.ts";
 import type { RaceIndexEntry } from "../races/api.ts";
 
 function makeRace(overrides: Partial<RaceIndexEntry> = {}): RaceIndexEntry {
@@ -200,5 +212,22 @@ describe("raceTitleDisambiguated", () => {
   it("falls back to the plain title when the session has no date_start to disambiguate with", () => {
     const races = [makeRace({ session_key: 1, meeting_name: "Spanish Grand Prix" })];
     expect(raceTitleDisambiguated({ meeting_name: "Spanish Grand Prix" }, races)).toBe("Spanish Grand Prix");
+  });
+});
+
+describe("excludeSession", () => {
+  it("drops the race whose session_key matches, leaving the rest", () => {
+    const races = [makeRace({ session_key: 1 }), makeRace({ session_key: 2 }), makeRace({ session_key: 3 })];
+    expect(excludeSession(races, 2).map((race) => race.session_key)).toEqual([1, 3]);
+  });
+
+  it("matches a string session_key against the numeric field", () => {
+    const races = [makeRace({ session_key: 1 }), makeRace({ session_key: 2 })];
+    expect(excludeSession(races, "2").map((race) => race.session_key)).toEqual([1]);
+  });
+
+  it("leaves the list unchanged when no race matches", () => {
+    const races = [makeRace({ session_key: 1 }), makeRace({ session_key: 2 })];
+    expect(excludeSession(races, 999)).toEqual(races);
   });
 });

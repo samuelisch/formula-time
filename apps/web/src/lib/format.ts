@@ -100,6 +100,15 @@ export function raceSubtitle(session: RaceLike): string {
   return [circuit, location, formattedDate].filter((part): part is string => part !== null).join(" · ");
 }
 
+/** `races` without the entry whose `session_key` matches `sessionKey` -- so
+ * a session can be disambiguated against every *other* race without ever
+ * matching its own entry in the historical index (present within seconds
+ * of a session finishing, even while it is still the current session). */
+export function excludeSession(races: RaceIndexEntry[], sessionKey: string | number): RaceIndexEntry[] {
+  const key = String(sessionKey);
+  return races.filter((race) => String(race.session_key) !== key);
+}
+
 /** `raceTitle(session)`, with `" (<year>)"` appended only when some race in
  * `races` reads the same title -- so a session (current or historical)
  * that would otherwise share a display name with another race in the same
