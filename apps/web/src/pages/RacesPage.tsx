@@ -8,7 +8,7 @@ import { Link } from "react-router";
 
 import { Card } from "../components/Card.tsx";
 import { QueryState } from "../components/QueryState.tsx";
-import { date, stringField, text } from "../lib/format.ts";
+import { date, raceSubtitle, raceTitle, stringField, text } from "../lib/format.ts";
 import { useDisplayed, useSessionStatus } from "../live/selectors.ts";
 import { fetchRaceIndex } from "../races/api.ts";
 import styles from "./RacesPage.module.css";
@@ -32,8 +32,7 @@ export function RacesPage() {
         <Link to="/live" className={styles.liveCard}>
           <span className={styles.liveBadge}>Live now</span>
           <span className={styles.liveDetails}>
-            {stringField(liveSession, "country") ?? "—"} · {stringField(liveSession, "name") ?? "—"} ·{" "}
-            {date(stringField(liveSession, "date_start"))} · {text(liveTotalLaps)} laps
+            {raceTitle(liveSession)} · {date(stringField(liveSession, "date_start"))} · {text(liveTotalLaps)} laps
           </span>
         </Link>
       );
@@ -51,9 +50,7 @@ export function RacesPage() {
     if (status === "finished" && liveSession !== null && liveSessionKey !== null) {
       return (
         <div className={styles.finishedCard}>
-          <span className={styles.finishedLabel}>
-            Last session · {stringField(liveSession, "country") ?? "—"} · {stringField(liveSession, "name") ?? "—"} · finished
-          </span>
+          <span className={styles.finishedLabel}>Last session · {raceTitle(liveSession)} · finished</span>
           <span className={styles.finishedLinks}>
             <Link to="/live">Final state</Link>
             <Link to={`/races/${liveSessionKey}`}>Watch the replay</Link>
@@ -85,11 +82,9 @@ export function RacesPage() {
               {(data ?? []).map((race) => (
                 <li key={race.session_key}>
                   <Link to={`/races/${race.session_key}`} className={styles.raceRow}>
-                    <span>
-                      {race.country} · {race.name}
-                    </span>
+                    <span>{raceTitle(race)}</span>
                     <span className={styles.raceMeta}>
-                      {date(race.date_start)} · {text(race.total_laps)} laps
+                      {raceSubtitle(race)} · {text(race.total_laps)} laps
                     </span>
                   </Link>
                 </li>
