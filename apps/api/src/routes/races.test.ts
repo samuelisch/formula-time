@@ -23,6 +23,9 @@ interface FakeSessionRow {
   dateStart: Date;
   dateEnd: Date;
   totalLaps: number | null;
+  meetingName: string | null;
+  circuitShortName: string | null;
+  location: string | null;
 }
 
 interface FakeExportRow {
@@ -43,6 +46,10 @@ function exportRow(sessionKey: bigint, overrides: Partial<FakeSessionRow & { exp
       dateStart: overrides.dateStart ?? new Date("2026-09-08T12:00:00.000Z"),
       dateEnd: overrides.dateEnd ?? new Date("2026-09-08T14:00:00.000Z"),
       totalLaps: overrides.totalLaps ?? 50,
+      meetingName: "meetingName" in overrides ? (overrides.meetingName ?? null) : "Test Grand Prix",
+      circuitShortName:
+        "circuitShortName" in overrides ? (overrides.circuitShortName ?? null) : "Testland Circuit",
+      location: "location" in overrides ? (overrides.location ?? null) : "Testville",
     },
   };
 }
@@ -150,6 +157,9 @@ describe("GET /api/races", () => {
         date_end: "2026-09-08T14:00:00.000Z",
         total_laps: 50,
         exported_at: "2026-09-08T18:00:00.000Z",
+        meeting_name: "Test Grand Prix",
+        circuit_short_name: "Testland Circuit",
+        location: "Testville",
       },
       {
         session_key: 1,
@@ -159,6 +169,9 @@ describe("GET /api/races", () => {
         date_end: "2026-09-08T14:00:00.000Z",
         total_laps: 50,
         exported_at: "2026-09-08T18:00:00.000Z",
+        meeting_name: "Test Grand Prix",
+        circuit_short_name: "Testland Circuit",
+        location: "Testville",
       },
     ]);
   });
@@ -172,6 +185,23 @@ describe("GET /api/races", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual([]);
+  });
+
+  test("meeting_name, circuit_short_name and location are null when the row has none", async () => {
+    const row = exportRow(3n, { meetingName: null, circuitShortName: null, location: null });
+    const db = makeFakeDb([row]);
+    const exporter = makeFakeExporter(dir, gz);
+    const app = buildApp(db, exporter, dir);
+
+    const res = await app.inject({ url: "/api/races" });
+
+    expect(res.statusCode).toBe(200);
+    const [entry] = res.json() as Array<Record<string, unknown>>;
+    expect(entry).toMatchObject({
+      meeting_name: null,
+      circuit_short_name: null,
+      location: null,
+    });
   });
 });
 

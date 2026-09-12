@@ -36,6 +36,9 @@ interface RaceIndexEntry {
   date_end: string;
   total_laps: number | null;
   exported_at: string;
+  meeting_name: string | null;
+  circuit_short_name: string | null;
+  location: string | null;
 }
 
 const INTEGER = /^-?\d+$/;
@@ -101,6 +104,9 @@ export const racesRoutes: FastifyPluginCallback<RacesRoutesOptions> = (app: Fast
       date_end: row.session.dateEnd.toISOString(),
       total_laps: row.session.totalLaps,
       exported_at: row.exportedAt.toISOString(),
+      meeting_name: row.session.meetingName,
+      circuit_short_name: row.session.circuitShortName,
+      location: row.session.location,
     }));
     // ISO 8601 UTC timestamps sort lexicographically the same as
     // chronologically.
