@@ -173,8 +173,12 @@ describe("raceSubtitle", () => {
     expect(raceSubtitle({ date_start: "2026-06-14T13:00:00.000Z" })).toBe("2026-06-14");
   });
 
-  it("drops the date when date_start is missing or unparseable", () => {
+  it("drops the date when date_start is missing", () => {
     expect(raceSubtitle({ circuit_short_name: "Barcelona-Catalunya" })).toBe("Barcelona-Catalunya");
+  });
+
+  it("drops the date when date_start is unparseable, rather than leaking date()'s em dash", () => {
+    expect(raceSubtitle({ circuit_short_name: "Barcelona-Catalunya", date_start: "not-a-date" })).toBe("Barcelona-Catalunya");
   });
 });
 

@@ -90,13 +90,13 @@ export function raceTitle(session: RaceLike): string {
   return `${stringField(record, "country") ?? "—"} · ${stringField(record, "name") ?? "—"}`;
 }
 
-/** A race's display subtitle: `"<circuit_short_name> · <location> · <date>"`, dropping any missing part. */
+/** A race's display subtitle: `"<circuit_short_name> · <location> · <date>"`, dropping any missing or unparseable part. */
 export function raceSubtitle(session: RaceLike): string {
   const record = session as unknown as RawRecord;
   const circuit = stringField(record, "circuit_short_name");
   const location = stringField(record, "location");
   const dateStart = stringField(record, "date_start");
-  const formattedDate = dateStart === null ? null : date(dateStart);
+  const formattedDate = dateStart === null || Number.isNaN(Date.parse(dateStart)) ? null : date(dateStart);
   return [circuit, location, formattedDate].filter((part): part is string => part !== null).join(" · ");
 }
 
