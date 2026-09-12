@@ -15,6 +15,9 @@ const SESSION: Session = {
   dateEnd: new Date("2026-09-06T15:00:00.000Z"),
   totalLaps: 50,
   status: "live",
+  meetingName: "Test Grand Prix",
+  circuitShortName: "Testland Circuit",
+  location: "Testville",
 };
 
 function driverRow(seq: number, driverNumber: number): EventRow {
@@ -100,6 +103,40 @@ describe("RaceStateProjector", () => {
     expect(projector.snapshot().drivers["1"]).toBeDefined();
     expect(projector.snapshot().drivers["3"]).toBeDefined();
     expect(source.readAfterCalls[0]?.sessionKey).toBe(SESSION.sessionKey);
+  });
+
+  test("the pushed session row carries meeting_name, circuit_short_name and location, null when the session has none", async () => {
+    const rows = [driverRow(1, 1)];
+    const source = new FakeSource(rows, rows.map((r) => r.eventId));
+    const projector = tracked(
+      new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }),
+    );
+    projector.start();
+    await vi.waitFor(() => expect(projector.status().caughtUp).toBe(true));
+    expect(projector.snapshot().session).toMatchObject({
+      meeting_name: "Test Grand Prix",
+      circuit_short_name: "Testland Circuit",
+      location: "Testville",
+    });
+
+    const bareSession: Session = {
+      ...SESSION,
+      sessionKey: 43n,
+      meetingName: null,
+      circuitShortName: null,
+      location: null,
+    };
+    const bareSource = new FakeSource(rows, rows.map((r) => r.eventId));
+    const bareProjector = tracked(
+      new RaceStateProjector({ source: bareSource, session: bareSession, tickMs: 100_000, log: noopLog }),
+    );
+    bareProjector.start();
+    await vi.waitFor(() => expect(bareProjector.status().caughtUp).toBe(true));
+    expect(bareProjector.snapshot().session).toMatchObject({
+      meeting_name: null,
+      circuit_short_name: null,
+      location: null,
+    });
   });
 
   test("the first (just-caught-up) tick publishes events: [] even though it applied a historical backlog (issue #114, review round 1)", async () => {

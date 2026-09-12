@@ -72,6 +72,31 @@ dropped in the same migration that added `exports`. ADR-0018: `exported_at`
 is the file's version, not a one-time stamp — it moves on a re-export, and
 the route's etag and the web's cache-busting `?v=` both key off it.
 
+`GET /api/races` entries (`RaceIndexEntry`, `routes/races.ts`) are the shape
+the web copies verbatim:
+
+```ts
+interface RaceIndexEntry {
+  session_key: number;
+  name: string;
+  country: string;
+  date_start: string;
+  date_end: string;
+  total_laps: number | null;
+  exported_at: string;
+  meeting_name: string | null;
+  circuit_short_name: string | null;
+  location: string | null;
+}
+```
+
+`meeting_name`, `circuit_short_name` and `location` read straight from
+`sessions` and are `null` whenever that session has none (older recordings,
+or a session ingest has not yet backfilled). The same three fields appear
+on the export's `session` object and on the live push's `state.session`
+(`sessionAsRawRecord` in `projector/projector.ts`), so all three shapes stay
+in lockstep.
+
 `apps/api/src/export/prune-exports.ts` is a one-off maintenance command,
 not part of the running service: it removes `exports` rows (and their
 files) written before the exporter required a timing event, i.e. rows for
