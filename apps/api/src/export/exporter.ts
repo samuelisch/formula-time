@@ -101,6 +101,9 @@ interface ExportDoc {
     date_end: string;
     total_laps: number | null;
     status: string;
+    meeting_name: string | null;
+    circuit_short_name: string | null;
+    location: string | null;
   };
   events: ExportEvent[];
 }
@@ -152,6 +155,9 @@ function buildDoc(session: Session, exportedAt: Date, events: ExportEvent[]): Ex
       date_end: session.dateEnd.toISOString(),
       total_laps: session.totalLaps,
       status: session.status,
+      meeting_name: session.meetingName,
+      circuit_short_name: session.circuitShortName,
+      location: session.location,
     },
     events,
   };

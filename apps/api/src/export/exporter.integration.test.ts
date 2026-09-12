@@ -135,6 +135,9 @@ test("exports a real session: gzip file matches ADR-0009 §1 exactly; a second r
     date_end: "2026-09-08T14:00:00.000Z",
     total_laps: 53,
     status: "finished",
+    meeting_name: null,
+    circuit_short_name: null,
+    location: null,
   });
 
   expect(json.events).toHaveLength(3);

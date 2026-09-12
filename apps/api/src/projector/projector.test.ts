@@ -15,6 +15,9 @@ const SESSION: Session = {
   dateEnd: new Date("2026-09-06T15:00:00.000Z"),
   totalLaps: 50,
   status: "live",
+  meetingName: null,
+  circuitShortName: null,
+  location: null,
 };
 
 function driverRow(seq: number, driverNumber: number): EventRow {
@@ -100,6 +103,41 @@ describe("RaceStateProjector", () => {
     expect(projector.snapshot().drivers["1"]).toBeDefined();
     expect(projector.snapshot().drivers["3"]).toBeDefined();
     expect(source.readAfterCalls[0]?.sessionKey).toBe(SESSION.sessionKey);
+  });
+
+  test("state.session carries meeting_name, circuit_short_name and location from the session row", () => {
+    const source = new FakeSource([], []);
+    const session: Session = {
+      ...SESSION,
+      meetingName: "Italian Grand Prix",
+      circuitShortName: "Monza",
+      location: "Monza",
+    };
+    const projector = tracked(new RaceStateProjector({ source, session, tickMs: 100_000, log: noopLog }));
+
+    expect(projector.snapshot().session).toEqual({
+      session_key: "42",
+      name: "Test GP",
+      country: "Testland",
+      circuit_key: 1,
+      date_start: SESSION.dateStart.toISOString(),
+      date_end: SESSION.dateEnd.toISOString(),
+      total_laps: 50,
+      status: "live",
+      meeting_name: "Italian Grand Prix",
+      circuit_short_name: "Monza",
+      location: "Monza",
+    });
+  });
+
+  test("state.session's three name fields are null when the session row has none", () => {
+    const source = new FakeSource([], []);
+    const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }));
+
+    const session = projector.snapshot().session;
+    expect(session?.["meeting_name"]).toBeNull();
+    expect(session?.["circuit_short_name"]).toBeNull();
+    expect(session?.["location"]).toBeNull();
   });
 
   test("the first (just-caught-up) tick publishes events: [] even though it applied a historical backlog (issue #114, review round 1)", async () => {
