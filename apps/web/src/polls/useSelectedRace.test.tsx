@@ -2,7 +2,7 @@
 // the `?race=` override -- the fetch/render consequences of each are
 // PollsPage.test.tsx's job; this file only checks the hook's own state.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -191,14 +191,12 @@ describe("useSelectedRace", () => {
     ]);
 
     const { result } = renderSelectedRace();
-    // The label is right even before `GET /api/races` resolves (nothing to
-    // collide with yet); flush past its resolution so this actually
-    // exercises the self-match case, not just the empty-index one.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-
-    expect(result.current.current?.label).toBe("Italian Grand Prix");
+    // The label already reads right before `GET /api/races` resolves
+    // (nothing to collide with yet); `waitFor` settles once the query
+    // actually lands so this exercises the self-match case, not just the
+    // empty-index one, regardless of how many microtask hops the fetch
+    // mock's `.json()` takes in a given environment.
+    await waitFor(() => expect(result.current.current?.label).toBe("Italian Grand Prix"));
   });
 
   it("still appends a year to the current label when a different race in the index shares its title", async () => {
@@ -234,11 +232,8 @@ describe("useSelectedRace", () => {
     ]);
 
     const { result } = renderSelectedRace();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
 
-    expect(result.current.current?.label).toBe("Spanish Grand Prix (2026)");
+    await waitFor(() => expect(result.current.current?.label).toBe("Spanish Grand Prix (2026)"));
   });
 
   it("an explicit ?race= param wins immediately, ignoring settling", () => {
