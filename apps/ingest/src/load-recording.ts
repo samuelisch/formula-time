@@ -31,6 +31,7 @@ import type { SessionStatus } from "@formula-time/db";
 import { createDb } from "@formula-time/db";
 
 import { ENTRY_LIST_2026 } from "./openf1/entry-list.js";
+import { OpenF1Auth, createOpenF1Fetcher, credentialsFromEnv } from "./openf1/auth.js";
 import { createFileFetcher, readRecordingEndpoint } from "./openf1/file-fetcher.js";
 import type { RecordedRow } from "./openf1/file-fetcher.js";
 import { LiveNormalizer } from "./openf1/normalize.js";
@@ -269,6 +270,13 @@ export interface LoadRecordingsOptions {
   onLog?: (line: string) => void;
   /** Reload a session in place: delete its `events` rows, then the normal insert path, as one transaction. */
   replace?: boolean;
+  /**
+   * A live OpenF1 fetcher, used only as a fallback to source `meeting_name`
+   * when a recording has no `raw/meetings.jsonl` — see
+   * `meetingNamesForSession`'s doc comment. Undefined when no OpenF1
+   * credentials are configured (the CLI entry's default).
+   */
+  meetingsFetcher?: Fetcher | undefined;
 }
 
 export interface LoadRecordingsResult {
@@ -305,34 +313,6 @@ export interface WriteSessionThroughLoaderOptions {
 }
 
 /**
- * `meetings?meeting_key=<key>` once, for the one session `writeSessionThroughLoader`
- * is about to write — the session row itself never carries the Grand Prix
- * name (`sessionFieldsFromRaw`'s doc comment). Returns an empty map (never
- * throws) when the session has no `meeting_key`, the fetch fails, or the
- * response carries no usable `meeting_name`: `meeting_name` then stays
- * null, same as any other unavailable field, rather than blocking the
- * write.
- */
-async function fetchMeetingNames(
-  fetcher: Fetcher,
-  session: RawRecord,
-  log: (line: string) => void,
-): Promise<ReadonlyMap<number, string>> {
-  const meetingKey = Number(session["meeting_key"]);
-  if (!Number.isFinite(meetingKey)) return new Map();
-  let raw: unknown;
-  try {
-    raw = await fetcher(`${OPENF1_BASE}/meetings?meeting_key=${meetingKey}`);
-  } catch (error) {
-    log(`load: meetings fetch failed for meeting_key=${meetingKey}: ${error instanceof Error ? error.message : String(error)}`);
-    return new Map();
-  }
-  const rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
-  const name = rows[0]?.["meeting_name"];
-  return typeof name === "string" && name.length > 0 ? new Map([[meetingKey, name]]) : new Map();
-}
-
-/**
  * The write path shared by the recording loader and `fetch-race`
  * (ADR-0009: "a fetched race reaches the exporter the same way a loaded
  * one does"): validate the session key, apply the ADR-0010 live guard,
@@ -341,10 +321,12 @@ async function fetchMeetingNames(
  * row is normalized with the same LiveNormalizer), drain (or, with
  * `--replace`, delete-then-drain as one transaction), print the verify
  * line, and only then upsert `finished` — see the inline comments below.
- * `fetcher` is used only for the one `meetings?meeting_key=` lookup
- * (`fetchMeetingNames`) — the loader passes its recording's file fetcher,
- * fetch-race its live OpenF1 fetcher; neither is used for anything else
- * here (every other endpoint is read/fetched by the caller's `emitAll`).
+ * `meetingNames` is precomputed by the caller (the loader reads its own
+ * recording's `raw/meetings.jsonl`, `fetch-race` fetches
+ * `meetings?meeting_key=` live) and only threaded through to the two
+ * `upsertSession` calls below — each caller's own way of sourcing it
+ * differs too much (a file read vs. a rate-limited network call) to share
+ * here.
  */
 export async function writeSessionThroughLoader(
   session: RawRecord,
@@ -353,7 +335,7 @@ export async function writeSessionThroughLoader(
   queue: EventQueue<QueueItem>,
   nowMs: number,
   log: (line: string) => void,
-  fetcher: Fetcher,
+  meetingNames: ReadonlyMap<number, string>,
   emitAll: (normalizer: LiveNormalizer, sessionKey: number, alreadyFinished: boolean) => Promise<void>,
   opts: WriteSessionThroughLoaderOptions = {},
 ): Promise<WriteSessionThroughLoaderResult> {
@@ -433,10 +415,6 @@ export async function writeSessionThroughLoader(
   // session back to `upcoming` and then straight back to `finished`. The
   // final `upsertSession(..., { status: "finished" })` below still runs
   // either way, so the net effect is unchanged: still finished.
-  // Once per session written (not per upsert call below — the same map is
-  // reused for the "upcoming" and "finished" upserts).
-  const meetingNames = await fetchMeetingNames(fetcher, session, log);
-
   const alreadyFinished = existing?.status === "finished";
   if (!alreadyFinished) {
     await upsertSession(db, session, nowMs, { status: "upcoming", meetingNames });
@@ -510,6 +488,76 @@ export async function writeSessionThroughLoader(
   return { skipped: false, drainResult };
 }
 
+/**
+ * `raw/meetings.jsonl` for this one session (via `readRecordingEndpoint`,
+ * the same per-session/root-vs-single-mode candidate resolution every
+ * other endpoint already uses) — never the generic `createFileFetcher`
+ * URL dispatch, because that would only ever find a shared,
+ * session-key-less `dir/raw/meetings.jsonl`, wrong for a root-mode
+ * directory holding several sessions. Filters on the row's own
+ * `meeting_key` matching the session's, in case the file ever holds more
+ * than one meeting's rows.
+ */
+async function meetingNamesFromRecording(
+  dir: string,
+  sessionKey: number,
+  meetingKey: number,
+): Promise<ReadonlyMap<number, string>> {
+  const rows = await readRecordingEndpoint(dir, sessionKey, "meetings");
+  const match = rows.find((row) => Number(row.payload["meeting_key"]) === meetingKey);
+  const name = match?.payload["meeting_name"];
+  return typeof name === "string" && name.length > 0 ? new Map([[meetingKey, name]]) : new Map();
+}
+
+/**
+ * Two sources, in order: the recording's own `raw/meetings.jsonl` first
+ * (present whenever the session was captured live, or fetched via
+ * `fetch-race`, after this feature shipped — the REST lane routes its own
+ * meetings fetch through the same jsonl-recorder path every other endpoint
+ * uses). When that file is absent or has no matching row (an older
+ * recording), and `meetingsFetcher` is given (only wired when OpenF1
+ * credentials are configured — see the CLI entry below), fall back to one
+ * live `meetings?meeting_key=` call through the same OpenF1 client
+ * `fetch-race` uses. With neither source available, logs one line and
+ * returns an empty map — `meeting_name` stays null for this run, same as
+ * any other unavailable field.
+ */
+async function meetingNamesForSession(
+  dir: string,
+  sessionKey: number,
+  session: RawRecord,
+  meetingsFetcher: Fetcher | undefined,
+  log: (line: string) => void,
+): Promise<ReadonlyMap<number, string>> {
+  const meetingKey = Number(session["meeting_key"]);
+  if (!Number.isFinite(meetingKey)) return new Map();
+
+  const fromFile = await meetingNamesFromRecording(dir, sessionKey, meetingKey);
+  if (fromFile.size > 0) return fromFile;
+
+  if (!meetingsFetcher) {
+    log(
+      `load: session=${sessionKey} no meeting_name source (no raw/meetings.jsonl and no OpenF1 credentials configured)`,
+    );
+    return new Map();
+  }
+
+  try {
+    const raw = await meetingsFetcher(`${OPENF1_BASE}/meetings?meeting_key=${meetingKey}`);
+    const rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
+    const match = rows.find((row) => Number(row["meeting_key"]) === meetingKey);
+    const name = match?.["meeting_name"];
+    if (typeof name === "string" && name.length > 0) return new Map([[meetingKey, name]]);
+    log(`load: session=${sessionKey} live meetings fetch for meeting_key=${meetingKey} returned no usable meeting_name`);
+    return new Map();
+  } catch (error) {
+    log(
+      `load: live meetings fetch failed for meeting_key=${meetingKey}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return new Map();
+  }
+}
+
 type LoadOneSessionResult = WriteSessionThroughLoaderResult;
 
 async function loadOneSession(
@@ -521,7 +569,12 @@ async function loadOneSession(
   nowMs: number,
   log: (line: string) => void,
   replace: boolean,
+  meetingsFetcher: Fetcher | undefined,
 ): Promise<LoadOneSessionResult> {
+  const sessionKeyForMeetings = Number(session["session_key"]);
+  const meetingNames = Number.isFinite(sessionKeyForMeetings)
+    ? await meetingNamesForSession(dir, sessionKeyForMeetings, session, meetingsFetcher, log)
+    : new Map<number, string>();
   return writeSessionThroughLoader(
     session,
     db,
@@ -529,7 +582,7 @@ async function loadOneSession(
     queue,
     nowMs,
     log,
-    createFileFetcher(dir),
+    meetingNames,
     async (normalizer, sessionKey) => {
       // The static entry list, "exactly as session selection does" (same
       // `emitRows` path rest-lane.ts's `ensureLiveSession` uses) — so the
@@ -594,6 +647,7 @@ export async function loadRecordings(
   const now = opts.now ?? Date.now;
   const log = opts.onLog ?? ((line: string) => console.log(line));
   const replace = opts.replace ?? false;
+  const meetingsFetcher = opts.meetingsFetcher;
 
   const queue = new EventQueue<QueueItem>();
   const writer = new EventWriter(db, queue, { log });
@@ -618,7 +672,7 @@ export async function loadRecordings(
     for (const session of sessions) {
       sessionsAttempted += 1;
       try {
-        const result = await loadOneSession(dir, session, db, writer, queue, nowMs, log, replace);
+        const result = await loadOneSession(dir, session, db, writer, queue, nowMs, log, replace, meetingsFetcher);
         fold(result.drainResult);
         if (result.skipped) sessionsSkipped += 1;
       } catch (error) {
@@ -663,7 +717,13 @@ if (isMain) {
     process.exit(1);
   }
   const db = createDb(databaseUrl, { max: 1 });
-  loadRecordings(dirs, db, { replace })
+  // The live meetings fallback (meetingNamesForSession's doc comment):
+  // only wired when OpenF1 credentials are configured, same auth the REST
+  // lane and fetch-race use — otherwise a recording with no
+  // raw/meetings.jsonl simply leaves meeting_name null.
+  const creds = credentialsFromEnv();
+  const meetingsFetcher = creds ? createOpenF1Fetcher(new OpenF1Auth(creds)) : undefined;
+  loadRecordings(dirs, db, { replace, meetingsFetcher })
     .then(async (result) => {
       await db.$disconnect();
       // Exit 1 only if every attempted session failed/was refused — a

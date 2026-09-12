@@ -337,6 +337,27 @@ async function fetchOneSession(
   const parsedStart = Date.parse(String(session["date_start"] ?? ""));
   const sessionStartMs = Number.isNaN(parsedStart) ? nowMs : parsedStart;
 
+  // `meetings?meeting_key=` once, up front — the session row never carries
+  // the Grand Prix name itself (`sessionFieldsFromRaw`'s doc comment). The
+  // matched row is also recorded to jsonl below (only when `shouldRecord`,
+  // same idempotent-recording rule as every other endpoint), so a later
+  // `pnpm ingest:load` of this same fetched recording can source
+  // `meeting_name` too (`meetingNamesFromRecording`, load-recording.ts).
+  const meetingKey = Number(session["meeting_key"]);
+  let meetingNames: ReadonlyMap<number, string> = new Map();
+  let meetingRow: RawRecord | undefined;
+  if (Number.isFinite(meetingKey)) {
+    try {
+      const raw = await fetcher(`${OPENF1_BASE}/meetings?meeting_key=${meetingKey}`);
+      const rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
+      meetingRow = rows.find((row) => Number(row["meeting_key"]) === meetingKey);
+      const name = meetingRow?.["meeting_name"];
+      if (typeof name === "string" && name.length > 0) meetingNames = new Map([[meetingKey, name]]);
+    } catch (error) {
+      log(`fetch-race: meetings fetch failed for meeting_key=${meetingKey}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   const result = await writeSessionThroughLoader(
     session,
     db,
@@ -344,7 +365,7 @@ async function fetchOneSession(
     queue,
     nowMs,
     log,
-    fetcher,
+    meetingNames,
     async (normalizer: LiveNormalizer, sessionKeyNum: number, alreadyFinished: boolean) => {
       // Fetching and normalizing always happens on a
       // rerun (DB-level idempotency comes from `event.createMany({
@@ -355,6 +376,7 @@ async function fetchOneSession(
       // is doing real (first) work for the session.
       const shouldRecord = !alreadyFinished;
       if (shouldRecord) await recorder.writeSession(session, sessionKeyNum);
+      if (shouldRecord && meetingRow) await recorder.appendRows(sessionKeyNum, "meetings", [meetingRow]);
 
       const byEndpoint = new Map<string, NormalizedRow[]>();
       for (const endpoint of RECORDING_ENDPOINT_ORDER) {

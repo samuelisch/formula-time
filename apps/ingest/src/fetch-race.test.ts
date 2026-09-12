@@ -403,7 +403,18 @@ function fakeLoaderDb(): LoaderDb & {
     session: {
       async upsert(args) {
         const key = args.where.sessionKey.toString();
-        const row = sessions.has(key) ? { ...args.update } : { ...args.create };
+        // Matches Prisma's real `update` semantics: an `update` key present
+        // with value `undefined` leaves that column untouched instead of a
+        // wholesale replace — see sessions.ts's `updateFieldsPreservingNaming`.
+        let row: { status?: string };
+        if (sessions.has(key)) {
+          row = { ...sessions.get(key) };
+          for (const [field, value] of Object.entries(args.update)) {
+            if (value !== undefined) (row as Record<string, unknown>)[field] = value;
+          }
+        } else {
+          row = { ...args.create };
+        }
         sessions.set(key, row);
         return row;
       },
