@@ -52,9 +52,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+        # Version comes from "packageManager" in package.json.
+
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
+          cache: pnpm
+
+      # The `railway config` CLI subcommand loads .railway/railway.ts through
+      # the repository's own `railway` package, so the workspace must be
+      # installed before any `railway config` command runs.
+      - run: pnpm install --frozen-lockfile
 
       - name: Install the Railway CLI
         run: npm install -g @railway/cli@5.54.0
