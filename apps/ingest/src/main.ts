@@ -24,6 +24,12 @@ if (!config.databaseUrl) {
   process.exit(1);
 }
 
+if (config.restTickMsInvalid !== undefined) {
+  logger.info(
+    `ingest: REST_TICK_MS=${config.restTickMsInvalid} is invalid; using the tier default ${config.restTickMs}ms (ADR-0030).`,
+  );
+}
+
 // Every lane's and the writer's log(message, opts?) callback funnels
 // through here, so a log query can filter by lane, by level, and by the
 // counts a message reports without parsing `msg` (apps/ingest/src/log.ts).
@@ -85,6 +91,7 @@ const restLane = new RestLane(queue, {
     await recorder.appendRows(sessionKey, endpoint, rows);
   },
   liveLogDir: config.liveLogDir,
+  tickMs: config.restTickMs,
   onLog: laneLog("rest"),
 });
 

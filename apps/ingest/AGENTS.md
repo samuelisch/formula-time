@@ -167,8 +167,12 @@ happens only at emission time, not in the recording.
   the image: `DATABASE_URL`, `OPENF1_LOGIN`, `OPENF1_PASSWORD`,
   `LIVE_SOURCE`, `LIVE_LOG_DIR` (the jsonl recording's directory, default
   `./live-logs`), `MQTT_ENABLED` (default `true` when `OPENF1_LOGIN` is
-  set, else `false` — the free tier has no MQTT), `LOG_LEVEL` (default
-  `info`, read directly by the logger below rather than through `config.ts`).
+  set, else `false` — the free tier has no MQTT), `REST_TICK_MS` (the REST
+  lane's rotation cadence, ADR-0030: default 2200ms with no OpenF1
+  credentials, 1100ms when both `OPENF1_LOGIN` and `OPENF1_PASSWORD` are
+  set; an invalid override falls back to the tier default and logs once),
+  `LOG_LEVEL` (default `info`, read directly by the logger below rather
+  than through `config.ts`).
 - Logging: `src/log.ts` exports a pino logger with base fields `service:
   "ingest"` and `build` (`RAILWAY_GIT_COMMIT_SHA`, else `"unknown"`), JSON
   only (no pretty printing — Railway shows JSON fine). The REST lane, the
