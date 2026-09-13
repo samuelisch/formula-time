@@ -164,6 +164,47 @@ describe("Fanout", () => {
     vi.useRealTimers();
   });
 
+  test("the heartbeat frame is deflated once and the cached bytes are reused for every later heartbeat, on both a legacy and a delta socket", async () => {
+    const fanout = new Fanout();
+    const legacy = new FakeRes();
+    const delta = new FakeRes();
+    await fanout.join(legacy, "gzip", "state");
+    await fanout.join(delta, "gzip", "delta");
+    const legacyBefore = legacy.chunks.length;
+    const deltaBefore = delta.chunks.length;
+
+    const deflateSpy = vi.spyOn(fanout as unknown as { deflate(buf: Buffer): Promise<Buffer> }, "deflate");
+    // Drives maybeSendHeartbeat() directly rather than through heartbeat()'s
+    // setInterval: real zlib callbacks land on the real event loop, not
+    // fake timers, so advancing the fake clock and letting the interval
+    // fire on its own can race a still-pending deflate -- fully awaiting
+    // each call here before the next one starts is what makes the count
+    // deterministic.
+    const sendHeartbeat = (
+      fanout as unknown as { maybeSendHeartbeat(): Promise<void> }
+    ).maybeSendHeartbeat.bind(fanout);
+
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + HEARTBEAT_MS + 1);
+    await sendHeartbeat(); // 1st heartbeat: deflates and caches
+    vi.setSystemTime(Date.now() + HEARTBEAT_MS + 1);
+    await sendHeartbeat(); // 2nd: must reuse the cached bytes
+    vi.setSystemTime(Date.now() + HEARTBEAT_MS + 1);
+    await sendHeartbeat(); // 3rd: same
+    vi.useRealTimers();
+
+    expect(deflateSpy).toHaveBeenCalledTimes(1);
+
+    const legacyHeartbeats = legacy.chunks.slice(legacyBefore);
+    const deltaHeartbeats = delta.chunks.slice(deltaBefore);
+    expect(legacyHeartbeats).toHaveLength(3);
+    expect(deltaHeartbeats).toHaveLength(3);
+    const first = legacyHeartbeats[0] as Buffer;
+    for (const chunk of [...legacyHeartbeats, ...deltaHeartbeats]) {
+      expect(chunk.equals(first)).toBe(true);
+    }
+  });
+
   test("a socket whose write throws is dropped, logged once, and the next socket still receives the frame", async () => {
     const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
     const fanout = new Fanout({ log: (msg, fields) => logs.push({ msg, fields }) });

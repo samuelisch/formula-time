@@ -137,6 +137,17 @@ export class Fanout {
   private lastActivityAt = Date.now();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
+  // The heartbeat frame's gzip bytes, compressed once and reused forever
+  // after. `deflate()` writes through Z_FULL_FLUSH (see its own comment),
+  // so each call's result is one independently decodable raw-deflate
+  // block -- it carries no dependency on any later write to the shared
+  // stream. `HEARTBEAT_FRAME` is a constant, so that block is the same
+  // bytes on every call; caching it after the first success skips writing
+  // to the shared deflater (and the awaited round trip through it) on
+  // every later heartbeat, and replaying the cached block mid-stream is
+  // exactly as valid as deflating it fresh at that point would be.
+  private heartbeatGz: Buffer | null = null;
+
   public constructor(opts: { log?: FanoutLog } = {}) {
     this.log = opts.log ?? (() => {});
   }
@@ -269,22 +280,24 @@ export class Fanout {
     if (Date.now() - this.lastActivityAt < HEARTBEAT_MS) {
       return;
     }
-    let gz: Buffer;
-    try {
-      gz = await this.deflate(HEARTBEAT_FRAME);
-    } catch (err) {
-      // Called through `void this.maybeSendHeartbeat()` on a bare interval
-      // timer with no catch of its own -- a deflate write error here must
-      // not reject out of this method. Skip this heartbeat; the next
-      // interval tick tries again.
-      this.log("deflate failed, skipping this heartbeat", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return;
+    if (this.heartbeatGz === null) {
+      try {
+        this.heartbeatGz = await this.deflate(HEARTBEAT_FRAME);
+      } catch (err) {
+        // Called through `void this.maybeSendHeartbeat()` on a bare interval
+        // timer with no catch of its own -- a deflate write error here must
+        // not reject out of this method. Skip this heartbeat; the next
+        // interval tick tries again (and still has nothing cached, so it
+        // retries the deflate).
+        this.log("deflate failed, skipping this heartbeat", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
     }
     // Format-agnostic: the heartbeat is a comment frame, not a push: every
     // socket gets the same bytes regardless of `format`.
-    this.writeFixed(HEARTBEAT_FRAME, gz);
+    this.writeFixed(HEARTBEAT_FRAME, this.heartbeatGz);
     this.lastActivityAt = Date.now();
   }
 
