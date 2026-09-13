@@ -11,7 +11,7 @@ Every PR carries three lines: Summary, Friction, Agent. A retro is a read of tho
 
 ## Steps
 
-1. Run `node scripts/retro.mjs <YYYY-MM-DD> [YYYY-MM-DD]` (period start, default today; optional period end, so a retro can be re-run later without picking up the next day's merges). It prints one row per PR merged at or after the start day 00:00:00 UTC and, when an end is given, up through the end of that end day, both inclusive in UTC.
+1. Run `git status --short docs/retros/` first: an untracked retro from an earlier period lands in this PR, and its own "try next time" items are checked against the tree. Then run `node scripts/retro.mjs <YYYY-MM-DD> [YYYY-MM-DD]` (period start, default today; optional period end, so a retro can be re-run later without picking up the next day's merges). It prints one row per PR merged at or after the start day 00:00:00 UTC and, when an end is given, up through the end of that end day, both inclusive in UTC.
 2. If it reports missing lines, note the PR numbers under "went wrong": the template was not followed.
 3. Write `docs/retros/<YYYY-MM-DD>.md` with exactly these sections, each a short bulleted list citing PR numbers:
    - **Went well** — from Summary lines that landed without Friction.
