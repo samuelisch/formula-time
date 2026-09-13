@@ -164,6 +164,35 @@ describe("Fanout", () => {
     vi.useRealTimers();
   });
 
+  test("a socket whose write throws is dropped, logged once, and the next socket still receives the frame", async () => {
+    const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+    const fanout = new Fanout({ log: (msg, fields) => logs.push({ msg, fields }) });
+    const throwing = new FakeRes();
+    const fine = new FakeRes();
+    await fanout.join(throwing, "plain");
+    await fanout.join(fine, "plain");
+
+    let throwCalls = 0;
+    vi.spyOn(throwing, "write").mockImplementation(() => {
+      throwCalls += 1;
+      if (throwCalls === 1) {
+        throw new Error("socket write threw");
+      }
+      return true;
+    });
+
+    await fanout.push({ n: 1 });
+
+    expect(throwing.destroyed).toBe(true);
+    expect(fanout.size()).toBe(1);
+    expect(logs.some((l) => l.msg.includes("write failed"))).toBe(true);
+
+    const delivered = fine.chunks
+      .map((chunk) => chunk.toString("utf8"))
+      .filter((frame) => frame.startsWith("event: state"));
+    expect(delivered).toHaveLength(1);
+  });
+
   test("overlapping pushes coalesce to the newest payload; intermediate ones are dropped", async () => {
     const fanout = new Fanout();
     const res = new FakeRes();

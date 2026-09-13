@@ -349,18 +349,33 @@ export class Fanout {
   private write(pick: (socket: Socket) => Buffer): void {
     let dropped = 0;
     for (const socket of this.sockets) {
-      socket.res.write(pick(socket));
+      try {
+        socket.res.write(pick(socket));
+      } catch (err) {
+        // One socket's write throwing (a destroyed socket, e.g.) must not
+        // stop the loop for the rest -- every remaining socket still needs
+        // this tick's frame. Drop only the offending socket.
+        this.log("socket write failed, dropping socket", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        this.dropSocket(socket);
+        continue;
+      }
       if (socket.res.writableLength > MAX_WRITABLE_LENGTH) {
-        socket.res.destroy();
-        this.sockets.delete(socket);
-        if (socket.format === "delta") {
-          this.deltaSocketCount -= 1;
-        }
+        this.dropSocket(socket);
         dropped += 1;
       }
     }
     if (dropped > 0) {
       this.log("slow client dropped", { count: dropped });
+    }
+  }
+
+  private dropSocket(socket: Socket): void {
+    socket.res.destroy();
+    this.sockets.delete(socket);
+    if (socket.format === "delta") {
+      this.deltaSocketCount -= 1;
     }
   }
 
