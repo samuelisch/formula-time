@@ -143,7 +143,7 @@ describe("useCapture", () => {
     expect(result.current.phase).toBe("idle");
     expect(result.current.visible).toBe(true); // stays up so the failure is seen
     expect(setStatus).toHaveBeenLastCalledWith(
-      "Couldn't start: Permission denied — check network (OCR loads from a CDN) and allow screen sharing, then try again",
+      "Couldn't start: Permission denied — the OCR engine failed to load from this site; reload the page and allow screen sharing, then try again",
     );
     expect(onStop).not.toHaveBeenCalled();
   });
