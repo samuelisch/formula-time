@@ -28,6 +28,7 @@ import mqtt from "mqtt";
 
 import { backoffDelayMs } from "../writer/writer.js";
 import { emitRows } from "./rest-lane.js";
+import type { OnRecorded } from "./rest-lane.js";
 import type { LaneLog } from "../log.js";
 import type { LiveNormalizer } from "./normalize.js";
 import type { QueueItem, RawRecord } from "./types.js";
@@ -169,6 +170,8 @@ export interface MqttLaneOptions {
   getNormalizer: () => LiveNormalizer;
   /** Current live session key, or `null` when none is selected — the REST lane is the authority on which session is live. */
   getSessionKey: () => number | null;
+  /** The jsonl recorder callback, passed straight through to `emitRows` for every message this lane queues, so a row is recorded at the moment it is queued — the same callback `main.ts` also gives the REST lane. */
+  onRecorded?: OnRecorded;
   onLog?: LaneLog;
   brokerUrl?: string;
   topics?: readonly string[];
@@ -202,6 +205,7 @@ export class MqttLane {
   private readonly username: string;
   private readonly getNormalizer: () => LiveNormalizer;
   private readonly getSessionKey: () => number | null;
+  private readonly onRecordedCallback: MqttLaneOptions["onRecorded"];
   private readonly log: LaneLog;
   private readonly brokerUrl: string;
   private readonly topics: readonly string[];
@@ -240,6 +244,7 @@ export class MqttLane {
     this.username = opts.username;
     this.getNormalizer = opts.getNormalizer;
     this.getSessionKey = opts.getSessionKey;
+    this.onRecordedCallback = opts.onRecorded;
     this.log = opts.onLog ?? ((): void => {});
     this.brokerUrl = opts.brokerUrl ?? MQTT_BROKER_URL;
     this.topics = opts.topics ?? MQTT_TOPICS;
@@ -392,7 +397,12 @@ export class MqttLane {
 
     client.on("message", (topic, payload) => {
       if (generation !== this.generation) return;
-      this.handleMessage(topic, payload);
+      // Fire-and-forget: `handleMessage` never rejects (its own recording
+      // attempt is caught and logged internally, see `recordRow` below), and
+      // `mqtt.js`'s EventEmitter does not await listener return values
+      // anyway — queuing itself still happens synchronously, before this
+      // call returns, since it happens before the recorder is ever awaited.
+      void this.handleMessage(topic, payload);
     });
 
     client.on("error", (error) => {
@@ -421,7 +431,26 @@ export class MqttLane {
     });
   }
 
-  private handleMessage(topic: string, payload: Buffer | Uint8Array): void {
+  /**
+   * The `onRecorded` callback handed to `emitRows`: forwards to whatever
+   * `onRecorded` this lane was constructed with, catching and logging a
+   * rejection at error level with the endpoint as a field instead of
+   * letting it escape — the row is already queued by the time this runs,
+   * and one failed recording attempt must not stop the lane.
+   */
+  private readonly recordRow: OnRecorded = async (sessionKey, endpoint, payloads): Promise<void> => {
+    if (!this.onRecordedCallback) return;
+    try {
+      await this.onRecordedCallback(sessionKey, endpoint, payloads);
+    } catch (error) {
+      this.log(`mqtt: recording failed: ${error instanceof Error ? error.message : String(error)}`, {
+        level: "error",
+        fields: { endpoint },
+      });
+    }
+  };
+
+  private async handleMessage(topic: string, payload: Buffer | Uint8Array): Promise<void> {
     this.messagesSinceLog += 1;
     const endpoint = mqttTopicEndpoint(topic);
     if (endpoint === null) {
@@ -462,7 +491,7 @@ export class MqttLane {
       return;
     }
 
-    const result = emitRows(this.getNormalizer(), this.queue, endpoint, sessionKey, [stripped]);
+    const result = await emitRows(this.getNormalizer(), this.queue, endpoint, sessionKey, [stripped], this.recordRow);
     this.droppedSinceLog += result.malformed;
     this.rowsSinceLog += result.newRows;
     this.unjoinedSinceLog += result.unjoined;

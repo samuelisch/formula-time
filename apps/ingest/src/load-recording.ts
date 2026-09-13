@@ -604,7 +604,7 @@ async function loadOneSession(
         team_name: driver.team_name,
         team_colour: driver.team_colour,
       }));
-      const entryResult = emitRows(normalizer, queue, "drivers", sessionKey, driverRows);
+      const entryResult = await emitRows(normalizer, queue, "drivers", sessionKey, driverRows);
       log(
         `load: session=${sessionKey} endpoint=drivers(entry-list) rows=${driverRows.length} new=${entryResult.newRows}`,
       );
@@ -625,7 +625,7 @@ async function loadOneSession(
           rows.push(merged[mergedIndex]!.payload);
           mergedIndex += 1;
         }
-        const result = emitRows(normalizer, queue, endpoint, sessionKey, rows);
+        const result = await emitRows(normalizer, queue, endpoint, sessionKey, rows);
         log(`load: session=${sessionKey} endpoint=${endpoint} rows=${rows.length} new=${result.newRows}`);
       }
     },

@@ -302,6 +302,7 @@ describe("MqttLane: message handling", () => {
 
     const noKeyRow = { driver_number: 1, date: "2026-09-06T13:00:00Z" };
     client.emit("message", POSITION_TOPIC, Buffer.from(JSON.stringify(noKeyRow), "utf8"));
+    await flushMicrotasks();
 
     const [item] = queue.drain(10);
     expect(item).toBeDefined();
@@ -332,6 +333,7 @@ describe("MqttLane: message handling", () => {
 
     const nullKeyRow = { session_key: null, driver_number: 1, date: "2026-09-06T13:00:00Z" };
     client.emit("message", POSITION_TOPIC, Buffer.from(JSON.stringify(nullKeyRow), "utf8"));
+    await flushMicrotasks();
 
     const [item] = queue.drain(10);
     expect(item).toBeDefined();
@@ -662,6 +664,7 @@ describe("MqttLane.takeStats()", () => {
     );
 
     await waitUntil(() => queue.size === 1);
+    await flushMicrotasks();
 
     const first = lane.takeStats();
     expect(first).toEqual({ messages: 1, rows: 1, dropped: 0, unjoined: 0, foreign: 0 });

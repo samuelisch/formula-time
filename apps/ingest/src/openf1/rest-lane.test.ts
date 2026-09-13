@@ -240,39 +240,39 @@ describe("RestLane discovery", () => {
     expect(onSession).toHaveBeenNthCalledWith(2, SESSION, START - 2 * WINDOW, new Map([[1293, "Italian Grand Prix"]]));
   });
 
-  test("onNewRows fires once for endpoint 'meetings' with the followed session's own row, matched by meeting_key", async () => {
+  test("onRecorded fires once for endpoint 'meetings' with the followed session's own row, matched by meeting_key", async () => {
     const followedSession: RawRecord = { ...SESSION, meeting_key: 1293 };
     const meetings = [
       { meeting_key: 1400, meeting_name: "Wrong Meeting" }, // a different meeting_key: must not be picked
       { meeting_key: 1293, meeting_name: "Italian Grand Prix" },
     ];
     const { fetcher } = fakeFetcher({ sessions: [followedSession], drivers: [], meetings });
-    const onNewRows = vi.fn();
+    const onRecorded = vi.fn();
     const queue = new EventQueue<QueueItem>();
-    const lane = new RestLane(queue, { fetcher, now: () => START, onNewRows, onLog: () => {} });
+    const lane = new RestLane(queue, { fetcher, now: () => START, onRecorded, onLog: () => {} });
 
     await lane.discoverOnce(); // selects followedSession (inside its live window)
 
-    const meetingCalls = onNewRows.mock.calls.filter((c) => c[1] === "meetings");
+    const meetingCalls = onRecorded.mock.calls.filter((c) => c[1] === "meetings");
     expect(meetingCalls).toHaveLength(1);
     expect(meetingCalls[0]).toEqual([11361, "meetings", [{ meeting_key: 1293, meeting_name: "Italian Grand Prix" }]]);
 
     // A later tick must not fire it again for the same session_key.
     await lane.discoverOnce();
-    expect(onNewRows.mock.calls.filter((c) => c[1] === "meetings")).toHaveLength(1);
+    expect(onRecorded.mock.calls.filter((c) => c[1] === "meetings")).toHaveLength(1);
   });
 
   test("no 'meetings' row is recorded when no meetings row matches the followed session's meeting_key", async () => {
     const followedSession: RawRecord = { ...SESSION, meeting_key: 1293 };
     const meetings = [{ meeting_key: 1400, meeting_name: "Wrong Meeting" }];
     const { fetcher } = fakeFetcher({ sessions: [followedSession], drivers: [], meetings });
-    const onNewRows = vi.fn();
+    const onRecorded = vi.fn();
     const queue = new EventQueue<QueueItem>();
-    const lane = new RestLane(queue, { fetcher, now: () => START, onNewRows, onLog: () => {} });
+    const lane = new RestLane(queue, { fetcher, now: () => START, onRecorded, onLog: () => {} });
 
     await lane.discoverOnce();
 
-    expect(onNewRows.mock.calls.filter((c) => c[1] === "meetings")).toHaveLength(0);
+    expect(onRecorded.mock.calls.filter((c) => c[1] === "meetings")).toHaveLength(0);
   });
 });
 
@@ -635,7 +635,7 @@ describe("RestLane.stop() and an in-flight tick (SIGTERM race)", () => {
 // `session_key` in ITS OWN payload, never by the session/meeting the fetch
 // was made for.
 describe("emitTaggedDriverRows", () => {
-  test("tags each row by its own session_key; a row naming a different session is still written and counted foreign", () => {
+  test("tags each row by its own session_key; a row naming a different session is still written and counted foreign", async () => {
     const normalizer = new LiveNormalizer();
     const queue = new EventQueue<QueueItem>();
     const rows: RawRecord[] = [
@@ -643,7 +643,7 @@ describe("emitTaggedDriverRows", () => {
       { session_key: 11362, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" },
     ];
 
-    const result = emitTaggedDriverRows(normalizer, queue, rows, 11361);
+    const result = await emitTaggedDriverRows(normalizer, queue, rows, 11361);
 
     expect(result.newRows).toBe(2);
     expect(result.foreign).toBe(1); // the 11362 row named a different session than expected
@@ -652,21 +652,21 @@ describe("emitTaggedDriverRows", () => {
     expect(items.every((i) => i.endpoint === "drivers")).toBe(true);
   });
 
-  test("a row with no numeric session_key of its own can't be tagged or written; counted malformed", () => {
+  test("a row with no numeric session_key of its own can't be tagged or written; counted malformed", async () => {
     const normalizer = new LiveNormalizer();
     const queue = new EventQueue<QueueItem>();
     const rows: RawRecord[] = [{ driver_number: 1, full_name: "No Session" }];
 
-    const result = emitTaggedDriverRows(normalizer, queue, rows, 11361);
+    const result = await emitTaggedDriverRows(normalizer, queue, rows, 11361);
 
     expect(result.malformed).toBe(1);
     expect(result.newRows).toBe(0);
     expect(queue.size).toBe(0);
   });
 
-  test("a row naming a session isKnownSession rejects is dropped and counted unknownSession; groups carry the written payloads per session", () => {
+  test("a row naming a session isKnownSession rejects is dropped and counted unknownSession; groups carry the written payloads per session", async () => {
     const queue = new EventQueue<QueueItem>();
-    const result = emitTaggedDriverRows(
+    const result = await emitTaggedDriverRows(
       new LiveNormalizer(),
       queue,
       [
@@ -683,7 +683,7 @@ describe("emitTaggedDriverRows", () => {
     expect(queue.drain(10).map((i) => i.sessionKey)).toEqual([1n]);
   });
 
-  test("expectedSessionKey null (the Friday meeting-wide fetch) counts nothing as foreign", () => {
+  test("expectedSessionKey null (the Friday meeting-wide fetch) counts nothing as foreign", async () => {
     const normalizer = new LiveNormalizer();
     const queue = new EventQueue<QueueItem>();
     const rows: RawRecord[] = [
@@ -691,10 +691,29 @@ describe("emitTaggedDriverRows", () => {
       { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" },
     ];
 
-    const result = emitTaggedDriverRows(normalizer, queue, rows, null);
+    const result = await emitTaggedDriverRows(normalizer, queue, rows, null);
 
     expect(result.foreign).toBe(0);
     expect(result.newRows).toBe(2);
+  });
+
+  test("onRecorded is called once per session_key group with that group's payloads", async () => {
+    const normalizer = new LiveNormalizer();
+    const queue = new EventQueue<QueueItem>();
+    const rows: RawRecord[] = [
+      { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" },
+      { session_key: 11362, meeting_key: 1293, driver_number: 2, full_name: "Foreign Row" },
+    ];
+    const recorded: Array<[number, string, RawRecord[]]> = [];
+    const onRecorded = async (sessionKey: number, endpoint: string, payloads: RawRecord[]): Promise<void> => {
+      recorded.push([sessionKey, endpoint, payloads]);
+    };
+
+    await emitTaggedDriverRows(normalizer, queue, rows, 11361, () => true, onRecorded);
+
+    expect(recorded).toHaveLength(2);
+    expect(new Set(recorded.map((c) => c[0]))).toEqual(new Set([11361, 11362]));
+    expect(recorded.every((c) => c[1] === "drivers")).toBe(true);
   });
 });
 
@@ -788,7 +807,7 @@ describe("RestLane: fetched entry list at session selection (issue #39)", () => 
     expect(logs.some((l) => l.includes("unknown_session=1"))).toBe(true);
   });
 
-  test("fetched entry-list rows reach onNewRows (the jsonl recorder) once per session_key, same as the fallback", async () => {
+  test("fetched entry-list rows reach onRecorded (the jsonl recorder) once per session_key, same as the fallback", async () => {
     const driversResponse = [
       { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" },
       { session_key: 11361, meeting_key: 1293, driver_number: 4, full_name: "Lando NORRIS 2" },
@@ -798,13 +817,13 @@ describe("RestLane: fetched entry list at session selection (issue #39)", () => 
       if (url.includes("/drivers?session_key=")) return driversResponse;
       return [];
     };
-    const onNewRows = vi.fn(async () => {});
+    const onRecorded = vi.fn(async () => {});
     const queue = new EventQueue<QueueItem>();
-    const lane = new RestLane(queue, { fetcher, now: () => START, onNewRows, onLog: () => {} });
+    const lane = new RestLane(queue, { fetcher, now: () => START, onRecorded, onLog: () => {} });
 
     await lane.discoverOnce();
 
-    const driverCalls = onNewRows.mock.calls.filter((c) => c[1] === "drivers");
+    const driverCalls = onRecorded.mock.calls.filter((c) => c[1] === "drivers");
     expect(driverCalls).toHaveLength(1);
     expect(driverCalls[0]?.[0]).toBe(11361);
     expect(driverCalls[0]?.[2]).toHaveLength(2);
@@ -872,7 +891,7 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
     expect(calls.filter((u) => u.includes("meeting_key=1293"))).toHaveLength(2);
   });
 
-  test("fetched rows reach onNewRows (the jsonl recorder), tagged to the session they name", async () => {
+  test("fetched rows reach onRecorded (the jsonl recorder), tagged to the session they name", async () => {
     const fetcher = async (url: string): Promise<unknown> => {
       if (url.includes("/sessions?")) return [FP1, RACE];
       if (url.includes("/drivers?meeting_key=1293")) {
@@ -880,12 +899,12 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
       }
       return [];
     };
-    const onNewRows = vi.fn(async () => {});
+    const onRecorded = vi.fn(async () => {});
     const queue = new EventQueue<QueueItem>();
     const lane = new RestLane(queue, {
       fetcher,
       now: () => Date.parse("2026-09-04T11:31:00Z"),
-      onNewRows,
+      onRecorded,
       onLog: () => {},
     });
 
@@ -893,7 +912,7 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
     // tick's own Friday check fires within this one discoverOnce() call.
     await lane.discoverOnce();
 
-    const raceCalls = onNewRows.mock.calls.filter((c) => c[1] === "drivers" && c[0] === 11361);
+    const raceCalls = onRecorded.mock.calls.filter((c) => c[1] === "drivers" && c[0] === 11361);
     expect(raceCalls).toHaveLength(1);
     expect(raceCalls[0]?.[2]).toHaveLength(1);
   });
