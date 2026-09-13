@@ -8,6 +8,12 @@
   --color-muted: #91a0b5;
   --color-accent: #e10600;
   --color-green: #66d18f;
+  /* A "loss" reading (a position lost, a poll pick that did not win) is its
+     own token, distinct from --color-accent -- the site's F1-red brand
+     colour -- so the two can be told apart by anyone who can't rely on hue
+     alone, and so a future brand-colour change never silently recolours
+     every loss cue with it. */
+  --color-loss: #ff6b6b;
 
   /* Track-status colours: red flag, safety car / VSC, yellow sectors. */
   --flag-red: #e10600;
@@ -44,4 +50,19 @@ a {
 :focus-visible {
   outline: 2px solid var(--color-green);
   outline-offset: 2px;
+}
+
+/* A viewer who has asked the OS for reduced motion gets every transition
+   and animation collapsed to effectively instant, everywhere in the app --
+   the poll option bar's fill and the position-change row highlight's fade
+   included -- rather than each one needing its own opt-out. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
