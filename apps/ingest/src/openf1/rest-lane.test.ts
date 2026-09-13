@@ -475,6 +475,36 @@ describe("RestLane.pollOnce", () => {
     expect(result).toBeNull();
     expect(lane.status().active).toBe(false);
   });
+
+  test("logs the closed-recording line once per session, at window close, with the row count and path", async () => {
+    const driverRow = { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" };
+    const positionRow = { driver_number: 1, date: "2026-09-06T13:00:00Z" };
+    const { fetcher } = fakeFetcher({ sessions: [SESSION], drivers: [driverRow], position: [positionRow] });
+    const queue = new EventQueue<QueueItem>();
+    let now = START;
+    const logs: string[] = [];
+    const lane = new RestLane(queue, {
+      fetcher,
+      now: () => now,
+      liveLogDir: "/data/live-logs",
+      onLog: (l) => logs.push(l),
+    });
+
+    await lane.discoverOnce(); // selects the session, records the fetched entry-list row (1)
+    await lane.pollOnce(); // rotation's first slot ("position"), records 1 more row
+
+    now = END + WINDOW + 1;
+    const result = await lane.pollOnce();
+
+    expect(result).toBeNull();
+    expect(logs.filter((l) => l.startsWith("recording closed "))).toEqual([
+      "recording closed 11361 rows=2 path=/data/live-logs/11361",
+    ]);
+
+    // No active session left: a further pollOnce is a no-op and does not repeat the line.
+    await lane.pollOnce();
+    expect(logs.filter((l) => l.startsWith("recording closed "))).toHaveLength(1);
+  });
 });
 
 describe("RestLane.takeStats()", () => {

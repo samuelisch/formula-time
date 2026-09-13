@@ -7,6 +7,8 @@
 // API rejects every date filter; apps/ingest/AGENTS.md). Does NOT lift
 // `LiveRace` / `state_authority` / `session_registry`: ingest never folds.
 
+import path from "node:path";
+
 import { ENTRY_LIST_2026 } from "./entry-list.js";
 import { LiveNormalizer, endpointConfigs } from "./normalize.js";
 import type { Fetcher, QueueItem, RawRecord } from "./types.js";
@@ -186,6 +188,13 @@ export interface RestLaneOptions {
   /** Discovery cadence while no session is in its window. Default: every 60 s. */
   discoveryIntervalMs?: number;
   /**
+   * The jsonl recorder's root directory (config.ts's `LIVE_LOG_DIR`) — used
+   * only to name the recording directory in the closed-recording log line
+   * ("recording closed <session_key> rows=<n> path=<dir>"); the lane never
+   * touches the filesystem itself, the recorder does.
+   */
+  liveLogDir?: string;
+  /**
    * Sessions upsert — called for every session row discovery sees.
    * `meetingNames` is this tick's `meeting_key -> meeting_name` map (see
    * `refreshMeetingNames`), for `sessionFieldsFromRaw`'s join.
@@ -233,6 +242,7 @@ export class RestLane {
   private readonly onSession: RestLaneOptions["onSession"];
   private readonly onSessionSelected: RestLaneOptions["onSessionSelected"];
   private readonly onNewRows: RestLaneOptions["onNewRows"];
+  private readonly liveLogDir: string;
   private readonly log: LaneLog;
   // Every OpenF1 REST call made (discovery, meetings, entry list, the
   // rotation poll), and the new rows / errors it produced, since the last
@@ -240,6 +250,12 @@ export class RestLane {
   private pollsSinceStats = 0;
   private rowsSinceStats = 0;
   private errorsSinceStats = 0;
+
+  // Rows recorded (via onNewRows, i.e. written into the jsonl recording) for
+  // the currently followed session only — reset when a NEW session is
+  // selected, reported once in the closed-recording log line at window
+  // close.
+  private followedRecordedRows = 0;
 
   private normalizer = new LiveNormalizer();
   private session: RawRecord | null = null;
@@ -316,6 +332,7 @@ export class RestLane {
     this.onSession = opts.onSession;
     this.onSessionSelected = opts.onSessionSelected;
     this.onNewRows = opts.onNewRows;
+    this.liveLogDir = opts.liveLogDir ?? "./live-logs";
     this.log = opts.onLog ?? ((): void => {});
   }
 
@@ -503,8 +520,20 @@ export class RestLane {
     if (!Number.isFinite(meetingKey)) return;
     const row = this.lastMeetingRows.find((m) => Number(m["meeting_key"]) === meetingKey);
     if (!row) return;
-    await this.onNewRows?.(this.sessionKey, "meetings", [row]);
+    await this.recordRows(this.sessionKey, "meetings", [row]);
     this.meetingRowRecordedFor.add(this.sessionKey);
+  }
+
+  /**
+   * Every row fed to the jsonl recorder goes through here: forwards to
+   * `onNewRows` and, when it belongs to the currently followed session,
+   * counts it toward the closed-recording log line's `rows=<n>` — the
+   * recorder itself keeps no count (apps/ingest/src/openf1/recorder.ts), so
+   * the lane is the only place that knows how many rows it forwarded.
+   */
+  private async recordRows(sessionKey: number, endpoint: string, rows: RawRecord[]): Promise<void> {
+    await this.onNewRows?.(sessionKey, endpoint, rows);
+    if (sessionKey === this.sessionKey) this.followedRecordedRows += rows.length;
   }
 
   /** Returns whether it made a drivers fetch this tick (the selection fetch). */
@@ -537,6 +566,7 @@ export class RestLane {
       this.sessionKey = key;
       this.normalizer = new LiveNormalizer();
       this.rotationIndex = 0;
+      this.followedRecordedRows = 0;
       this.log(
         `rest: following session_key=${key} (${String(live["country_name"] ?? "?")})`,
       );
@@ -770,6 +800,10 @@ export class RestLane {
     if (this.sessionKey === null || this.session === null) return null;
     const nowMs = this.now();
     if (sessionExpired(this.session, nowMs)) {
+      const recordingDir = path.join(this.liveLogDir, String(this.sessionKey));
+      this.log(`recording closed ${this.sessionKey} rows=${this.followedRecordedRows} path=${recordingDir}`, {
+        fields: { rows: this.followedRecordedRows },
+      });
       this.log(`rest: session ${this.sessionKey} left its live window; releasing`);
       this.session = null;
       this.sessionKey = null;
@@ -826,7 +860,7 @@ export class RestLane {
   ): Promise<{ newRows: number; malformed: number }> {
     const result = emitRows(this.normalizer, this.queue, endpoint, sessionKey, rows);
     if (result.payloads.length > 0) {
-      await this.onNewRows?.(sessionKey, endpoint, result.payloads);
+      await this.recordRows(sessionKey, endpoint, result.payloads);
     }
     return { newRows: result.newRows, malformed: result.malformed };
   }
@@ -842,7 +876,7 @@ export class RestLane {
       this.knownSessionKeys.has(key),
     );
     for (const group of result.groups) {
-      await this.onNewRows?.(group.sessionKey, "drivers", group.payloads);
+      await this.recordRows(group.sessionKey, "drivers", group.payloads);
     }
     return result;
   }
