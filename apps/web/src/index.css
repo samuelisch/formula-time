@@ -38,3 +38,10 @@ body {
 a {
   color: inherit;
 }
+
+/* One visible focus ring for every interactive element in the app, so
+   keyboard use never loses track of where focus is. */
+:focus-visible {
+  outline: 2px solid var(--color-green);
+  outline-offset: 2px;
+}

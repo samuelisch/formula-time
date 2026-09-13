@@ -65,7 +65,17 @@
   background: rgba(225, 6, 0, 0.12);
 }
 
-.row {
+/* Resets a <button> to read as plain text inside the driver cell -- only
+   this control toggles the row's selection (DriverRow.tsx), so it must not
+   look like a distinct button. */
+.driverButton {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
   cursor: pointer;
 }
 

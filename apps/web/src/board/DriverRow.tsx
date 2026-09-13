@@ -64,15 +64,22 @@ export const DriverRow = memo(function DriverRow({ number: driverNumber, delta =
   const rowClassName = cx(styles.row, selected && styles.selected, rowChangeClass, isRetired && styles.retired);
 
   return (
-    <tr className={rowClassName} onClick={() => onSelect(driverNumber)} aria-selected={selected}>
+    <tr className={rowClassName}>
       <td className={styles.position}>{driver.position === null ? "—" : driver.position}</td>
       <td className={cueClass}>{isRetired ? "" : cueText(delta)}</td>
       <td>
-        <strong>{text(driver.name_acronym)}</strong>
-        <span className={styles.fullName}>
-          <br />
-          <span className={styles.muted}>{text(driver.full_name)}</span>
-        </span>
+        <button
+          type="button"
+          className={styles.driverButton}
+          aria-pressed={selected}
+          onClick={() => onSelect(driverNumber)}
+        >
+          <strong>{text(driver.name_acronym)}</strong>
+          <span className={styles.fullName}>
+            <br />
+            <span className={styles.muted}>{text(driver.full_name)}</span>
+          </span>
+        </button>
       </td>
       <td>
         <TeamDot teamColour={driver.team_colour} />
