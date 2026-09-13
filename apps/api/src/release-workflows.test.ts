@@ -60,6 +60,20 @@ describe("railway-apply.yml", () => {
     expect(job.if).toContain("github.event.inputs.confirm == 'apply'");
   });
 
+  test("apply-manual installs the repository's dependencies before planning", () => {
+    const wf = loadWorkflow("railway-apply.yml");
+    const job = wf.jobs["apply-manual"];
+    const steps = job.steps ?? [];
+    const planIndex = steps.findIndex((s) => s.name === "Plan");
+    const pnpmSetupIndex = steps.findIndex((s) => s.uses?.startsWith("pnpm/action-setup"));
+    const installIndex = steps.findIndex((s) => s.run?.includes("pnpm install --frozen-lockfile"));
+    expect(planIndex).toBeGreaterThan(-1);
+    expect(pnpmSetupIndex).toBeGreaterThan(-1);
+    expect(installIndex).toBeGreaterThan(-1);
+    expect(pnpmSetupIndex).toBeLessThan(planIndex);
+    expect(installIndex).toBeLessThan(planIndex);
+  });
+
   test("apply-manual never passes --confirm-destructive", () => {
     const wf = loadWorkflow("railway-apply.yml");
     const job = wf.jobs["apply-manual"];
