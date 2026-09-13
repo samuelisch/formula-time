@@ -176,6 +176,29 @@ describe("live store", () => {
       expect(displayed!.state).toEqual(foldAt(timeline, expectedTargetMs));
     });
 
+    // Regression: the timeline used to be built with only a session_key
+    // (`live/timeline.ts` before the fix), so a rewound viewer's displayed
+    // push carried a `session` with no status/country/name -- the transport
+    // and the finished banner both gate on that field. Pinning this here
+    // against the full `TIMELINE_SESSION` row (the shape the fixed
+    // `useSessionTimeline` now captures from the live push) proves the
+    // store threads a complete row straight through into timeline mode.
+    it("carries the timeline's session row -- status, country, name -- onto displayed in timeline mode", async () => {
+      const store = createLiveStore();
+      const timeline = await buildRewindTimeline();
+      store.getState().setTimeline(timeline, 0);
+      store.getState().setDelayMs(150_000, 0);
+
+      const live = frame("2026-09-08T12:03:20.000Z", 200_000); // 200s offset
+      store.getState().onState(live, 200_000);
+
+      expect(store.getState().mode).toBe("timeline");
+      const session = store.getState().displayed!.state.session;
+      expect(session?.status).toBe("live");
+      expect(session?.country).toBe("Italy");
+      expect(session?.name).toBe("Race");
+    });
+
     it("clamps a target before the timeline's first source time to firstSourceMs", async () => {
       const store = createLiveStore();
       const timeline = await buildRewindTimeline();
