@@ -37,13 +37,15 @@ await registerCors(app, parseAllowedOrigins(process.env.CORS_ORIGIN));
 // only JSON and an event stream, no documents to constrain. CORP is
 // cross-origin so the bundle, hosted on its own origin (ADR-0008), can read
 // the response. HSTS runs one year, no subdomains (this container answers
-// for its own host only). Runs as an `onRequest` hook, so it decorates the
-// reply before the hijacked SSE route calls `hijack()` -- the headers
+// for its own host only). Framing is denied outright: nothing legitimate
+// embeds this api in a frame. Runs as an `onRequest` hook, so it decorates
+// the reply before the hijacked SSE route calls `hijack()` -- the headers
 // still ride along through `replyHeaders` (cors.ts).
 await app.register(helmet, {
   contentSecurityPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" },
   hsts: { maxAge: 31536000, includeSubDomains: false },
+  frameguard: { action: "deny" },
 });
 
 const db = createDb();

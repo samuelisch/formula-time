@@ -231,6 +231,7 @@ describe("liveRoutes plugin", () => {
       contentSecurityPolicy: false,
       crossOriginResourcePolicy: { policy: "cross-origin" },
       hsts: { maxAge: 31536000, includeSubDomains: false },
+      frameguard: { action: "deny" },
     });
     await app.register(liveRoutes, { prefix: "/api", fanout });
     await app.ready();
@@ -239,7 +240,7 @@ describe("liveRoutes plugin", () => {
 
     expect(response.headers["strict-transport-security"]).toBe("max-age=31536000");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
-    expect(response.headers["x-frame-options"]).toBeDefined();
+    expect(response.headers["x-frame-options"]).toBe("DENY");
 
     await app.close();
   });

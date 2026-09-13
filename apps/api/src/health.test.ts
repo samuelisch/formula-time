@@ -40,6 +40,7 @@ describe("GET /health security headers", () => {
       contentSecurityPolicy: false,
       crossOriginResourcePolicy: { policy: "cross-origin" },
       hsts: { maxAge: 31536000, includeSubDomains: false },
+      frameguard: { action: "deny" },
     });
     app.get("/health", async () => ({ ok: true }));
     await app.ready();
@@ -48,6 +49,7 @@ describe("GET /health security headers", () => {
 
     expect(response.headers["strict-transport-security"]).toBe("max-age=31536000");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers["x-frame-options"]).toBe("DENY");
 
     await app.close();
   });
