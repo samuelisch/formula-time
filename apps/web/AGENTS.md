@@ -13,6 +13,13 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   (`vite.config.ts`) proxies `/health` and `/api` to the api on port 3000
   (`/live` and `/polls` are SPA routes, not proxied -- issue #72). Every
   request goes through `src/api.ts`, never a hand-built URL.
+- `index.html`'s `<meta name="build">` carries the running build's commit
+  SHA (ADR-0021); `vite.config.ts` resolves it itself from
+  `VITE_GIT_SHA` (explicit override), falling back to `COMMIT_REF`
+  (Netlify's own build-time variable) or `GITHUB_SHA` (GitHub Actions),
+  else `"unknown"` -- no per-platform build-command configuration is
+  needed. `release.yml`'s smoke job reads this to confirm a release
+  actually deployed the released commit.
 - Imports the RaceState type, wire schemas, and the reducer from
   `@formula-time/domain`. Never copies them. The reducer runs in the
   browser to fold finished races, served as one immutable export per
