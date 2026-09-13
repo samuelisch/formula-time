@@ -25,8 +25,18 @@ export interface OcrWorker {
   terminate(): Promise<void>;
 }
 
+// All optional: a caller overrides only the paths its environment needs
+// and leaves the rest at the library's own per-environment default (a
+// filesystem path to its bundled Node worker script for `workerPath` in
+// Node, for instance -- never the browser URLs below).
+export interface OcrPaths {
+  workerPath?: string;
+  corePath?: string;
+  langPath?: string;
+}
+
 export interface TesseractModule {
-  createWorker(lang: string, oem?: number, options?: Record<string, unknown>): Promise<OcrWorker>;
+  createWorker(lang: string, oem?: number, options?: OcrPaths): Promise<OcrWorker>;
 }
 
 /** Dynamic import so ordinary viewers never download tesseract.js. */
@@ -37,17 +47,20 @@ export async function loadTesseract(): Promise<TesseractModule> {
 // The engine only ever loads from this origin: worker, core and language
 // data are vendored into the bundle (`scripts/vendor-ocr.mjs`) rather than
 // left at the library's CDN defaults, so a CSP naming only 'self' can be
-// written and the engine version can't change without a commit.
-const OCR_WORKER_PATH = "/ocr/worker.min.js";
-const OCR_CORE_PATH = "/ocr/tesseract-core-lstm.wasm.js";
-const OCR_LANG_PATH = "/ocr/";
+// written and the engine version can't change without a commit. These are
+// URLs, meaningful only in a browser -- tesseract.js resolves a non-http
+// path off the filesystem when it runs in Node instead, so the one caller
+// that runs there (the opt-in fixture test against real footage) passes
+// its own filesystem `langPath` into the same vendored directory and
+// leaves `workerPath`/`corePath` at the library's Node defaults.
+const BROWSER_OCR_PATHS: OcrPaths = {
+  workerPath: "/ocr/worker.min.js",
+  corePath: "/ocr/tesseract-core-lstm.wasm.js",
+  langPath: "/ocr/",
+};
 
-export async function createOcrWorker(tesseract: TesseractModule): Promise<OcrWorker> {
-  const worker = await tesseract.createWorker("eng", undefined, {
-    workerPath: OCR_WORKER_PATH,
-    corePath: OCR_CORE_PATH,
-    langPath: OCR_LANG_PATH,
-  });
+export async function createOcrWorker(tesseract: TesseractModule, paths: OcrPaths = BROWSER_OCR_PATHS): Promise<OcrWorker> {
+  const worker = await tesseract.createWorker("eng", undefined, paths);
   await worker.setParameters({ tessedit_char_whitelist: "LAP0123456789/ " });
   return worker;
 }
