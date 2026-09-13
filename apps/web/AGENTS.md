@@ -8,7 +8,11 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
 - Vite + React. Built assets are static, hosted on Netlify (interim
   `*.netlify.app`, target the apex of a custom domain); the api answers
   on its own origin (ADR-0008). `public/_redirects` is the SPA fallback,
-  `public/_headers` the asset cache policy. `VITE_API_URL` is the api's origin at build time; unset
+  `public/_headers` the asset cache policy plus the Content Security Policy
+  and other security headers -- its CSP's `connect-src` carries a build-time
+  placeholder that `vite.config.ts`'s csp-headers plugin fills in from
+  `VITE_API_URL`, so the api's origin is declared in that one place, never a
+  second literal. `VITE_API_URL` is the api's origin at build time; unset
   means relative URLs, which is the dev setup: the dev server
   (`vite.config.ts`) proxies `/health` and `/api` to the api on port 3000
   (`/live` and `/polls` are SPA routes, not proxied -- issue #72). Every

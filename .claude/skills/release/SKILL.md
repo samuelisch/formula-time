@@ -57,6 +57,11 @@ fast-forward of `release` to a `main` commit that has already passed CI.
   main commit, for a rollback). Never commit directly on `release`.
 - `release` only ever fast-forwards. If a push is ever rejected as
   non-fast-forward, stop and ask the owner rather than force-pushing.
+- `apps/web/public/_headers`' `Content-Security-Policy` derives its
+  `connect-src` from `VITE_API_URL` at build time (`vite.config.ts`'s
+  csp-headers plugin), the same variable `apps/web/src/api.ts` reads
+  (ADR-0008) -- so a custom domain landing for the api is still the
+  config-only move ADR-0008 promises; nothing in `_headers` needs editing.
 
 ## Rolling back
 
