@@ -1,9 +1,12 @@
-# ADR-0030 — REST tick cadence by tier (`REST_TICK_MS`), and `rest_unjoined`/`mqtt_unjoined` on the stats line
+# ADR-0030 — REST tick cadence by tier (`REST_TICK_MS`); amends ADR-0012's foreign-session rule and ADR-0029's stats line
 
 Status: Accepted
 Date: 2026-09-13
-Amends: ADR-0001 (seam 4 config names gain REST_TICK_MS), ADR-0012, ADR-0029
-(the `ingest: last 60s` line gains `rest_unjoined` and `mqtt_unjoined`)
+Amends: ADR-0001 (seam 4 config names gain REST_TICK_MS), ADR-0012 (item 3:
+a message whose own `session_key` names another session is dropped and
+counted as foreign; a message without a `session_key` of its own is still
+attributed to the selected session), ADR-0029 (the `ingest: last 60s` line
+gains `rest_unjoined`, `mqtt_unjoined`, and `mqtt_foreign`)
 
 ## Context
 
@@ -15,13 +18,17 @@ equivalent: every deployment, sponsored or not, used the free-tier-safe
 default, leaving a sponsored deployment polling twice as slowly as its
 account allows.
 
-Separately, a `stints` row whose lap hadn't been seen yet got a silent
-null `sourceTime` from `LiveNormalizer.normalize` — an out-of-order stint
-with no visible signal. ADR-0029's `ingest: last 60s` line is where that
-signal belongs, but ADR-0029 is Accepted (or about to be, on its own PR)
-and never edited directly (AGENTS.md, `check-adr-immutable.sh`); an
-amendment is how a later ADR extends an already-accepted one regardless of
-merge order between the two PRs.
+Separately, two MQTT-lane gaps needed the same kind of fix. First, a
+`stints` row whose lap hadn't been seen yet got a silent null `sourceTime`
+from `LiveNormalizer.normalize` — an out-of-order stint with no visible
+signal. Second, the MQTT lane tagged every message to the REST lane's
+selected session regardless of what `session_key` the payload itself
+carried, so a message naming a different session would silently land on
+the wrong one. Both signals belong on ADR-0029's `ingest: last 60s` line
+and, for the second, ADR-0012's attribution rule — but ADR-0012 and
+ADR-0029 are each Accepted and never edited directly (AGENTS.md,
+`check-adr-immutable.sh`); an amendment is how a later ADR extends an
+already-accepted one regardless of merge order between the PRs involved.
 
 ## Decision
 
@@ -35,12 +42,20 @@ default: a positive integer number of milliseconds. An invalid value
 negative value is) falls back to the tier default and logs one line at
 startup naming the rejected value.
 
+This ADR also amends ADR-0012's Decision item 3: a message whose own
+`session_key` disagrees with the REST lane's selected session is dropped
+and counted (`mqtt_foreign`) instead of being attributed to it; a message
+with no `session_key` of its own keeps ADR-0012's original rule, attributed
+to the selected session.
+
 This ADR also amends ADR-0029's Decision §1: the `ingest: last 60s` line
-gains `rest_unjoined` and `mqtt_unjoined`. Each is the REST lane's and the
-MQTT lane's own count of `stints` rows whose `sourceTime` resolved null
-because their lap hadn't been seen yet — `LiveNormalizer.normalize`'s
-`unjoined`, accumulated by each lane and reset every `takeStats()` call,
-same as ADR-0029's other fields.
+gains `rest_unjoined`, `mqtt_unjoined`, and `mqtt_foreign`. The first two
+are the REST lane's and the MQTT lane's own count of `stints` rows whose
+`sourceTime` resolved null because their lap hadn't been seen yet —
+`LiveNormalizer.normalize`'s `unjoined`. The third is the MQTT lane's count
+of messages dropped under the ADR-0012 amendment above. All three are
+accumulated by their lane and reset every `takeStats()` call, same as
+ADR-0029's other fields.
 
 ## Consequences
 
@@ -51,8 +66,10 @@ same as ADR-0029's other fields.
   or a tier not yet modeled) via `REST_TICK_MS` without a code change.
 - An out-of-order stint is now visible on the per-minute line instead of
   silent.
-- Amending ADR-0029 here, instead of editing it directly, is immune to
-  merge order between this ADR's PR and ADR-0029's own: once ADR-0029 is
-  Accepted on main, a direct edit to it would fail the ADR immutability
-  check on rebase, while an amendment never touches ADR-0029's file at
-  all.
+- A message tagged to another session is dropped and visible
+  (`mqtt_foreign`) instead of silently landing on the wrong session.
+- Amending ADR-0012 and ADR-0029 here, instead of editing either directly,
+  is immune to merge order between this ADR's PR and each of theirs: once
+  an ADR is Accepted on main, a direct edit to it fails the ADR
+  immutability check on rebase, while an amendment never touches the
+  amended ADR's own file.
