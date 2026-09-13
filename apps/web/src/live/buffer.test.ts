@@ -50,7 +50,7 @@ describe("append", () => {
   });
 
   it("uses BUFFER_LIMITS as the default cap", () => {
-    expect(BUFFER_LIMITS).toEqual({ maxEntries: 600, maxAgeMs: 180_000 });
+    expect(BUFFER_LIMITS).toEqual({ maxEntries: 60, maxAgeMs: 15_000 });
     let buffer = emptyBuffer();
     for (let i = 0; i <= BUFFER_LIMITS.maxEntries; i++) {
       buffer = append(buffer, push(i));

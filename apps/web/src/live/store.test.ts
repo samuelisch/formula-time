@@ -124,6 +124,34 @@ describe("live store", () => {
     expect(store.getState().mode).toBe("buffer");
   });
 
+  it("selects from the timeline when a 30s delay outruns the 15s buffer bound and a matching timeline exists", async () => {
+    const store = createLiveStore();
+    const timeline = await buildRewindTimeline();
+    store.getState().setTimeline(timeline, 0);
+    store.getState().setDelayMs(30_000, 0);
+
+    const live = frame("2026-09-08T12:03:20.000Z", 200_000); // 200s offset
+    store.getState().onState(live, 200_000);
+
+    // target = 200s - 30s = 170s offset, past the buffer's single entry.
+    const expectedTargetMs = Date.parse("2026-09-08T12:00:00.000Z") + 170_000;
+    expect(store.getState().mode).toBe("timeline");
+    expect(store.getState().bufferShort).toBe(false);
+    expect(store.getState().displayed!.state).toEqual(foldAt(timeline, expectedTargetMs));
+  });
+
+  it("shows the oldest buffered push with bufferShort when a 30s delay outruns the 15s buffer bound and there is no timeline", () => {
+    const store = createLiveStore();
+    store.getState().setDelayMs(30_000, 0);
+
+    const only = frame("2026-09-08T12:00:00.000Z", 0);
+    store.getState().onState(only, 0);
+
+    expect(store.getState().mode).toBe("buffer");
+    expect(store.getState().bufferShort).toBe(true);
+    expect(store.getState().displayed).toEqual(only);
+  });
+
   describe("timeline mode", () => {
     it("folds from the timeline when the delay outruns the buffer", async () => {
       const store = createLiveStore();

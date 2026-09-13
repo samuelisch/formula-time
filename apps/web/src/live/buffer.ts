@@ -14,7 +14,7 @@ export interface PushBuffer {
   entries: readonly BufferedPush[];
 }
 
-export const BUFFER_LIMITS = { maxEntries: 600, maxAgeMs: 180_000 } as const;
+export const BUFFER_LIMITS = { maxEntries: 60, maxAgeMs: 15_000 } as const;
 
 export function emptyBuffer(): PushBuffer {
   return { entries: [] };
