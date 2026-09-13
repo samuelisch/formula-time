@@ -50,6 +50,7 @@ import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 
 import type { PrismaClient, Session } from "@formula-time/db";
+import type { RaceEvent, RaceFile, RawRecord } from "@formula-time/domain";
 
 export type ExporterLog = (msg: string, fields?: Record<string, unknown>) => void;
 
@@ -82,40 +83,14 @@ export interface Exporter {
 const PAGE_SIZE = 5000;
 const TICK_MS = 5000;
 
-interface ExportEvent {
-  event_id: string;
-  endpoint: string;
-  source_time: string | null;
-  payload: unknown;
-}
-
-interface ExportDoc {
-  schema: 1;
-  exported_at: string;
-  session: {
-    session_key: number;
-    name: string;
-    country: string;
-    circuit_key: number;
-    date_start: string;
-    date_end: string;
-    total_laps: number | null;
-    status: string;
-    meeting_name: string | null;
-    circuit_short_name: string | null;
-    location: string | null;
-  };
-  events: ExportEvent[];
-}
-
 function filePath(dir: string, sessionKey: bigint): string {
   return join(dir, `${sessionKey.toString()}.json.gz`);
 }
 
 /** Every `events` row for `sessionKey`, in `seq` order, paged so no single
  * query loads a whole race (a race is ~28k events, ADR-0009 "Consequences"). */
-async function readAllEvents(db: PrismaClient, sessionKey: bigint): Promise<ExportEvent[]> {
-  const events: ExportEvent[] = [];
+async function readAllEvents(db: PrismaClient, sessionKey: bigint): Promise<RaceEvent[]> {
+  const events: RaceEvent[] = [];
   let cursor = 0n;
   for (;;) {
     const page = await db.event.findMany({
@@ -129,7 +104,7 @@ async function readAllEvents(db: PrismaClient, sessionKey: bigint): Promise<Expo
         event_id: row.eventId,
         endpoint: row.endpoint,
         source_time: row.sourceTime?.toISOString() ?? null,
-        payload: row.payload,
+        payload: row.payload as RawRecord,
       });
     }
     const last = page[page.length - 1];
@@ -142,7 +117,7 @@ async function readAllEvents(db: PrismaClient, sessionKey: bigint): Promise<Expo
 /** ADR-0009 §1, exactly: `schema`, top-level `exported_at`, the session
  * fields, and `events` -- the four `RaceEvent` fields the fold reads
  * (`packages/domain`), nothing else. BigInt keys serialise as numbers. */
-function buildDoc(session: Session, exportedAt: Date, events: ExportEvent[]): ExportDoc {
+function buildDoc(session: Session, exportedAt: Date, events: RaceEvent[]): RaceFile {
   return {
     schema: 1,
     exported_at: exportedAt.toISOString(),

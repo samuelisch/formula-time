@@ -114,6 +114,13 @@ viewer, which the fan-out design forbids.
 - `@formula-time/domain` is browser-safe: no `node:*` imports (its
   tsconfig enforces `types: []`, `lib: ["ES2022"]`). Types and the reducer
   live there; identity hashing does not.
+- Wire shapes live in `packages/domain/src/wire.ts` (`StatePush`,
+  `DeltaPush`, `StatusFrame`, `SessionStatus`, `RaceIndexEntry`,
+  `RaceEventsPage`, `RaceFile`), same as the poll shapes already do
+  (`polls.ts`): a builder here (`session-lifecycle.ts`, `fanout/fanout.ts`,
+  `routes/races.ts`, `export/exporter.ts`) is typed against the domain
+  export it produces, never a local or untyped copy, so the web reading
+  the same shape fails typecheck the moment the two disagree.
 - The root `Dockerfile`'s runtime stage ships this package's `dist` output
   and production `node_modules` only — no TypeScript sources, no
   devDependencies — and runs as a non-root user.

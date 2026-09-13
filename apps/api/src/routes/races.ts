@@ -17,6 +17,7 @@ import { join } from "node:path";
 import type { FastifyInstance, FastifyPluginCallback } from "fastify";
 
 import type { PrismaClient } from "@formula-time/db";
+import type { RaceEventsPage, RaceIndexEntry } from "@formula-time/domain";
 
 import type { Exporter } from "../export/exporter.js";
 import { prismaEventSource, toRaceEvent } from "../projector/event-source.js";
@@ -26,19 +27,6 @@ export interface RacesRoutesOptions {
   exporter: Exporter;
   /** `EXPORT_DIR` (ADR-0009 §2) -- same directory the exporter writes to. */
   dir: string;
-}
-
-interface RaceIndexEntry {
-  session_key: number;
-  name: string;
-  country: string;
-  date_start: string;
-  date_end: string;
-  total_laps: number | null;
-  exported_at: string;
-  meeting_name: string | null;
-  circuit_short_name: string | null;
-  location: string | null;
 }
 
 const INTEGER = /^-?\d+$/;
@@ -201,12 +189,13 @@ export const racesRoutes: FastifyPluginCallback<RacesRoutesOptions> = (app: Fast
         events.length === limit ? "public, max-age=31536000, immutable" : "no-store",
       );
 
-      return {
+      const page: RaceEventsPage = {
         session_key: sessionKey.toString(),
         status: session.status,
         events,
         next_seq: nextSeq,
       };
+      return page;
     },
   );
 

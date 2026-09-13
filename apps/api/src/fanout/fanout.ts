@@ -17,7 +17,7 @@
 // keyframe tick.
 import { constants as zlibConstants, createDeflateRaw, type DeflateRaw } from "node:zlib";
 
-import type { RaceState } from "@formula-time/domain";
+import type { DeltaPush, PollPublic, RaceEvent, RaceState, StatusFrame } from "@formula-time/domain";
 
 import { diffState } from "./patch.js";
 
@@ -82,7 +82,8 @@ const GZIP_HEADER = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
 const MAX_WRITABLE_LENGTH = 1_048_576;
 const HEARTBEAT_MS = 5000;
 const HEARTBEAT_FRAME = Buffer.from(": heartbeat\n\n");
-const CATCHING_UP_FRAME = Buffer.from('event: status\ndata: {"catching_up":true}\n\n');
+const CATCHING_UP_STATUS: StatusFrame = { catching_up: true };
+const CATCHING_UP_FRAME = Buffer.from(`event: status\ndata: ${JSON.stringify(CATCHING_UP_STATUS)}\n\n`);
 // ADR point 5: every 200th push to delta sockets is a full `state` push
 // instead of a delta -- recovery within ~50s at the projector's ~4
 // pushes/s tick rate, with no client fetch.
@@ -345,23 +346,33 @@ export class Fanout {
 
     try {
       const patch = diffState(this.prevState, payload.state as RaceState);
-      const deltaPayload = {
+      // `payload`'s fields are typed `unknown` on `StateLike` (a push can be
+      // any object, per that interface's own comment), so each is cast back
+      // to the wire type it actually holds at this call site; the object
+      // literal itself is still checked against `DeltaPush`, so a field
+      // added to one but not the other fails typecheck.
+      const deltaPayload: DeltaPush = {
         type: "delta",
-        seq: payload.seq,
+        seq: payload.seq as string,
         base_seq: this.prevSeq,
-        sent_at: payload.sent_at,
-        session_key: payload.session_key,
+        sent_at: payload.sent_at as number,
+        session_key: payload.session_key as string,
         patch,
-        polls: payload.polls,
-        // Straight through from the source payload, same as `polls` above --
-        // `events` is the RaceEvent rows the tick applied (a client folds
-        // these into its timeline regardless of format);
-        // `rebuilt` is `undefined` on an ordinary tick, which
-        // `JSON.stringify` omits from the wire entirely, so a delta client
-        // only ever sees the key when a rebuild produced this push.
-        events: payload.events,
-        rebuilt: payload.rebuilt,
+        polls: payload.polls as PollPublic[],
       };
+      // Straight through from the source payload, same as `polls` above --
+      // `events` is the RaceEvent rows the tick applied (a client folds
+      // these into its timeline regardless of format); `rebuilt` is
+      // `undefined` on an ordinary tick, so it (and a missing `events`,
+      // from an older-shaped push) is left off the object entirely rather
+      // than set to `undefined` -- `exactOptionalPropertyTypes` treats the
+      // two differently, and `JSON.stringify` would drop it either way.
+      if (payload.events !== undefined) {
+        deltaPayload.events = payload.events as RaceEvent[];
+      }
+      if (payload.rebuilt !== undefined) {
+        deltaPayload.rebuilt = payload.rebuilt as boolean;
+      }
       const plain = Buffer.from(`event: delta\ndata: ${JSON.stringify(deltaPayload)}\n\n`);
       const gz = await this.deflate(plain);
       return { plain, gz };

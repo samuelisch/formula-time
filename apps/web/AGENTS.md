@@ -29,6 +29,13 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   browser to fold finished races, served as one immutable export per
   session (ADR-0009) and rendered by `ReplayPage` at `/races/:session_key`
   (`src/app/router.tsx`); it must stay identical to the server's.
+- Wire shapes (the push and index shapes the api builds: `StatePush`,
+  `DeltaPush`, `StatusFrame`, `SessionStatus`, `RaceIndexEntry`,
+  `RaceEventsPage`, `RaceFile`) live in `packages/domain/src/wire.ts`, same
+  as the poll shapes already do -- `live/types.ts` and `races/api.ts`
+  import and, where a name ripples through many files, re-export them
+  under this app's own name (`live/types.ts`'s `LivePush` is `StatePush`);
+  neither file declares its own copy.
 - One `EventSource` per tab carries race state, poll state, tallies, and
   the heartbeat, opened in delta format (ADR-0013, `?format=delta`): a
   `state` frame seeds or replaces the held push outright, a `delta` frame

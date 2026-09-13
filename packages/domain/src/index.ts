@@ -14,3 +14,12 @@ export { runStatus } from "./run_status.js";
 export type { JsonPatchOp } from "./patch.js";
 export { diffState, applyPatch } from "./patch.js";
 export type { PollTemplateKind, PollLifecycleStatus, PollOptionPublic, PollPublic } from "./polls.js";
+export type {
+  StatePush,
+  DeltaPush,
+  StatusFrame,
+  SessionStatus,
+  RaceIndexEntry,
+  RaceEventsPage,
+  RaceFile,
+} from "./wire.js";
