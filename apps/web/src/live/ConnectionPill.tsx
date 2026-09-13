@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
+import { useBoardIsRacing } from "../board/useBoardState.ts";
 import { Pill, type PillTone } from "../components/Pill.tsx";
-import { useCatchingUp, useConnection, useLastMessageAt, useSessionStatus } from "./selectors.ts";
+import { useCatchingUp, useConnection, useLastMessageAt } from "./selectors.ts";
 
 // A stoppage must read as a quiet feed, never a frozen app (POC quiet-feed rule).
 const QUIET_AFTER_MS = 5_000;
@@ -25,27 +26,30 @@ function pillState(
 }
 
 /**
- * The live route's connection indicator. Renders only while the session on
- * the stream is live: "connected" means connected to the OpenF1 session, so
- * with no session, or an upcoming or finished one, there is nothing to show
- * -- the finished/upcoming banner already explains that state. Ticks once a
- * second so the "last update Ns ago" wording keeps advancing even when no
- * new push arrives.
+ * The live route's connection indicator. Renders only while racing has
+ * begun (`useBoardIsRacing()`, the same gate BoardPage's transport bar and
+ * align button use): "connected" means connected to the OpenF1 session, so
+ * with no session, or one that has not started or has finished, there is
+ * nothing to show -- the finished/upcoming banner already explains that
+ * state. The fold is the authority on whether racing has begun, not the
+ * session row alone, since the row can lag it by one lifecycle check. Ticks
+ * once a second so the "last update Ns ago" wording keeps advancing even
+ * when no new push arrives.
  */
 export function ConnectionPill() {
-  const status = useSessionStatus();
+  const isRacing = useBoardIsRacing();
   const connection = useConnection();
   const catchingUp = useCatchingUp();
   const lastMessageAt = useLastMessageAt();
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (status !== "live") return;
+    if (!isRacing) return;
     const interval = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(interval);
-  }, [status]);
+  }, [isRacing]);
 
-  if (status !== "live") return null;
+  if (!isRacing) return null;
 
   const pill = pillState(connection, catchingUp, lastMessageAt, now);
   return (

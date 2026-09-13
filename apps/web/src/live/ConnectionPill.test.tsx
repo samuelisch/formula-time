@@ -20,7 +20,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>>
   });
 }
 
-function displayedWithSession(session: Record<string, unknown> | null): LivePush {
+function displayedWithSession(session: Record<string, unknown> | null, sessionStatus?: string | null): LivePush {
   return {
     type: "state",
     seq: "1",
@@ -34,7 +34,7 @@ function displayedWithSession(session: Record<string, unknown> | null): LivePush
       drivers: {},
       driver_order: [],
       race_control: {
-        session_status: null,
+        session_status: sessionStatus ?? null,
         current_flag: null,
         safety_car: null,
         active_flags: {},
@@ -75,6 +75,30 @@ describe("ConnectionPill", () => {
 
   it("renders nothing when the session has finished", () => {
     resetStore({ connection: "open", lastMessageAt: Date.now(), displayed: displayedWithSession({ status: "finished" }) });
+    render(<ConnectionPill />);
+    expect(screen.queryByText(/connected|connecting|catching up|reconnecting|last update/i)).not.toBeInTheDocument();
+  });
+
+  // The row can lag the fold's own racing signal by one lifecycle check
+  // (the same problem the transport bar and align button gate against in
+  // BoardPage): a stale "upcoming" row must not hide the connection pill
+  // for a whole race.
+  it("shows Live · connected on an upcoming row when race control shows SESSION STARTED", () => {
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ status: "upcoming" }, "SESSION STARTED"),
+    });
+    render(<ConnectionPill />);
+    expect(screen.getByText("Live · connected")).toBeInTheDocument();
+  });
+
+  it("still renders nothing on a finished row even when race control shows SESSION STARTED", () => {
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ status: "finished" }, "SESSION STARTED"),
+    });
     render(<ConnectionPill />);
     expect(screen.queryByText(/connected|connecting|catching up|reconnecting|last update/i)).not.toBeInTheDocument();
   });

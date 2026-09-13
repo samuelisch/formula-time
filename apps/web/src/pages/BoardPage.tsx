@@ -4,10 +4,10 @@ import { Link } from "react-router";
 import { AlignPanel } from "../align/AlignPanel.tsx";
 import { Board } from "../board/Board.tsx";
 import { DriverPanel } from "../board/DriverPanel.tsx";
-import { useBoardSessionMeta, useBoardSessionStatus } from "../board/useBoardState.ts";
+import { isRacingPush, useBoardIsRacing, useBoardSessionMeta, useBoardSessionStatus } from "../board/useBoardState.ts";
 import { ConnectionPill } from "../live/ConnectionPill.tsx";
 import { LiveTimelineLoader } from "../live/LiveTimelineLoader.tsx";
-import { useLiveSessionKey, useLiveSessionStatus, type SessionStatusValue } from "../live/selectors.ts";
+import { useLivePush, useLiveSessionKey, useLiveSessionStatus } from "../live/selectors.ts";
 import { date, stringField } from "../lib/format.ts";
 import { PollModal } from "../polls/PollModal.tsx";
 import { PollsButton } from "../polls/PollsButton.tsx";
@@ -25,12 +25,15 @@ interface MountLatch {
 /**
  * Whether `LiveTimelineLoader` should be mounted for `sessionKey`, latched:
  * once mounted for a session key it stays mounted while that key remains
- * the live session, even after `status` becomes "finished" -- a viewer
- * rewound deep into the race at the chequered flag must not be yanked to
- * the final state (the spoiler rule: everything renders from the displayed,
- * rewound state). It never mounts for "upcoming", and never for a session
- * that was already "finished" the first time this saw it (that session's
- * banner points at the replay instead).
+ * the live session, even after racing (`racing`, `isRacingPush` applied to
+ * the live push) turns false again -- a viewer rewound deep into the race
+ * at the chequered flag must not be yanked to the final state (the spoiler
+ * rule: everything renders from the displayed, rewound state). It never
+ * mounts before racing has begun, and never for a session that was already
+ * "finished" the first time this saw it (that session's banner points at
+ * the replay instead). `racing` uses the same rule as `useBoardIsRacing`,
+ * so the row's own status lagging the fold by one lifecycle check delays
+ * this mount by no more than it delays the transport bar.
  *
  * React's "adjust state during render" pattern (as `useBoardDriver` in
  * `board/useBoardState.ts` uses), not a ref: comparing state to the current
@@ -38,16 +41,16 @@ interface MountLatch {
  * differs, causes React to redo this render immediately with the new state
  * before anything commits or paints.
  */
-function useShouldMountTimelineLoader(sessionKey: number | null, status: SessionStatusValue | null): boolean {
+function useShouldMountTimelineLoader(sessionKey: number | null, racing: boolean): boolean {
   const [latch, setLatch] = useState<MountLatch>({ key: null, mounted: false });
 
   if (latch.key !== sessionKey) {
-    const mounted = sessionKey !== null && status === "live";
+    const mounted = sessionKey !== null && racing;
     setLatch({ key: sessionKey, mounted });
     return mounted;
   }
 
-  if (!latch.mounted && sessionKey !== null && status === "live") {
+  if (!latch.mounted && sessionKey !== null && racing) {
     setLatch({ key: sessionKey, mounted: true });
     return true;
   }
@@ -71,19 +74,33 @@ function useShouldMountTimelineLoader(sessionKey: number | null, status: Session
 // `Board`, not just `TransportBar`, so both slots read the same target.
 //
 // `LiveTimelineLoader` is mounted here, keyed off the *live* push's own
-// session key/status (`useLiveSessionKey`/`useLiveSessionStatus`) -- never
-// the *displayed* session, which in timeline mode is the synthesised push
-// and would feed the loader its own output back in.
+// session key (`useLiveSessionKey`) -- never the *displayed* session,
+// which in timeline mode is the synthesised push and would feed the loader
+// its own output back in. `status` still comes from the raw
+// `useLiveSessionStatus()` (`LiveTimelineLoader` only reads it to decide
+// when to stop paging in events); whether to *mount* the loader at all
+// goes through `isRacingPush()` applied to the live push instead, so the
+// same stale-row lag that would otherwise delay it cannot hide the
+// full-race timeline for a rewinding viewer.
+//
+// The transport bar and align button gate on `useBoardIsRacing()`, not the
+// session row's status alone: the fold is the authority on whether racing
+// has begun, and the row can lag it by one lifecycle check. The upcoming
+// banner is suppressed under the same condition, since it would otherwise
+// sit above a board that is already live. The finished banner keeps its
+// own rule -- a stale row is never the reason a viewer loses the
+// finished/replay signal.
 export function BoardPage() {
   const polls = usePolls();
   const status = useBoardSessionStatus();
   const { sessionKey, session } = useBoardSessionMeta();
   const target = useLiveTimeTarget();
-  const isLive = status === "live";
+  const isRacing = useBoardIsRacing();
 
   const liveSessionKey = useLiveSessionKey();
   const liveSessionStatus = useLiveSessionStatus();
-  const shouldMountTimelineLoader = useShouldMountTimelineLoader(liveSessionKey, liveSessionStatus);
+  const livePush = useLivePush();
+  const shouldMountTimelineLoader = useShouldMountTimelineLoader(liveSessionKey, isRacingPush(livePush));
 
   return (
     <div className={styles.page}>
@@ -92,7 +109,7 @@ export function BoardPage() {
           This race has finished. Showing its final state. <Link to={`/races/${sessionKey}`}>Watch the replay</Link>
         </p>
       )}
-      {status === "upcoming" && (
+      {status === "upcoming" && !isRacing && (
         <p className={styles.banner}>Race starts {date(stringField(session ?? {}, "date_start"))}. Timing appears when the session goes live.</p>
       )}
       {shouldMountTimelineLoader && liveSessionKey !== null && (
@@ -104,10 +121,10 @@ export function BoardPage() {
             <>
               <ConnectionPill />
               <PollsButton />
-              {isLive && <AlignPanel />}
+              {isRacing && <AlignPanel />}
             </>
           }
-          transport={isLive ? <TransportBar /> : undefined}
+          transport={isRacing ? <TransportBar /> : undefined}
           side={<DriverPanel />}
         />
       </TimeTargetProvider>
