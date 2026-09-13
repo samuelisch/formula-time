@@ -170,9 +170,19 @@ export class Fanout {
 
     if (this.latestState !== null) {
       res.write(encoding === "gzip" ? this.latestState.gz : this.latestState.plain);
+    } else if (encoding === "gzip") {
+      try {
+        res.write(await this.deflate(CATCHING_UP_FRAME));
+      } catch (err) {
+        // A deflate write error on the catching-up frame must not reject
+        // join() -- skip writing this one frame; the socket is still
+        // attached below and gets the next push like any other socket.
+        this.log("deflate failed, skipping the join snapshot frame", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     } else {
-      const gz = encoding === "gzip" ? await this.deflate(CATCHING_UP_FRAME) : null;
-      res.write(encoding === "gzip" ? (gz as Buffer) : CATCHING_UP_FRAME);
+      res.write(CATCHING_UP_FRAME);
     }
 
     this.sockets.add({ res, encoding, format });
@@ -226,7 +236,19 @@ export class Fanout {
     if (Date.now() - this.lastActivityAt < HEARTBEAT_MS) {
       return;
     }
-    const gz = await this.deflate(HEARTBEAT_FRAME);
+    let gz: Buffer;
+    try {
+      gz = await this.deflate(HEARTBEAT_FRAME);
+    } catch (err) {
+      // Called through `void this.maybeSendHeartbeat()` on a bare interval
+      // timer with no catch of its own -- a deflate write error here must
+      // not reject out of this method. Skip this heartbeat; the next
+      // interval tick tries again.
+      this.log("deflate failed, skipping this heartbeat", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
     // Format-agnostic: the heartbeat is a comment frame, not a push: every
     // socket gets the same bytes regardless of `format`.
     this.writeFixed(HEARTBEAT_FRAME, gz);
@@ -236,7 +258,19 @@ export class Fanout {
   private async deliver(payload: object): Promise<void> {
     const json = JSON.stringify(payload);
     const statePlain = Buffer.from(`event: state\ndata: ${json}\n\n`);
-    const stateGz = await this.deflate(statePlain);
+    let stateGz: Buffer;
+    try {
+      stateGz = await this.deflate(statePlain);
+    } catch (err) {
+      // A deflate write error on this frame (the shared deflater rejecting
+      // one write) must not reject the push -- push()'s caller chains
+      // straight into an unhandled-rejection path. Log and skip this
+      // tick's frame; the next push starts a fresh deflate call.
+      this.log("deflate failed, skipping this push", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
     const stateFrame: Frame = { plain: statePlain, gz: stateGz };
     this.latestState = stateFrame;
     this.latestStateJson = json;
@@ -315,18 +349,33 @@ export class Fanout {
   private write(pick: (socket: Socket) => Buffer): void {
     let dropped = 0;
     for (const socket of this.sockets) {
-      socket.res.write(pick(socket));
+      try {
+        socket.res.write(pick(socket));
+      } catch (err) {
+        // One socket's write throwing (a destroyed socket, e.g.) must not
+        // stop the loop for the rest -- every remaining socket still needs
+        // this tick's frame. Drop only the offending socket.
+        this.log("socket write failed, dropping socket", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        this.dropSocket(socket);
+        continue;
+      }
       if (socket.res.writableLength > MAX_WRITABLE_LENGTH) {
-        socket.res.destroy();
-        this.sockets.delete(socket);
-        if (socket.format === "delta") {
-          this.deltaSocketCount -= 1;
-        }
+        this.dropSocket(socket);
         dropped += 1;
       }
     }
     if (dropped > 0) {
       this.log("slow client dropped", { count: dropped });
+    }
+  }
+
+  private dropSocket(socket: Socket): void {
+    socket.res.destroy();
+    this.sockets.delete(socket);
+    if (socket.format === "delta") {
+      this.deltaSocketCount -= 1;
     }
   }
 

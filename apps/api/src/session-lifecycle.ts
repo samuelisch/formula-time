@@ -92,29 +92,40 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
       // schedules the fold, so the push waits for it. Folds are a FIFO
       // chain and this continuation is registered before the next tick can
       // queue its own, so push N always sees exactly fold N.
-      void opts.polls.onState(state).then(() => {
-        // `events` is the RaceEvent rows the projector applied this tick, in
-        // seq order (`[]` when none) -- a client folds them into its own
-        // deep-rewind timeline rather than the api building one server-side.
-        // `rebuilt` rides along only when the late-commit detector's rebuild
-        // produced this push (the client must then discard its timeline and
-        // backfill again), so it is omitted -- rather than sent as `false` --
-        // on every ordinary tick.
-        const payload: Record<string, unknown> = {
-          type: "state",
-          seq: cursor.toString(),
-          sent_at: Date.now(),
-          session_key: forSession.sessionKey.toString(),
-          total_laps: forSession.totalLaps,
-          state,
-          polls: opts.polls.publicPolls(),
-          events,
-        };
-        if (rebuilt) {
-          payload.rebuilt = true;
-        }
-        return opts.pusher.push(payload);
-      });
+      void opts.polls
+        .onState(state)
+        .then(() => {
+          // `events` is the RaceEvent rows the projector applied this tick, in
+          // seq order (`[]` when none) -- a client folds them into its own
+          // deep-rewind timeline rather than the api building one server-side.
+          // `rebuilt` rides along only when the late-commit detector's rebuild
+          // produced this push (the client must then discard its timeline and
+          // backfill again), so it is omitted -- rather than sent as `false` --
+          // on every ordinary tick.
+          const payload: Record<string, unknown> = {
+            type: "state",
+            seq: cursor.toString(),
+            sent_at: Date.now(),
+            session_key: forSession.sessionKey.toString(),
+            total_laps: forSession.totalLaps,
+            state,
+            polls: opts.polls.publicPolls(),
+            events,
+          };
+          if (rebuilt) {
+            payload.rebuilt = true;
+          }
+          return opts.pusher.push(payload);
+        })
+        .catch((err) => {
+          // A push failure (a deflate write error, a socket destroyed
+          // mid-write) must never reach an unhandled rejection: on Node 24
+          // that kills the process. The next tick pushes the next state;
+          // the socket that caused the failure is already dropped by the
+          // fan-out's own write loop.
+          const message = err instanceof Error ? err.message : String(err);
+          opts.log("push failed", { level: "error", cursor: cursor.toString(), error: message });
+        });
     });
     p.start();
   }

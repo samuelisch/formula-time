@@ -442,6 +442,52 @@ describe("createSessionLifecycle", () => {
       await third;
     });
 
+    test("a rejected push is logged with the cursor; the next tick still pushes and no unhandled rejection is raised", async () => {
+      vi.useFakeTimers();
+      const polls = fakePollHooks();
+      const log = vi.fn();
+      const pushed: unknown[] = [];
+      let pushCalls = 0;
+      const pusher: Pusher = {
+        push: vi.fn(async (payload: object) => {
+          pushCalls += 1;
+          if (pushCalls === 1) {
+            throw new Error("deflate write after end");
+          }
+          pushed.push(payload);
+        }),
+        size: () => 0,
+      };
+      const source = fakeEventSource([]);
+
+      const lifecycle = createSessionLifecycle({
+        db: fakePrisma(),
+        source,
+        pusher,
+        pickSession: vi.fn(async () => fakeSession()),
+        polls,
+        log,
+      });
+      projectors.push({ stop: () => lifecycle.stop() });
+
+      await lifecycle.check();
+      // First tick: the push rejects. Vitest fails the whole run on an
+      // unhandled rejection by default, so this test passing at all is the
+      // proof that the rejection was caught, not just that the log fired.
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(log).toHaveBeenCalledWith(
+        "push failed",
+        expect.objectContaining({ cursor: "0", error: "deflate write after end" }),
+      );
+      expect(pushed).toHaveLength(0);
+
+      source.rows.push(driverRow(1, 1));
+      await vi.advanceTimersByTimeAsync(250); // second tick: push succeeds
+
+      expect(pushed).toHaveLength(1);
+    });
+
     test("a rejected polls.start() is logged and check() still resolves", async () => {
       vi.useFakeTimers();
       const log = vi.fn();

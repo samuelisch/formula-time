@@ -1,6 +1,6 @@
 import { constants as zlibConstants, inflateRawSync } from "node:zlib";
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import type { RaceState } from "@formula-time/domain";
 
@@ -20,6 +20,33 @@ class FakeRes {
     this.destroyed = true;
     return this;
   }
+}
+
+// The heartbeat interval, mirroring fanout.ts's own private HEARTBEAT_MS --
+// not exported, so a test that drives the heartbeat timer keeps its own copy.
+const HEARTBEAT_MS = 5000;
+
+/** Makes the shared deflater's `write` fail on its Nth call (1-based), then
+ * fall through to the real implementation for every other call -- simulates
+ * one bad deflate write (a destroyed socket mid-write, e.g.) without
+ * wedging the stream for later calls. Must forward every arg it does not
+ * itself consume: `flush()` (fanout.ts's deflateOnce, called after every
+ * successful write) re-enters `write()` with its own 3-arg `(chunk,
+ * encoding, callback)` form to send its zero-length flush marker, not just
+ * the 2-arg `(chunk, callback)` form used at a deflate call site. */
+function failNthDeflateWrite(fanout: Fanout, n: number): void {
+  const deflater = (fanout as unknown as { deflater: { write: (...args: unknown[]) => boolean } }).deflater;
+  const originalWrite = deflater.write.bind(deflater);
+  let calls = 0;
+  vi.spyOn(deflater, "write").mockImplementation((...args: unknown[]) => {
+    calls += 1;
+    if (calls === n) {
+      const cb = args.find((a): a is (err?: Error) => void => typeof a === "function");
+      cb?.(new Error("deflate write failed"));
+      return true;
+    }
+    return originalWrite(...(args as [Buffer, ((err?: Error) => void)?]));
+  });
 }
 
 describe("Fanout", () => {
@@ -75,6 +102,95 @@ describe("Fanout", () => {
     expect(slow.destroyed).toBe(true);
     expect(fanout.size()).toBe(1);
     expect(fine.destroyed).toBe(false);
+  });
+
+  test("a deflate write error on one frame is skipped for that tick; the next push is delivered normally", async () => {
+    const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+    const fanout = new Fanout({ log: (msg, fields) => logs.push({ msg, fields }) });
+    const res = new FakeRes();
+    await fanout.join(res, "plain");
+
+    failNthDeflateWrite(fanout, 1); // the state frame's deflate write, inside push #1
+
+    await fanout.push({ n: 1 }); // this tick's deflate write fails: must not reject
+    await fanout.push({ n: 2 }); // next tick: delivered normally
+
+    const delivered = res.chunks
+      .map((chunk) => chunk.toString("utf8"))
+      .filter((frame) => frame.startsWith("event: state"))
+      .map((frame) => JSON.parse(frame.split("data: ")[1] ?? "{}") as { n: number });
+
+    expect(delivered).toEqual([{ n: 2 }]);
+    expect(logs.some((l) => l.msg.includes("deflate"))).toBe(true);
+  });
+
+  test("a deflate error on the join snapshot frame is skipped; the socket still attaches and gets the next push", async () => {
+    const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+    const fanout = new Fanout({ log: (msg, fields) => logs.push({ msg, fields }) });
+
+    failNthDeflateWrite(fanout, 1); // the catching-up frame's deflate write, inside join()
+
+    const res = new FakeRes();
+    await fanout.join(res, "gzip"); // no push yet: hits the catching-up-frame deflate path
+
+    expect(fanout.size()).toBe(1); // still attached despite the failed frame
+    expect(logs.some((l) => l.msg.includes("deflate"))).toBe(true);
+    expect(res.chunks).toHaveLength(1); // header only -- the failed frame produced no data chunk
+
+    await fanout.push({ n: 1 });
+
+    const last = res.chunks[res.chunks.length - 1] as Buffer;
+    const decoded = inflateRawSync(last, { finishFlush: zlibConstants.Z_SYNC_FLUSH });
+    expect(decoded.toString("utf8")).toBe(`event: state\ndata: ${JSON.stringify({ n: 1 })}\n\n`);
+  });
+
+  test("a deflate error on a heartbeat is skipped; it never raises an unhandled rejection", async () => {
+    vi.useFakeTimers();
+    const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+    const fanout = new Fanout({ log: (msg, fields) => logs.push({ msg, fields }) });
+    const res = new FakeRes();
+    await fanout.join(res, "gzip"); // real deflate for the catching-up frame, before the spy goes in
+
+    failNthDeflateWrite(fanout, 1); // the heartbeat frame's deflate write
+
+    fanout.heartbeat();
+    // Vitest fails the whole run on an unhandled rejection by default, so
+    // this test passing at all -- not just the log assertion below -- is
+    // the proof the rejection was caught, not just observed.
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+    fanout.stopHeartbeat();
+
+    expect(logs.some((l) => l.msg.includes("heartbeat"))).toBe(true);
+    vi.useRealTimers();
+  });
+
+  test("a socket whose write throws is dropped, logged once, and the next socket still receives the frame", async () => {
+    const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+    const fanout = new Fanout({ log: (msg, fields) => logs.push({ msg, fields }) });
+    const throwing = new FakeRes();
+    const fine = new FakeRes();
+    await fanout.join(throwing, "plain");
+    await fanout.join(fine, "plain");
+
+    let throwCalls = 0;
+    vi.spyOn(throwing, "write").mockImplementation(() => {
+      throwCalls += 1;
+      if (throwCalls === 1) {
+        throw new Error("socket write threw");
+      }
+      return true;
+    });
+
+    await fanout.push({ n: 1 });
+
+    expect(throwing.destroyed).toBe(true);
+    expect(fanout.size()).toBe(1);
+    expect(logs.some((l) => l.msg.includes("write failed"))).toBe(true);
+
+    const delivered = fine.chunks
+      .map((chunk) => chunk.toString("utf8"))
+      .filter((frame) => frame.startsWith("event: state"));
+    expect(delivered).toHaveLength(1);
   });
 
   test("overlapping pushes coalesce to the newest payload; intermediate ones are dropped", async () => {
