@@ -132,6 +132,20 @@ describe("TimingTable position cues", () => {
     expect(screen.getByText("▼ 3")).toBeInTheDocument();
   });
 
+  // The arrow and the row tint both carry this meaning by colour and shape;
+  // this text is what makes it reach a screen reader too.
+  it("adds a visually-hidden 'gained N places' text alongside a gain cue", () => {
+    const { rerender } = renderWith(pushWithPosition(3));
+    rerender(tree(pushWithPosition(1)));
+    expect(screen.getByText("gained 2 places")).toBeInTheDocument();
+  });
+
+  it("adds a visually-hidden 'lost N place' text (singular) alongside a one-place loss cue", () => {
+    const { rerender } = renderWith(pushWithPosition(1));
+    rerender(tree(pushWithPosition(2)));
+    expect(screen.getByText("lost 1 place")).toBeInTheDocument();
+  });
+
   it("renders no cue text for a driver whose position did not change", () => {
     const { rerender } = renderWith(pushWithPosition(2));
     rerender(tree(pushWithPosition(2)));

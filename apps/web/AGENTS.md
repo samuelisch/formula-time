@@ -149,3 +149,8 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   React Testing Library, `src/test/setup.ts`); everything else runs as
   the `node` project. `src/test/fakeEventSource.ts` is the EventSource
   test double -- inject it via `useLiveStream({ EventSourceImpl })`.
+- Accessibility: every interactive control is a real, keyboard-reachable
+  element with a visible `:focus-visible` ring (`src/index.css`); a modal
+  traps Tab and restores focus on close (`src/components/focusTrap.ts`);
+  a cue that uses colour also carries a glyph or text, never colour alone;
+  and motion respects `prefers-reduced-motion`.

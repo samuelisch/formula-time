@@ -62,31 +62,41 @@
   border: 0;
 }
 
-/* Position-change cue: green for a gain, red for a loss, via the existing
-   palette variables (--color-accent is the site's F1 red). */
+/* Position-change cue: green for a gain, a distinct red token for a loss
+   (--color-loss, not the site's own F1-red --color-accent) -- the arrow
+   glyph and the visually-hidden text next to it (DriverRow.tsx's
+   cueSrText) carry the same meaning too, so it never rides on colour
+   alone. */
 .cueGain {
   color: var(--color-green);
   font-weight: 700;
 }
 
 .cueLoss {
-  color: var(--color-accent);
+  color: var(--color-loss);
   font-weight: 700;
 }
 
 /* The row itself, subtly tinted on a position change -- a second, row-level
    signal alongside the arrow/number cue: a low-opacity wash of the same
-   green/red as the cue cell, not a solid fill, so it reads as secondary to
-   the arrow/number. Values are --color-green (#66d18f) and --color-accent
-   (#e10600) at 12% opacity; CSS custom properties can't be partially
-   applied inside rgba() without wider relative-color-syntax support, so
-   these are spelled out directly rather than computed from the variables. */
+   green/loss-red as the cue cell, not a solid fill, so it reads as
+   secondary to the arrow/number. Values are --color-green (#66d18f) and
+   --color-loss (#ff6b6b) at 12% opacity; CSS custom properties can't be
+   partially applied inside rgba() without wider relative-color-syntax
+   support, so these are spelled out directly rather than computed from the
+   variables. The row fades to this tint and back over `.row`'s own
+   transition below, collapsed to instant under prefers-reduced-motion
+   (index.css). */
 .rowGain {
   background: rgba(102, 209, 143, 0.12);
 }
 
 .rowLoss {
-  background: rgba(225, 6, 0, 0.12);
+  background: rgba(255, 107, 107, 0.12);
+}
+
+.row {
+  transition: background-color 400ms ease-out;
 }
 
 /* Resets a <button> to read as plain text inside the driver cell -- only
