@@ -6,9 +6,12 @@
 # own origin is possible; 'wasm-unsafe-eval' is what tesseract.js's WASM
 # core needs, 'unsafe-inline' is CSS Modules' injected <style> tags, and
 # blob: is the OCR worker's own worker-thread URL plus getDisplayMedia's
-# media stream.
+# media stream. "%VITE_API_URL%" is a build-time placeholder -- vite.config.ts's
+# csp-headers plugin fills it in from the same VITE_API_URL that
+# src/api.ts reads (ADR-0008: the one place that knows the api's origin),
+# or drops it entirely when unset (a dev build using relative /api URLs).
 /*
-  Content-Security-Policy: default-src 'self'; connect-src 'self' https://api-production-8fbf2.up.railway.app; worker-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; connect-src 'self' %VITE_API_URL%; worker-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Strict-Transport-Security: max-age=31536000
