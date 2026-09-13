@@ -343,7 +343,7 @@ describe("RaceStateProjector", () => {
       // (it continues from the current cursor), so afterSeq === 0n on any
       // call after the first tick uniquely identifies the rebuild's read.
       // Pausing there lets the test call updateSession() while the rebuild
-      // is still mid-flight, exactly the race the review found.
+      // is still mid-flight.
       const originalReadAfter = source.readAfter.bind(source);
       let pauseNextRebuildRead = false;
       let releaseRebuildRead: (() => void) | null = null;
