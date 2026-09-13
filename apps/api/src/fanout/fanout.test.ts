@@ -49,6 +49,30 @@ function failNthDeflateWrite(fanout: Fanout, n: number): void {
   });
 }
 
+/** Fails the one deflate write whose buffer contains `marker` (matched
+ * once, on first occurrence), rather than counting raw write() calls --
+ * a Node major version can differ in how many internal write() calls one
+ * logical deflate + full-flush produces (see `failNthDeflateWrite`'s own
+ * comment on `flush()`'s extra internal call), which makes an ordinal
+ * count fragile across a sequence of several pushes. Matching on the
+ * pushed payload's own content instead keeps the test stable regardless
+ * of that internal call count. */
+function failDeflateWriteContaining(fanout: Fanout, marker: string): void {
+  const deflater = (fanout as unknown as { deflater: { write: (...args: unknown[]) => boolean } }).deflater;
+  const originalWrite = deflater.write.bind(deflater);
+  let failed = false;
+  vi.spyOn(deflater, "write").mockImplementation((...args: unknown[]) => {
+    const buf = args[0];
+    if (!failed && buf instanceof Buffer && buf.toString("utf8").includes(marker)) {
+      failed = true;
+      const cb = args.find((a): a is (err?: Error) => void => typeof a === "function");
+      cb?.(new Error("deflate write failed"));
+      return true;
+    }
+    return originalWrite(...(args as [Buffer, ((err?: Error) => void)?]));
+  });
+}
+
 describe("Fanout", () => {
   test("two sockets receive byte-identical buffers from the same push", async () => {
     const fanout = new Fanout();
@@ -202,7 +226,7 @@ describe("Fanout", () => {
     const res = new FakeRes();
     await fanout.join(res, "plain", "delta"); // no push yet: catching_up frame, no deflate call consumed
 
-    failNthDeflateWrite(fanout, 1); // frame N's state deflate write fails
+    failDeflateWriteContaining(fanout, '"seq":"2"'); // frame N's state deflate write fails
     await fanout.push(statePush(2, raceState({ sequence: 2 }))); // frame N: skipped entirely
     await fanout.push(statePush(3, raceState({ sequence: 3 }))); // frame N+1: forced full state, rebuilt: true
     await fanout.push(statePush(4, raceState({ sequence: 4 }))); // frame N+2: normal delta again
