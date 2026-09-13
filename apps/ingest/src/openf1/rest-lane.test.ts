@@ -522,8 +522,8 @@ describe("RestLane.takeStats()", () => {
     await lane.pollOnce();
 
     const stats = lane.takeStats();
-    expect(stats).toEqual({ polls: 4, rows: 2, errors: 0 });
-    expect(lane.takeStats()).toEqual({ polls: 0, rows: 0, errors: 0 });
+    expect(stats).toEqual({ polls: 4, rows: 2, errors: 0, unjoined: 0 });
+    expect(lane.takeStats()).toEqual({ polls: 0, rows: 0, errors: 0, unjoined: 0 });
   });
 
   test("the static entry-list fallback's rows count toward rest_rows, same as a fetched entry list", async () => {
@@ -563,7 +563,7 @@ describe("RestLane.takeStats()", () => {
     const result = await lane.pollOnce();
 
     expect(result).toEqual({ endpoint: "position", rows: 0, newRows: 0, malformed: 0 });
-    expect(lane.takeStats()).toEqual({ polls: 1, rows: 0, errors: 1 });
+    expect(lane.takeStats()).toEqual({ polls: 1, rows: 0, errors: 1, unjoined: 0 });
     expect(logs.some((l) => l.level === "error" && l.message.includes("rest: poll position failed"))).toBe(true);
   });
 });

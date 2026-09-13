@@ -24,6 +24,12 @@ if (!config.databaseUrl) {
   process.exit(1);
 }
 
+if (config.restTickMsInvalid !== undefined) {
+  logger.info(
+    `ingest: REST_TICK_MS=${config.restTickMsInvalid} is invalid; using the tier default ${config.restTickMs}ms (ADR-0030).`,
+  );
+}
+
 // Every lane's and the writer's log(message, opts?) callback funnels
 // through here, so a log query can filter by lane, by level, and by the
 // counts a message reports without parsing `msg` (apps/ingest/src/log.ts).
@@ -85,6 +91,7 @@ const restLane = new RestLane(queue, {
     await recorder.appendRows(sessionKey, endpoint, rows);
   },
   liveLogDir: config.liveLogDir,
+  tickMs: config.restTickMs,
   onLog: laneLog("rest"),
 });
 
@@ -114,7 +121,7 @@ restLane.start();
 mqttLane?.start();
 writer.run();
 logger.info(
-  `ingest: started (REST lane${mqttLane ? " + MQTT lane" : ""} + writer running; discovering a session)`,
+  `ingest: started (REST lane tick=${config.restTickMs}ms${mqttLane ? " + MQTT lane" : ""} + writer running; discovering a session)`,
 );
 
 // One line per minute across both lanes and the writer, replacing the MQTT
@@ -125,16 +132,19 @@ logger.info(
 const STATS_INTERVAL_MS = 60_000;
 const statsInterval = setInterval(() => {
   const rest = restLane.takeStats();
-  const mqtt = mqttLane?.takeStats() ?? { messages: 0, rows: 0, dropped: 0 };
+  const mqtt = mqttLane?.takeStats() ?? { messages: 0, rows: 0, dropped: 0, unjoined: 0, foreign: 0 };
   const writerStats = writer.takeStats();
   logger.info(
     {
       rest_polls: rest.polls,
       rest_rows: rest.rows,
       rest_errors: rest.errors,
+      rest_unjoined: rest.unjoined,
       mqtt_messages: mqtt.messages,
       mqtt_rows: mqtt.rows,
       mqtt_dropped: mqtt.dropped,
+      mqtt_unjoined: mqtt.unjoined,
+      mqtt_foreign: mqtt.foreign,
       writer_inserted: writerStats.inserted,
       writer_skipped: writerStats.skipped,
       writer_failures: writerStats.failures,

@@ -86,6 +86,23 @@ export function stripMqttMeta(payload: RawRecord): RawRecord {
 }
 
 /**
+ * A payload's own `session_key`, or `null` when it doesn't carry one of its
+ * own — absent, an explicit `null`, or any other non-numeric value all mean
+ * "no key of its own", never "a key of zero" (`Number(null)` is `0`, which
+ * would otherwise misclassify an explicit `null` as a disagreeing key).
+ * Accepts a finite number or a numeric string, matching how OpenF1 sends
+ * `session_key` on either transport.
+ */
+function parseOwnSessionKey(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+/**
  * `run()`'s reconnect delay after `attempt` consecutive broker-unreachable
  * closes: `baseMs` doubling each time, capped at `maxMs`. Same shape as
  * `writer.ts`'s `backoffDelayMs` (re-exported here under this lane's own
@@ -137,6 +154,10 @@ export interface MqttLaneStats {
   messages: number;
   rows: number;
   dropped: number;
+  /** `stints` rows normalized with a null `sourceTime` (their lap hadn't been seen yet) — an out-of-order stint. */
+  unjoined: number;
+  /** Messages whose own payload `session_key` disagreed with the REST lane's selected session — dropped, never tagged to the selected session. */
+  foreign: number;
 }
 
 export interface MqttLaneOptions {
@@ -207,6 +228,8 @@ export class MqttLane {
   private messagesSinceLog = 0;
   private rowsSinceLog = 0;
   private droppedSinceLog = 0;
+  private unjoinedSinceLog = 0;
+  private foreignSinceLog = 0;
 
   public constructor(
     private readonly queue: EventQueue<QueueItem>,
@@ -233,10 +256,14 @@ export class MqttLane {
       messages: this.messagesSinceLog,
       rows: this.rowsSinceLog,
       dropped: this.droppedSinceLog,
+      unjoined: this.unjoinedSinceLog,
+      foreign: this.foreignSinceLog,
     };
     this.messagesSinceLog = 0;
     this.rowsSinceLog = 0;
     this.droppedSinceLog = 0;
+    this.unjoinedSinceLog = 0;
+    this.foreignSinceLog = 0;
     return stats;
   }
 
@@ -421,9 +448,24 @@ export class MqttLane {
       return;
     }
     const stripped = stripMqttMeta(parsed as RawRecord);
+
+    // The payload's own session_key, when it carries one, must agree with
+    // the REST lane's selection — REST is the authority on which session is
+    // live (AGENTS.md). A row naming a different session is dropped and
+    // counted `foreign`, never tagged to the selected session. A payload
+    // with no session_key of its own (absent, null, or anything that isn't
+    // itself a session key) keeps the existing behaviour: tagged to the
+    // selected session, same as always.
+    const ownSessionKey = parseOwnSessionKey(stripped["session_key"]);
+    if (ownSessionKey !== null && ownSessionKey !== sessionKey) {
+      this.foreignSinceLog += 1;
+      return;
+    }
+
     const result = emitRows(this.getNormalizer(), this.queue, endpoint, sessionKey, [stripped]);
     this.droppedSinceLog += result.malformed;
     this.rowsSinceLog += result.newRows;
+    this.unjoinedSinceLog += result.unjoined;
   }
 }
 

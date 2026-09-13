@@ -167,8 +167,12 @@ happens only at emission time, not in the recording.
   the image: `DATABASE_URL`, `OPENF1_LOGIN`, `OPENF1_PASSWORD`,
   `LIVE_SOURCE`, `LIVE_LOG_DIR` (the jsonl recording's directory, default
   `./live-logs`), `MQTT_ENABLED` (default `true` when `OPENF1_LOGIN` is
-  set, else `false` — the free tier has no MQTT), `LOG_LEVEL` (default
-  `info`, read directly by the logger below rather than through `config.ts`).
+  set, else `false` — the free tier has no MQTT), `REST_TICK_MS` (the REST
+  lane's rotation cadence, ADR-0030: default 2200ms with no OpenF1
+  credentials, 1100ms when both `OPENF1_LOGIN` and `OPENF1_PASSWORD` are
+  set; an invalid override falls back to the tier default and logs once),
+  `LOG_LEVEL` (default `info`, read directly by the logger below rather
+  than through `config.ts`).
 - Logging: `src/log.ts` exports a pino logger with base fields `service:
   "ingest"` and `build` (`RAILWAY_GIT_COMMIT_SHA`, else `"unknown"`), JSON
   only (no pretty printing — Railway shows JSON fine). The REST lane, the
@@ -186,11 +190,18 @@ happens only at emission time, not in the recording.
   counters since the previous call and resets them. `main.ts` owns one
   60 s interval (cleared on SIGTERM) that composes them into one line,
   `ingest: last 60s`, carrying `rest_polls`, `rest_rows`, `rest_errors`,
-  `mqtt_messages`, `mqtt_rows`, `mqtt_dropped`, `writer_inserted`,
-  `writer_skipped`, `writer_failures`, `queue_depth`, and `session_key`
-  (`build` is already on every line via the logger's base fields). This is
-  the only per-minute line — it replaces the MQTT lane's former standalone
-  `mqtt: last 60s messages= rows= dropped=` line.
+  `rest_unjoined`, `mqtt_messages`, `mqtt_rows`, `mqtt_dropped`,
+  `mqtt_unjoined`, `mqtt_foreign`, `writer_inserted`, `writer_skipped`,
+  `writer_failures`, `queue_depth`, and `session_key` (`build` is already
+  on every line via the logger's base fields). `rest_unjoined`/
+  `mqtt_unjoined` count `stints` rows normalized with a null `sourceTime`
+  because their lap hadn't been seen yet (`LiveNormalizer.normalize`'s
+  `unjoined`) — an out-of-order stint. `mqtt_foreign` counts MQTT messages
+  whose own payload `session_key` disagreed with the REST lane's selected
+  session — dropped, never tagged to the selected session; a payload with
+  no `session_key` of its own is still tagged to the selected session, as
+  before. This is the only per-minute line — it replaces the MQTT lane's
+  former standalone `mqtt: last 60s messages= rows= dropped=` line.
 - Vocabulary, defined once for the whole repo: *fold* — reduce over the
   event log into RaceState; ingest appends to that log but never folds
   it. *projector*/*authority* — the class name and the role it plays
