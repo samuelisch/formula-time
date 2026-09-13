@@ -170,3 +170,11 @@ railway logs -s <service> | tail -50
 ```
 
 The newest deployment reads SUCCESS and the tail shows no repeated failure line. A repeated line is the fault to fix first; a load on top of a broken service only hides it.
+
+For the `ingest` service specifically, also confirm the per-minute stats line is flowing:
+
+```
+railway logs -s ingest | grep "ingest: last 60s"
+```
+
+At least one line should appear within a couple of minutes of the deploy, carrying `rest_polls`, `rest_rows`, `rest_errors`, `mqtt_messages`, `mqtt_rows`, `mqtt_dropped`, `writer_inserted`, `writer_skipped`, `writer_failures`, `queue_depth`, and `session_key`. No line at all means the process crashed before its first interval tick, or the interval itself broke — check `railway logs -s ingest | tail -50` for the actual fault.
