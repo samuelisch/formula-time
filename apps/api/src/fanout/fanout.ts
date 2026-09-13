@@ -125,6 +125,15 @@ export class Fanout {
   private pendingPayload: object | null = null;
   private hasPending = false;
 
+  // The stats line's counters: each counts what happened since the last
+  // statsSnapshot() call, which reads and zeroes all four in one step -- a
+  // push in flight while a snapshot is taken lands in the next window,
+  // never split across two.
+  private pushesSinceLog = 0;
+  private stateBytesGzSinceLog = 0;
+  private deltaBytesGzSinceLog = 0;
+  private slowDropsSinceLog = 0;
+
   private lastActivityAt = Date.now();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -232,6 +241,30 @@ export class Fanout {
     return this.sockets.size;
   }
 
+  /** Reads and resets the push counters since the last call -- `delta_viewers`
+   * is a live gauge (the current attached count), not a counter, so it is
+   * read here but never zeroed. */
+  public statsSnapshot(): {
+    pushes: number;
+    state_bytes_gz: number;
+    delta_bytes_gz: number;
+    slow_drops: number;
+    delta_viewers: number;
+  } {
+    const snapshot = {
+      pushes: this.pushesSinceLog,
+      state_bytes_gz: this.stateBytesGzSinceLog,
+      delta_bytes_gz: this.deltaBytesGzSinceLog,
+      slow_drops: this.slowDropsSinceLog,
+      delta_viewers: this.deltaSocketCount,
+    };
+    this.pushesSinceLog = 0;
+    this.stateBytesGzSinceLog = 0;
+    this.deltaBytesGzSinceLog = 0;
+    this.slowDropsSinceLog = 0;
+    return snapshot;
+  }
+
   private async maybeSendHeartbeat(): Promise<void> {
     if (Date.now() - this.lastActivityAt < HEARTBEAT_MS) {
       return;
@@ -274,9 +307,18 @@ export class Fanout {
     const stateFrame: Frame = { plain: statePlain, gz: stateGz };
     this.latestState = stateFrame;
     this.latestStateJson = json;
+    this.pushesSinceLog += 1;
+    this.stateBytesGzSinceLog += stateGz.length;
 
     const deltaFrame = await this.buildDeltaFrame(payload);
     this.latestDelta = deltaFrame ?? stateFrame;
+    // Only a real delta frame counts here -- when buildDeltaFrame falls
+    // back to null (a keyframe tick, the first push after a delta socket
+    // joins, or a failed diff) `latestDelta` is `stateFrame` again, whose
+    // bytes are already counted in `state_bytes_gz` above.
+    if (deltaFrame !== null) {
+      this.deltaBytesGzSinceLog += deltaFrame.gz.length;
+    }
 
     this.writePush(stateFrame, this.latestDelta);
     this.lastActivityAt = Date.now();
@@ -364,6 +406,7 @@ export class Fanout {
       if (socket.res.writableLength > MAX_WRITABLE_LENGTH) {
         this.dropSocket(socket);
         dropped += 1;
+        this.slowDropsSinceLog += 1;
       }
     }
     if (dropped > 0) {

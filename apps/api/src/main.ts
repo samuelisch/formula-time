@@ -8,7 +8,7 @@ import { createDb } from "@formula-time/db";
 import { parseAllowedOrigins, registerCors } from "./cors.js";
 import { createExporter } from "./export/exporter.js";
 import { Fanout } from "./fanout/fanout.js";
-import { healthWithBuild } from "./health.js";
+import { createDbProbe, healthWithBuild, resolveBuild } from "./health.js";
 import { PollModule } from "./polls/poll-module.js";
 import { registerPolls } from "./polls/routes.js";
 import { prismaEventSource } from "./projector/event-source.js";
@@ -55,6 +55,11 @@ const log = (msg: string, fields?: Record<string, unknown>): void => {
   app.log.info(fields ?? {}, msg);
 };
 
+// /health's `db` field: a cached SELECT 1 result refreshed every 30 s, never
+// per request, so the platform's healthcheck and a person can tell a dead
+// database from an idle session without adding a query to every probe.
+const dbProbe = createDbProbe({ probe: () => db.$queryRaw`SELECT 1`, log });
+
 const pollModule = new PollModule({ db, log: { info: (msg) => app.log.info(msg) } });
 
 const fanout = new Fanout({ log });
@@ -76,8 +81,11 @@ const lifecycle = createSessionLifecycle({
 });
 
 // /health stays at the root: it is the platform's probe (Railway
-// healthcheck, .railway/railway.ts), not a client route.
-app.get("/health", async () => healthWithBuild(lifecycle.health()));
+// healthcheck, .railway/railway.ts), not a client route. `ok` is always
+// true while this process is serving; `db` is informational only -- a
+// dead database degrades reads, it does not make the running process
+// unhealthy, so it never flips `ok`.
+app.get("/health", async () => healthWithBuild(lifecycle.health(), dbProbe.status()));
 
 // Every client-facing route lives under /api (owner decision) -- the
 // public path is /api/live/events.
@@ -89,11 +97,16 @@ await app.register(registerPolls(pollModule, db), { prefix: "/api" });
 await app.register(racesRoutes, { prefix: "/api", db, exporter, dir: exportDir });
 
 let sessionWatcher: ReturnType<typeof setInterval> | null = null;
+let statsTimer: ReturnType<typeof setInterval> | null = null;
 
 process.on("SIGTERM", () => {
   if (sessionWatcher !== null) {
     clearInterval(sessionWatcher);
   }
+  if (statsTimer !== null) {
+    clearInterval(statsTimer);
+  }
+  dbProbe.stop();
   lifecycle.stop();
   fanout.stopHeartbeat();
   exporter.stop();
@@ -110,6 +123,9 @@ await app.listen({ port, host: "0.0.0.0" });
 // The exporter owns its own 5s tick; it does not touch session-lifecycle.ts.
 exporter.start();
 
+// Runs the first SELECT 1 immediately, then every 30 s (health.ts).
+dbProbe.start();
+
 // Run pickSession now and every 5s after; a changed key (first discovery,
 // a new race gone live, or the next race appearing) stops the old
 // projector and starts a fresh fold from cursor 0 -- restart's rule
@@ -119,3 +135,26 @@ sessionWatcher = setInterval(() => {
   void lifecycle.check();
 }, 5000);
 sessionWatcher.unref?.();
+
+// One structured line every 60 s, same shape and cadence as ingest's
+// "mqtt: last 60s" line so one log query reads both services: gauges from
+// the session lifecycle's health() plus the fan-out's own counters, which
+// statsSnapshot() resets for the next window.
+const build = resolveBuild(process.env);
+statsTimer = setInterval(() => {
+  const health = lifecycle.health();
+  const stats = fanout.statsSnapshot();
+  log("api: last 60s", {
+    viewers: health.viewers,
+    delta_viewers: stats.delta_viewers,
+    pushes: stats.pushes,
+    state_bytes_gz: stats.state_bytes_gz,
+    delta_bytes_gz: stats.delta_bytes_gz,
+    slow_drops: stats.slow_drops,
+    cursor: health.cursor,
+    caught_up: health.caught_up,
+    session_key: health.session_key,
+    build,
+  });
+}, 60_000);
+statsTimer.unref?.();
