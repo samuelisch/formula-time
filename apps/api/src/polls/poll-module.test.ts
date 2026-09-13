@@ -141,7 +141,7 @@ describe("PollModule.onState — opening templates", () => {
   beforeEach(async () => {
     db = makeFakeDb();
     module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch", meetingName: null });
   });
 
   it("opens the two templates once drivers are present and totalLaps is known", async () => {
@@ -169,11 +169,33 @@ describe("PollModule.onState — opening templates", () => {
     expect(db.calls).toContain("poll.createMany");
   });
 
+  it("names the Grand Prix from meeting_name when the session has one, instead of the country", async () => {
+    const localDb = makeFakeDb();
+    const localModule = new PollModule({ db: localDb as unknown as PrismaClient, log: fakeLog() });
+    await localModule.start({
+      sessionKey: SESSION_KEY,
+      totalLaps: 72,
+      country: "Spain",
+      meetingName: "Spanish Grand Prix",
+    });
+
+    localModule.onState(
+      raceState({ drivers: { "1": driver({ driver_number: 1, name_acronym: "VER" }) } }),
+    );
+    await localModule.waitForIdle();
+
+    const polls = localModule.publicPolls();
+    const winner = polls.find((p) => p.poll_id === `${SESSION_KEY}:winner`);
+    const podium = polls.find((p) => p.poll_id === `${SESSION_KEY}:podium`);
+    expect(winner?.question).toBe("Who wins the Spanish Grand Prix?");
+    expect(podium?.question).toBe("Pick a driver to finish on the podium of the Spanish Grand Prix");
+  });
+
   it("does not open polls when totalLaps is null, and logs once", async () => {
     const log = { info: vi.fn() };
     const localDb = makeFakeDb();
     const localModule = new PollModule({ db: localDb as unknown as PrismaClient, log });
-    await localModule.start({ sessionKey: SESSION_KEY, totalLaps: null, country: "Dutch" });
+    await localModule.start({ sessionKey: SESSION_KEY, totalLaps: null, country: "Dutch", meetingName: null });
 
     localModule.onState(raceState({ drivers: { "1": driver({ driver_number: 1 }) } }));
     await localModule.waitForIdle();
@@ -191,7 +213,7 @@ describe("PollModule.onState — locking", () => {
   it("locks when leaderLap >= locks_at_lap, DB write before memory changes", async () => {
     const db = makeFakeDb();
     const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Dutch" }); // locks_at_lap = 5
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Dutch", meetingName: null }); // locks_at_lap = 5
 
     module.onState(
       raceState({
@@ -222,7 +244,7 @@ describe("PollModule.onState — locking", () => {
     const db = makeFakeDb();
     const log = fakeLog();
     const module = new PollModule({ db: db as unknown as PrismaClient, log });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Dutch" }); // locks_at_lap = 5
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Dutch", meetingName: null }); // locks_at_lap = 5
 
     module.onState(
       raceState({
@@ -261,7 +283,7 @@ describe("PollModule.onState — resolving on chequered", () => {
   it("resolves winner/podium from driver_order when chequered", async () => {
     const db = makeFakeDb();
     const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch", meetingName: null });
 
     module.onState(
       raceState({
@@ -308,7 +330,7 @@ describe("PollModule.onState — resolving on chequered", () => {
   it("does not resolve when driver_order is empty at the chequered moment", async () => {
     const db = makeFakeDb();
     const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch", meetingName: null });
 
     module.onState(raceState({ drivers: { "1": driver({ driver_number: 1, position: 1 }) }, driver_order: [1] }));
     await module.waitForIdle();
@@ -335,7 +357,7 @@ describe("PollModule.onState — resolving on chequered", () => {
   it("void is terminal: a chequered tick after void does not resurrect the poll (owner ruling, 2026-09-08)", async () => {
     const db = makeFakeDb();
     const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch", meetingName: null });
 
     module.onState(raceState({ drivers: { "1": driver({ driver_number: 1, position: 1 }) }, driver_order: [1] }));
     await module.waitForIdle();
@@ -372,7 +394,7 @@ describe("PollModule.onSessionFinished — void", () => {
   it("voids open and locked polls only", async () => {
     const db = makeFakeDb();
     const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 4, country: "Dutch" }); // locks_at_lap = 2
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 4, country: "Dutch", meetingName: null }); // locks_at_lap = 2
 
     module.onState(
       raceState({
@@ -396,7 +418,7 @@ describe("PollModule.onSessionFinished — void", () => {
   it("leaves an already-resolved poll alone", async () => {
     const db = makeFakeDb();
     const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 4, country: "Dutch" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 4, country: "Dutch", meetingName: null });
 
     module.onState(
       raceState({
@@ -422,7 +444,7 @@ describe("PollModule.onSessionFinished — void", () => {
   it("routes through the write chain: a lock queued ahead of it lands before void runs", async () => {
     const db = makeFakeDb();
     const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Dutch" }); // locks_at_lap = 5
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Dutch", meetingName: null }); // locks_at_lap = 5
 
     module.onState(
       raceState({
@@ -466,7 +488,7 @@ describe("PollModule.vote — fast rejects", () => {
   beforeEach(async () => {
     db = makeFakeDb();
     module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch", meetingName: null });
     module.onState(
       raceState({
         drivers: { "1": driver({ driver_number: 1, name_acronym: "VER" }) },
@@ -513,7 +535,7 @@ describe("PollModule.vote — the conditional upsert", () => {
   beforeEach(async () => {
     db = makeFakeDb();
     module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch", meetingName: null });
     module.onState(
       raceState({
         drivers: {
@@ -552,7 +574,7 @@ describe("PollModule.vote — serializes votes per viewer", () => {
   it("memory ends with the second vote's option even if its DB write would resolve first (CI-caught tally drift)", async () => {
     const db = makeFakeDb();
     const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch", meetingName: null });
     module.onState(
       raceState({
         drivers: {
@@ -597,7 +619,7 @@ describe("PollModule.vote — serializes votes per viewer", () => {
   it("different viewers still run concurrently (no cross-viewer serialization)", async () => {
     const db = makeFakeDb();
     const module = new PollModule({ db: db as unknown as PrismaClient, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 72, country: "Dutch", meetingName: null });
     module.onState(
       raceState({
         drivers: {

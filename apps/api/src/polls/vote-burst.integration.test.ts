@@ -89,7 +89,7 @@ beforeAll(async () => {
   });
 
   module = new PollModule({ db, log: { info: () => {} } });
-  await module.start({ sessionKey: SESSION_KEY, totalLaps: 50, country: "Testland" });
+  await module.start({ sessionKey: SESSION_KEY, totalLaps: 50, country: "Testland", meetingName: null });
   module.onState(
     raceState({
       drivers: {

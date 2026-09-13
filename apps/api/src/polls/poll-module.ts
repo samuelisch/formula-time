@@ -43,6 +43,15 @@ interface ActiveSession {
   sessionKey: bigint;
   totalLaps: number | null;
   country: string;
+  meetingName: string | null;
+}
+
+// The Grand Prix name for a poll question: the session's meeting name when
+// it has one (a country can host two rounds a season, so country alone
+// can name the wrong race), else the country as before.
+function raceName(country: string, meetingName: string | null): string {
+  if (meetingName !== null && meetingName.trim() !== "") return meetingName;
+  return `${country} GP`;
 }
 
 function toPublic(poll: InternalPoll): PollPublic {
@@ -223,7 +232,13 @@ export class PollModule {
         }
         return;
       }
-      await this.openPolls(state, this.session.totalLaps, this.session.country, this.session.sessionKey);
+      await this.openPolls(
+        state,
+        this.session.totalLaps,
+        this.session.country,
+        this.session.meetingName,
+        this.session.sessionKey,
+      );
     }
 
     const lap = leaderLap(state);
@@ -238,6 +253,7 @@ export class PollModule {
     state: RaceState,
     totalLaps: number,
     country: string,
+    meetingName: string | null,
     sessionKey: bigint,
   ): Promise<void> {
     const options: PollOptionPublic[] = Object.values(state.drivers)
@@ -247,12 +263,13 @@ export class PollModule {
         label: driver.name_acronym ?? driver.full_name ?? `#${driver.driver_number}`,
       }));
     const locks = locksAtLap("race-result", { totalLaps });
+    const race = raceName(country, meetingName);
 
     const templates: InternalPoll[] = [
       {
         pollId: `${sessionKey}:winner`,
         kind: "winner",
-        question: `Who wins the ${country} GP?`,
+        question: `Who wins the ${race}?`,
         options,
         locksAtLap: locks,
         status: "open",
@@ -262,7 +279,7 @@ export class PollModule {
       {
         pollId: `${sessionKey}:podium`,
         kind: "podium",
-        question: `Pick a driver to finish on the podium of the ${country} GP`,
+        question: `Pick a driver to finish on the podium of the ${race}`,
         options,
         locksAtLap: locks,
         status: "open",

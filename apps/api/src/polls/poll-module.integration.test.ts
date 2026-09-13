@@ -95,7 +95,7 @@ afterAll(async () => {
 describe("PollModule against real Postgres", () => {
   test("opens two poll rows from templates when drivers appear and totalLaps is known", async () => {
     const module = new PollModule({ db, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Testland" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Testland", meetingName: null });
 
     module.onState(
       raceState({
@@ -122,7 +122,7 @@ describe("PollModule against real Postgres", () => {
 
   test("locks a poll in Postgres when leaderLap reaches locks_at_lap", async () => {
     const module = new PollModule({ db, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Testland" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Testland", meetingName: null });
 
     module.onState(
       raceState({
@@ -150,7 +150,7 @@ describe("PollModule against real Postgres", () => {
 
   test("resolves winner and podium from driver_order on chequered", async () => {
     const module = new PollModule({ db, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Testland" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Testland", meetingName: null });
 
     module.onState(
       raceState({
@@ -197,7 +197,7 @@ describe("PollModule against real Postgres", () => {
 
   test("void marks open and locked polls only, in Postgres", async () => {
     const module = new PollModule({ db, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Testland" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Testland", meetingName: null });
 
     module.onState(
       raceState({
@@ -241,7 +241,7 @@ describe("PollModule against real Postgres", () => {
     });
 
     const module = new PollModule({ db, log: fakeLog() });
-    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Testland" });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Testland", meetingName: null });
 
     const grouped = await db.vote.groupBy({
       by: ["optionId"],

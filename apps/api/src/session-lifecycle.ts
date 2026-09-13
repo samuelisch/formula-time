@@ -30,7 +30,12 @@ export interface Pusher {
 // "The poll module"), so start/onSessionFinished are sequenced around the
 // projector here rather than left for PollModule to discover on its own.
 export interface PollHooks {
-  start(session: { sessionKey: bigint; totalLaps: number | null; country: string }): Promise<void>;
+  start(session: {
+    sessionKey: bigint;
+    totalLaps: number | null;
+    country: string;
+    meetingName: string | null;
+  }): Promise<void>;
   /** Resolves once this state's fold has landed; the push waits for it. */
   onState(state: RaceState): Promise<void>;
   onSessionFinished(): Promise<void>;
@@ -160,6 +165,7 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
           sessionKey: candidate.sessionKey,
           totalLaps: candidate.totalLaps,
           country: candidate.country,
+          meetingName: candidate.meetingName,
         });
       } catch (err) {
         logPollHookFailure("start", err);
