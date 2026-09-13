@@ -51,8 +51,23 @@ function resetLiveStore(overrides: Partial<ReturnType<typeof useLiveStore.getSta
   });
 }
 
-function liveSessionPush(status: "upcoming" | "live" | "finished"): ReturnType<typeof makePush> {
-  return makePush({}, { session: { session_key: "9999", name: "Race", country: "Italy", status } });
+// Defaults to no racing signal beyond `status` itself (empty race control,
+// no drivers); pass `stateOverrides` to add `race_control`/`drivers` signals
+// for a test that needs the fold, not just the row, to say racing has begun.
+function liveSessionPush(
+  status: "upcoming" | "live" | "finished",
+  stateOverrides: Partial<Parameters<typeof makePush>[1]> = {},
+): ReturnType<typeof makePush> {
+  return makePush(
+    {},
+    {
+      session: { session_key: "9999", name: "Race", country: "Italy", status },
+      race_control: NOT_RACING_CONTROL,
+      drivers: {},
+      driver_order: [],
+      ...stateOverrides,
+    },
+  );
 }
 
 function renderWith(push: ReturnType<typeof makePush> | null): void {
@@ -340,8 +355,24 @@ describe("BoardPage", () => {
       expect(LiveTimelineLoader).not.toHaveBeenCalled();
     });
 
+    // The row can lag the fold by one lifecycle check, same as the
+    // transport bar and align button: race control's own SESSION STARTED
+    // is enough to mount the loader even while the row still says upcoming.
+    it("mounts for an upcoming live session when race control shows SESSION STARTED", () => {
+      resetLiveStore({ live: liveSessionPush("upcoming", { race_control: { ...NOT_RACING_CONTROL, session_status: "SESSION STARTED" } }) });
+      renderWith(makePush());
+      expect(LiveTimelineLoader).toHaveBeenCalled();
+    });
+
     it("does not mount for a live session already finished when the page mounts", () => {
       resetLiveStore({ live: liveSessionPush("finished") });
+      renderWith(makePush());
+      expect(LiveTimelineLoader).not.toHaveBeenCalled();
+    });
+
+    // "finished" wins even with race control still reading SESSION STARTED.
+    it("does not mount for a live session already finished, even with race control showing SESSION STARTED", () => {
+      resetLiveStore({ live: liveSessionPush("finished", { race_control: { ...NOT_RACING_CONTROL, session_status: "SESSION STARTED" } }) });
       renderWith(makePush());
       expect(LiveTimelineLoader).not.toHaveBeenCalled();
     });
