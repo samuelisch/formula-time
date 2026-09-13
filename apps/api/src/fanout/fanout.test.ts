@@ -439,3 +439,63 @@ describe("Fanout delta pushes (issue #89)", () => {
     expect(frames(legacy).length).toBeGreaterThan(0);
   });
 });
+
+describe("Fanout stats", () => {
+  test("statsSnapshot starts at zero with no viewers attached", () => {
+    const fanout = new Fanout();
+    expect(fanout.statsSnapshot()).toEqual({
+      pushes: 0,
+      state_bytes_gz: 0,
+      delta_bytes_gz: 0,
+      slow_drops: 0,
+      delta_viewers: 0,
+    });
+  });
+
+  test("pushes and state_bytes_gz increment per push", async () => {
+    const fanout = new Fanout();
+    const res = new FakeRes();
+    await fanout.join(res, "gzip");
+
+    await fanout.push(statePush(1, raceState({ sequence: 1 })));
+    await fanout.push(statePush(2, raceState({ sequence: 2 })));
+
+    const stats = fanout.statsSnapshot();
+    expect(stats.pushes).toBe(2);
+    expect(stats.state_bytes_gz).toBeGreaterThan(0);
+    expect(stats.delta_bytes_gz).toBe(0);
+  });
+
+  test("statsSnapshot resets the counters but not delta_viewers", async () => {
+    const fanout = new Fanout();
+    const legacy = new FakeRes();
+    const delta = new FakeRes();
+    await fanout.join(legacy, "plain", "state");
+    await fanout.join(delta, "plain", "delta");
+
+    await fanout.push(statePush(1, raceState({ sequence: 1 })));
+    const first = fanout.statsSnapshot();
+    expect(first.pushes).toBe(1);
+    expect(first.delta_viewers).toBe(1);
+    expect(first.delta_bytes_gz).toBeGreaterThan(0);
+
+    const second = fanout.statsSnapshot();
+    expect(second.pushes).toBe(0);
+    expect(second.state_bytes_gz).toBe(0);
+    expect(second.delta_bytes_gz).toBe(0);
+    expect(second.slow_drops).toBe(0);
+    // delta_viewers is a gauge, still 1: the socket never left.
+    expect(second.delta_viewers).toBe(1);
+  });
+
+  test("a socket dropped over the writableLength limit counts as a slow_drop", async () => {
+    const fanout = new Fanout();
+    const slow = new FakeRes();
+    await fanout.join(slow, "plain");
+
+    slow.writableLength = 2_000_000; // over the 1_048_576 limit
+    await fanout.push(statePush(1, raceState({ sequence: 1 })));
+
+    expect(fanout.statsSnapshot().slow_drops).toBe(1);
+  });
+});
