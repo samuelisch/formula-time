@@ -5,6 +5,14 @@
 // table." — so emitting these as `drivers` events (rest-lane.ts, on session
 // selection) through the normal path is consistent with that fact, even
 // though the source is this static list rather than a live fetch.
+// The season this fallback roster is valid for. It is a snapshot, not a
+// feed: a driver swap or livery change after this season won't reach it.
+// The season rolling over is exactly when it goes stale, so
+// entry-list.test.ts fails once the calendar year passes this value —
+// red until someone updates the roster (and this constant) or removes
+// the fallback.
+export const ENTRY_LIST_SEASON = 2026;
+
 export const ENTRY_LIST_2026 = [
   { driver_number: 1,  full_name: "Lando NORRIS",       name_acronym: "NOR", team_name: "McLaren",         team_colour: "F47600" },
   { driver_number: 3,  full_name: "Max VERSTAPPEN",     name_acronym: "VER", team_name: "Red Bull Racing", team_colour: "4781D7" },
