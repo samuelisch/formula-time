@@ -18,6 +18,11 @@ One process holding:
   Polls Postgres with `WHERE seq > $cursor ORDER BY seq` every 250 ms;
   restart runs the same query from cursor 0. A row below the
   already-applied cursor forces a full rebuild — never an in-place apply.
+  The `sessions` row it carries is metadata, not part of the fold: the
+  session lifecycle's `runCheck` refreshes it on every check (`status`,
+  `total_laps`, `meeting_name`, `circuit_short_name`, `location`,
+  `date_start`, `date_end`), pushing the change to viewers within a tick
+  rather than waiting for a restart to re-pick the row.
 - **The poll module** — locks and resolves polls from the fold; holds
   tallies in memory; reloads them from `votes` on start.
 - **The polls-by-race read route** — `GET /api/races/:session_key/polls`
