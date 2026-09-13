@@ -1,19 +1,33 @@
 name: Railway config apply
 
-# Applies the plan pinned on the merge to release that last touched
-# .railway/**. Re-plans nothing; fails if the environment or the merged
-# tree drifted from what was planned (railwayapp/config's staleness
-# check). A paths filter is evaluated against the branch's previous
-# commit, so it never fires on a branch-creation push (formula-time
-# #212) -- workflow_dispatch covers that gap, for the owner to re-run by
-# hand; release.yml's new `plan` job catches ordinary drift instead of
-# relying on apply firing on every push.
+# Two paths, because railwayapp/config@v1 can only serve one of them.
+#
+# apply-pinned (push to release, .railway/** changed): downloads the plan
+# artifact pinned by the merged PR that planned it and applies exactly
+# that -- railwayapp/config's own "apply" command. It defaults
+# confirm-destructive to "true" (destructive changes were already shown
+# in the PR's plan comment, so merging is the approval); this job leaves
+# that default untouched.
+#
+# apply-manual (workflow_dispatch): a dispatch has no PR and no pinned
+# artifact, so railwayapp/config's apply always fails here with "apply
+# needs a merged pull_request event, or a push of a commit that belongs
+# to a merged PR." (issue #255). This job re-plans and applies against
+# the dispatched ref directly with the Railway CLI instead, gated on a
+# typed confirmation so a misclick cannot apply. Unlike apply-pinned, it
+# never passes --confirm-destructive: a destructive plan here was never
+# shown to anyone as a PR comment, so it fails loud instead of applying.
 on:
   push:
     branches: [release]
     paths:
       - ".railway/**"
   workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type apply to run the manual apply"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -21,7 +35,8 @@ permissions:
   actions: read
 
 jobs:
-  apply:
+  apply-pinned:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -29,3 +44,59 @@ jobs:
         with:
           command: apply
           railway-token: ${{ secrets.RAILWAY_TOKEN }}
+
+  apply-manual:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm == 'apply'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install the Railway CLI
+        run: npm install -g @railway/cli@5.54.0
+
+      - name: Show the CLI version and the config subcommand it carries
+        run: |
+          railway --version
+          railway config --help
+
+      - name: Plan
+        id: plan
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          set -euo pipefail
+          railway config plan --verbose | tee /tmp/railway-plan.txt
+
+      - name: Fail if the plan would destroy anything
+        # The CLI's own summary line is "Plan: N to add, M to change, K to
+        # destroy" (confirmed by running `railway config plan --verbose`
+        # against this project). This job never passes
+        # --confirm-destructive, so a non-zero destroy count here would
+        # otherwise fail inside `railway config apply` with only the
+        # CLI's own message; this step names it before that, in the plan
+        # rather than the apply, so the refusal is legible in this job's
+        # log.
+        run: |
+          set -euo pipefail
+          summary_line="$(grep -E '^Plan: [0-9]+ to add, [0-9]+ to change, [0-9]+ to destroy' /tmp/railway-plan.txt)" || true
+          if [ -z "$summary_line" ]; then
+            echo "cannot read the plan summary, refusing to apply. Full plan output:" >&2
+            cat /tmp/railway-plan.txt >&2
+            exit 1
+          fi
+          destroy_count="$(echo "$summary_line" | grep -oE '[0-9]+ to destroy' | grep -oE '^[0-9]+')"
+          if [ "$destroy_count" != "0" ]; then
+            echo "railway config plan reports $destroy_count destroy(s); refusing to apply. Review the plan above; a destructive change here was never shown in a PR comment, so this job will not apply it -- run it by hand instead." >&2
+            exit 1
+          fi
+          echo "plan has 0 destroys, proceeding to apply"
+
+      - name: Apply
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway config apply --yes --verbose
