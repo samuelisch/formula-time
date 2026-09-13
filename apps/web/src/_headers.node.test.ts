@@ -2,10 +2,12 @@
 // vite.config.ts's csp-headers plugin: dist/_headers' connect-src carries
 // VITE_API_URL when it is set, and drops the "%VITE_API_URL%" placeholder
 // entirely (never shipping it literally, never a stray trailing space)
-// when it is unset -- the dev/relative-URL build. Netlify applies
-// dist/_headers verbatim, so this is what actually reaches a browser.
-// Runs in the plain-node vitest project like build-meta.node.test.ts -- see
-// tsconfig.node-test.json and vitest.config.ts's "web-node" project.
+// when it is unset -- the dev/relative-URL build. Also confirms the build
+// fails outright on a malformed VITE_API_URL rather than shipping a CSP a
+// stray character has broken. Netlify applies dist/_headers verbatim, so
+// this is what actually reaches a browser. Runs in the plain-node vitest
+// project like build-meta.node.test.ts -- see tsconfig.node-test.json and
+// vitest.config.ts's "web-node" project.
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -90,6 +92,14 @@ describe.skipIf(process.env.CI_FAST)("vite build fills VITE_API_URL into dist/_h
       expect(headers).toMatch(/^ {2}X-Content-Type-Options: nosniff$/m);
       expect(headers).toMatch(/^ {2}Referrer-Policy: strict-origin-when-cross-origin$/m);
       expect(headers).toMatch(/^ {2}Strict-Transport-Security: max-age=31536000$/m);
+    },
+    BUILD_TIMEOUT_MS,
+  );
+
+  test(
+    "a malformed VITE_API_URL fails the build instead of shipping a broken CSP",
+    async () => {
+      await expect(buildHeaders("https://evil.example; script-src *")).rejects.toThrow(/VITE_API_URL/);
     },
     BUILD_TIMEOUT_MS,
   );
