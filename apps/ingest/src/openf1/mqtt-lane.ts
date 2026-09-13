@@ -235,14 +235,13 @@ export class MqttLane {
   private unjoinedSinceLog = 0;
   private foreignSinceLog = 0;
 
-  // Every `handleMessage()` call still running, mapped to the topic it was
-  // handling — `stop()` awaits these before resolving so a recording write
-  // already in flight lands before the process exits (main.ts's SIGTERM path
-  // drains the writer and calls `process.exit()` right after `stop()`
-  // resolves); without this, a row already queued but not yet written to the
-  // jsonl recording would be silently dropped from it. The topic is kept
-  // only so a handler that rejects can be logged with its endpoint.
-  private readonly inFlightMessages = new Map<Promise<void>, string>();
+  // Every `handleMessage()` call still running — `stop()` awaits these
+  // before resolving so a recording write already in flight lands before
+  // the process exits (main.ts's SIGTERM path drains the writer and calls
+  // `process.exit()` right after `stop()` resolves); without this, a row
+  // already queued but not yet written to the jsonl recording would be
+  // silently dropped from it.
+  private readonly inFlightMessages = new Set<Promise<void>>();
 
   public constructor(
     private readonly queue: EventQueue<QueueItem>,
@@ -423,18 +422,18 @@ export class MqttLane {
       // below, and `mqtt.js`'s EventEmitter does not await listener return
       // values anyway; queuing itself still happens synchronously, before
       // this call returns, since it happens before the recorder is ever
-      // awaited) — but still tracked in `inFlightMessages`, keyed by topic,
-      // so `stop()` can wait for one still running. A handler is expected
-      // never to reject (see `recordRow`'s own try/catch); if one somehow
-      // does, it is logged here, at the moment it happens, rather than
-      // saved up for `stop()` — a lane can run for hours between messages
-      // and a call to `stop()`, and a failure must not wait that long to
-      // surface. This also attaches a handler to the promise in the same
-      // synchronous turn it was created, so it is never "unhandled" from
-      // Node's point of view regardless of how long it then sits in
-      // `inFlightMessages` before settling.
+      // awaited) — but still tracked in `inFlightMessages` so `stop()` can
+      // wait for one still running. A handler is expected never to reject
+      // (see `recordRow`'s own try/catch); if one somehow does, it is
+      // logged here, at the moment it happens, rather than saved up for
+      // `stop()` — a lane can run for hours between messages and a call to
+      // `stop()`, and a failure must not wait that long to surface. This
+      // also attaches a handler to the promise in the same synchronous turn
+      // it was created, so it is never "unhandled" from Node's point of
+      // view regardless of how long it then sits in `inFlightMessages`
+      // before settling.
       const inFlight = this.handleMessage(topic, payload);
-      this.inFlightMessages.set(inFlight, topic);
+      this.inFlightMessages.add(inFlight);
       void inFlight.then(
         () => {
           this.inFlightMessages.delete(inFlight);
