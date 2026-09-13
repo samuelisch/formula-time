@@ -16,7 +16,7 @@
 // Usage: `DATABASE_URL=... pnpm ingest:dump -- <session_key> [--out <dir>]
 // [--force]` (package.json script "dump"; root script "ingest:dump").
 
-import { appendFile, mkdir, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { createDb } from "@formula-time/db";
@@ -190,7 +190,13 @@ export async function dumpRecording(
     return refused;
   }
 
+  // `raw/<endpoint>.jsonl` is written by appending pages, not by one
+  // whole-file write like session.json/polls.jsonl below — so a rerun (a
+  // retry after a crash, or a --force re-dump) must start from an empty
+  // raw/ or its appends land on top of the previous run's lines instead of
+  // replacing them.
   const rawDir = path.join(outDir, "raw");
+  await rm(rawDir, { recursive: true, force: true });
   await mkdir(rawDir, { recursive: true });
 
   await writeFile(

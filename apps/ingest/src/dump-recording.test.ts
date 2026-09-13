@@ -173,6 +173,34 @@ test("an --out directory already carrying polls.jsonl is refused unless --force,
   expect(await readFile(path.join(outDir, "polls.jsonl"), "utf8")).toBe("");
 });
 
+test("re-dumping with --force into a directory already holding a prior dump's raw/<endpoint>.jsonl does not duplicate lines", async () => {
+  const outDir = path.join(dir, "out");
+  const events = [
+    eventRow(1, "position", "2026-09-06T13:00:01.000Z", { driver_number: 1, x: 1 }),
+    eventRow(2, "position", "2026-09-06T13:00:02.000Z", { driver_number: 1, x: 2 }),
+  ];
+
+  const first = await dumpRecording(11361n, fakeDb(SESSION_ROW, events), outDir, { onLog: () => {} });
+  expect(first.events).toBe(2);
+  expect(await readJsonl(path.join(outDir, "raw", "position.jsonl"))).toHaveLength(2);
+
+  // A re-dump of the exact same session, forced over the existing output —
+  // the retry-after-crash / re-run case the polls.jsonl guard exists to
+  // allow. The file must end with exactly this dump's rows, not the sum of
+  // both runs.
+  const second = await dumpRecording(11361n, fakeDb(SESSION_ROW, events), outDir, {
+    force: true,
+    onLog: () => {},
+  });
+  expect(second.events).toBe(2);
+  const position = await readJsonl(path.join(outDir, "raw", "position.jsonl"));
+  expect(position).toHaveLength(2);
+  expect(position).toEqual([
+    { received_at: "2026-09-06T13:00:01.000Z", payload: { driver_number: 1, x: 1 } },
+    { received_at: "2026-09-06T13:00:02.000Z", payload: { driver_number: 1, x: 2 } },
+  ]);
+});
+
 test("a session with zero events writes session.json and empty files, and says so", async () => {
   const outDir = path.join(dir, "out");
   const logs: string[] = [];
