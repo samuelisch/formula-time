@@ -103,6 +103,14 @@ describe("TrackStatusStrip", () => {
     expect(screen.queryByText("SAFETY CAR")).not.toBeInTheDocument();
   });
 
+  // A screen reader needs this to be a live region, since the strip mounts
+  // and unmounts as the track status changes rather than always being
+  // present with changing text.
+  it("carries role=\"status\" so a screen reader announces a track-status change", () => {
+    renderWith({ safety_car: "SC" });
+    expect(screen.getByRole("status")).toHaveTextContent("SAFETY CAR");
+  });
+
   it("renders the text on a backing plate so it stays legible over the chequered stripes", () => {
     const { container } = render(
       <BoardSourceProvider

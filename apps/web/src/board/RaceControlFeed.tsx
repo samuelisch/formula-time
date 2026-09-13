@@ -58,7 +58,11 @@ export function RaceControlFeed({ defaultOpen = false }: RaceControlFeedProps = 
         {count === 0 ? (
           <p className={styles.empty}>No race-control messages yet</p>
         ) : (
-          <ul className={styles.list}>
+          // A live region: a new message is announced to a screen reader as
+          // it arrives, without re-reading the rows already read out
+          // (aria-relevant="additions" -- a row is never edited or removed
+          // once posted).
+          <ul className={styles.list} role="log" aria-live="polite" aria-relevant="additions">
             {newestFirst.map(({ event_id, payload }) => {
               const flag = stringField(payload, "flag");
               const category = stringField(payload, "category");

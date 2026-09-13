@@ -116,6 +116,16 @@ describe("RaceControlFeed", () => {
     expect(screen.getByText("CAR 44 PIT ENTRY")).toBeVisible();
   });
 
+  // A message list that grows over the course of a session needs to be a
+  // live region so a screen reader announces each new row as it arrives,
+  // without re-reading the rows already announced.
+  it("carries a log live region that only announces new rows", () => {
+    renderWith([{ event_id: "e1", payload: pitMessage }], true);
+    const log = screen.getByRole("log");
+    expect(log).toHaveAttribute("aria-live", "polite");
+    expect(log).toHaveAttribute("aria-relevant", "additions");
+  });
+
   it("keys rows by event_id", () => {
     renderWith([
       { event_id: "e1", payload: yellowFlag },
