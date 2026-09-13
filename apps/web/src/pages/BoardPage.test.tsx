@@ -120,19 +120,27 @@ describe("BoardPage", () => {
     expect(screen.queryByText(/Race starts/)).not.toBeInTheDocument();
   });
 
-  // ConnectionPill (live/ConnectionPill.tsx) reads the live store's own
-  // `displayed` session, not the `BoardSourceProvider` push `renderWith`
-  // supplies here -- set it directly, as the mount-latch tests below do for
-  // `live`.
+  // ConnectionPill (live/ConnectionPill.tsx) reads through the board seam
+  // like the rest of the toolbar, so -- unlike the tests above -- these
+  // render `BoardPage` on the live store directly (no `BoardSourceProvider`),
+  // the same as production: `BoardPage` never mounts one.
   it("mounts the connection pill in the toolbar when the live session is live", () => {
     resetLiveStore({ connection: "open", lastMessageAt: Date.now(), displayed: liveSessionPush("live") });
-    renderWith(makePush());
+    render(
+      <MemoryRouter>
+        <BoardPage />
+      </MemoryRouter>,
+    );
     expect(screen.getByText("Live · connected")).toBeInTheDocument();
   });
 
   it("mounts no connection pill when the live session has finished", () => {
     resetLiveStore({ connection: "open", lastMessageAt: Date.now(), displayed: liveSessionPush("finished") });
-    renderWith(makePush());
+    render(
+      <MemoryRouter>
+        <BoardPage />
+      </MemoryRouter>,
+    );
     expect(screen.queryByText(/connected|connecting|catching up|reconnecting|last update/i)).not.toBeInTheDocument();
   });
 
