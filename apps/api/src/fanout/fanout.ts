@@ -312,11 +312,12 @@ export class Fanout {
 
     const deltaFrame = await this.buildDeltaFrame(payload);
     this.latestDelta = deltaFrame ?? stateFrame;
-    // Only counted while a delta socket is actually attached -- otherwise
-    // `latestDelta` is just `stateFrame` again and would double-count bytes
-    // already in `state_bytes_gz`.
-    if (this.deltaSocketCount > 0) {
-      this.deltaBytesGzSinceLog += this.latestDelta.gz.length;
+    // Only a real delta frame counts here -- when buildDeltaFrame falls
+    // back to null (a keyframe tick, the first push after a delta socket
+    // joins, or a failed diff) `latestDelta` is `stateFrame` again, whose
+    // bytes are already counted in `state_bytes_gz` above.
+    if (deltaFrame !== null) {
+      this.deltaBytesGzSinceLog += deltaFrame.gz.length;
     }
 
     this.writePush(stateFrame, this.latestDelta);

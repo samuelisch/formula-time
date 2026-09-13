@@ -473,19 +473,51 @@ describe("Fanout stats", () => {
     await fanout.join(legacy, "plain", "state");
     await fanout.join(delta, "plain", "delta");
 
+    // The first push after a delta socket joins has no baseline to diff
+    // against, so it falls back to the state frame -- delta_bytes_gz stays
+    // at 0 for this push, exactly.
     await fanout.push(statePush(1, raceState({ sequence: 1 })));
     const first = fanout.statsSnapshot();
     expect(first.pushes).toBe(1);
     expect(first.delta_viewers).toBe(1);
-    expect(first.delta_bytes_gz).toBeGreaterThan(0);
+    expect(first.state_bytes_gz).toBeGreaterThan(0);
+    expect(first.delta_bytes_gz).toBe(0);
 
+    expect(fanout.statsSnapshot().state_bytes_gz).toBe(0); // reset by the read above
+
+    // The second push has a baseline: a real delta frame is built and
+    // counted.
+    await fanout.push(statePush(2, raceState({ sequence: 2 })));
     const second = fanout.statsSnapshot();
-    expect(second.pushes).toBe(0);
-    expect(second.state_bytes_gz).toBe(0);
-    expect(second.delta_bytes_gz).toBe(0);
-    expect(second.slow_drops).toBe(0);
+    expect(second.pushes).toBe(1);
+    expect(second.delta_bytes_gz).toBeGreaterThan(0);
+
+    const third = fanout.statsSnapshot();
+    expect(third.pushes).toBe(0);
+    expect(third.state_bytes_gz).toBe(0);
+    expect(third.delta_bytes_gz).toBe(0);
+    expect(third.slow_drops).toBe(0);
     // delta_viewers is a gauge, still 1: the socket never left.
-    expect(second.delta_viewers).toBe(1);
+    expect(third.delta_viewers).toBe(1);
+  });
+
+  test("a keyframe tick does not raise delta_bytes_gz", async () => {
+    const fanout = new Fanout();
+    const delta = new FakeRes();
+    await fanout.join(delta, "plain", "delta");
+
+    // Pushes 1..199: push 1 has no baseline (state fallback), 2..199 are
+    // real deltas.
+    for (let seq = 1; seq <= 199; seq += 1) {
+      await fanout.push(statePush(seq, raceState({ sequence: seq })));
+    }
+    const beforeKeyframe = fanout.statsSnapshot().delta_bytes_gz;
+    expect(beforeKeyframe).toBeGreaterThan(0);
+
+    // Push 200 is the keyframe (KEYFRAME_INTERVAL): a state push, not a
+    // delta, so it must not add to delta_bytes_gz.
+    await fanout.push(statePush(200, raceState({ sequence: 200 })));
+    expect(fanout.statsSnapshot().delta_bytes_gz).toBe(0);
   });
 
   test("a socket dropped over the writableLength limit counts as a slow_drop", async () => {
