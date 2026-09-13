@@ -613,7 +613,8 @@ export class RestLane {
         team_name: driver.team_name,
         team_colour: driver.team_colour,
       }));
-      await this.emitAndRecord("drivers", key, driverRows);
+      const result = await this.emitAndRecord("drivers", key, driverRows);
+      this.rowsSinceStats += result.newRows;
       this.entryListFallbackEmitted = true;
       this.log(`entry list: static fallback (${reason}) session_key=${key}`);
     }

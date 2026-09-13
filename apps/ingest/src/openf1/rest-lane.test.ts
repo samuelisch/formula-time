@@ -496,6 +496,20 @@ describe("RestLane.takeStats()", () => {
     expect(lane.takeStats()).toEqual({ polls: 0, rows: 0, errors: 0 });
   });
 
+  test("the static entry-list fallback's rows count toward rest_rows, same as a fetched entry list", async () => {
+    // Zero rows at selection -> the static ENTRY_LIST_2026 fallback fires
+    // (22 drivers) instead of a fetched entry list, but it still emitted
+    // real rows through the same queue and must count the same way.
+    const { fetcher } = fakeFetcher({ sessions: [SESSION], drivers: [] });
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START, onLog: () => {} });
+
+    await lane.discoverOnce();
+
+    const stats = lane.takeStats();
+    expect(stats.rows).toBe(22);
+  });
+
   test("a failed rotation poll counts as an error and logs through the injected logger at error level", async () => {
     let failPosition = false;
     const fetcher = async (url: string): Promise<unknown> => {
