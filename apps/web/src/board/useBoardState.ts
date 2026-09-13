@@ -102,6 +102,26 @@ export function useBoardSessionStatus(): SessionStatusValue | null {
   return sessionStatusOf(push?.state.session ?? null);
 }
 
+/**
+ * Whether the board should render as racing. The fold is the authority on
+ * whether racing has begun, not the session row: the row can lag a status
+ * flip by one lifecycle check, so this reads `race_control.session_status`
+ * and the leader's lap as a second signal alongside the row's own
+ * `status`. True when the row already says "live", or -- short of that --
+ * when the row is not "finished" and either race control has recorded
+ * `SESSION STARTED` or the leader's lap is 1 or more. "finished" always
+ * wins: a row that has caught up to the end of the race is never
+ * overridden by a leftover racing signal.
+ */
+export function useBoardIsRacing(): boolean {
+  const push = useBoardPush();
+  if (push === null) return false;
+  const status = sessionStatusOf(push.state.session);
+  if (status === "live") return true;
+  if (status === "finished") return false;
+  return push.state.race_control.session_status === "SESSION STARTED" || leaderLap(push.state) >= 1;
+}
+
 /** Render order for the timing table: `driver_order` (positioned, already sorted), then unpositioned drivers by number -- the POC's `renderDrivers`. */
 export function useBoardDriverOrder(): number[] {
   const push = useBoardPush();

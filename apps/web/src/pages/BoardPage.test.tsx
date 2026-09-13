@@ -12,8 +12,18 @@ import { emptyAnchors } from "../live/anchors.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
 import { appendEvents, createTimeline } from "../replay/timeline.ts";
-import { makePush } from "../test/fixtures.ts";
+import { makeDriver, makePush } from "../test/fixtures.ts";
 import { BoardPage } from "./BoardPage.tsx";
+
+// A no-signal race control block: neither field the racing gate reads is set.
+const NOT_RACING_CONTROL = {
+  session_status: null,
+  current_flag: null,
+  safety_car: null,
+  active_flags: {},
+  driver_flags: {},
+  recent_messages: [],
+};
 
 // The loader itself is covered by its own test
 // (`live/LiveTimelineLoader.test.tsx`); here it is a spy so BoardPage.test's
@@ -140,7 +150,12 @@ describe("BoardPage", () => {
     renderWith(
       makePush(
         {},
-        { session: { session_key: "11361", name: "Race", country: "Italy", status: "upcoming", date_start: "2026-09-08T12:00:00.000Z" } },
+        {
+          session: { session_key: "11361", name: "Race", country: "Italy", status: "upcoming", date_start: "2026-09-08T12:00:00.000Z" },
+          race_control: NOT_RACING_CONTROL,
+          drivers: {},
+          driver_order: [],
+        },
       ),
     );
 
@@ -148,9 +163,12 @@ describe("BoardPage", () => {
   });
 
   // The transport bar and align button act on the live push buffer, which
-  // is frozen (finished) or empty (upcoming) in those states -- only a
-  // live session gets row 2. F3.
-  describe("transport bar and align button, live-only", () => {
+  // is frozen (finished) or empty (upcoming) in those states. They gate on
+  // `useBoardIsRacing()`, not the session row's status alone: the row can
+  // lag the fold by one lifecycle check, so a race-control status or
+  // leader lap already showing racing has begun renders them regardless of
+  // what the row still says, short of "finished". F3.
+  describe("transport bar and align button, racing gate", () => {
     it("shows the transport bar and align button while the session is live", () => {
       renderWith(makePush());
 
@@ -158,6 +176,10 @@ describe("BoardPage", () => {
       expect(screen.getByRole("button", { name: /Align with my screen/ })).toBeInTheDocument();
     });
 
+    // "finished" wins even with both racing signals present (the default
+    // fixture's race control already reads SESSION STARTED and its leader
+    // is on lap 12): a row that has caught up to the end of the race is
+    // never overridden by a leftover racing signal.
     it("hides the transport bar and align button when the session has finished, and shows the replay banner", () => {
       renderWith(
         makePush({ session_key: "11361" }, { session: { session_key: "11361", name: "Race", country: "Italy", status: "finished" } }),
@@ -168,15 +190,60 @@ describe("BoardPage", () => {
       expect(screen.getByText("This race has finished. Showing its final state.")).toBeInTheDocument();
     });
 
-    it("hides the transport bar when the session is upcoming, and shows the upcoming banner", () => {
+    // The row lags the fold by at most one push (the api-side decision this
+    // web slice depends on): the gate must not wait for the row alone.
+    it("shows the transport bar and align button, and no upcoming banner, when the row is upcoming but race control shows SESSION STARTED", () => {
       renderWith(
         makePush(
           {},
-          { session: { session_key: "11361", name: "Race", country: "Italy", status: "upcoming", date_start: "2026-09-08T12:00:00.000Z" } },
+          {
+            session: { session_key: "11361", name: "Race", country: "Italy", status: "upcoming", date_start: "2026-09-08T12:00:00.000Z" },
+            race_control: { ...NOT_RACING_CONTROL, session_status: "SESSION STARTED" },
+            drivers: {},
+            driver_order: [],
+          },
+        ),
+      );
+
+      expect(screen.getByRole("slider", { name: "Playback position" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Align with my screen/ })).toBeInTheDocument();
+      expect(screen.queryByText(/Race starts/)).not.toBeInTheDocument();
+    });
+
+    it("shows the transport bar and align button, and no upcoming banner, when the row is upcoming but the leader's lap is already 1+", () => {
+      const driver = makeDriver({ driver_number: 1, current_lap: 1 });
+      renderWith(
+        makePush(
+          {},
+          {
+            session: { session_key: "11361", name: "Race", country: "Italy", status: "upcoming", date_start: "2026-09-08T12:00:00.000Z" },
+            race_control: NOT_RACING_CONTROL,
+            drivers: { "1": driver },
+            driver_order: [1],
+          },
+        ),
+      );
+
+      expect(screen.getByRole("slider", { name: "Playback position" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Align with my screen/ })).toBeInTheDocument();
+      expect(screen.queryByText(/Race starts/)).not.toBeInTheDocument();
+    });
+
+    it("hides the transport bar and shows the upcoming banner when the row is upcoming and neither signal says racing has begun", () => {
+      renderWith(
+        makePush(
+          {},
+          {
+            session: { session_key: "11361", name: "Race", country: "Italy", status: "upcoming", date_start: "2026-09-08T12:00:00.000Z" },
+            race_control: NOT_RACING_CONTROL,
+            drivers: {},
+            driver_order: [],
+          },
         ),
       );
 
       expect(screen.queryByRole("slider", { name: "Playback position" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Align with my screen/ })).not.toBeInTheDocument();
       expect(screen.getByText("Race starts 2026-09-08. Timing appears when the session goes live.")).toBeInTheDocument();
     });
 

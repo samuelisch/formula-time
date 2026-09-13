@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { AlignPanel } from "../align/AlignPanel.tsx";
 import { Board } from "../board/Board.tsx";
 import { DriverPanel } from "../board/DriverPanel.tsx";
-import { useBoardSessionMeta, useBoardSessionStatus } from "../board/useBoardState.ts";
+import { useBoardIsRacing, useBoardSessionMeta, useBoardSessionStatus } from "../board/useBoardState.ts";
 import { ConnectionPill } from "../live/ConnectionPill.tsx";
 import { LiveTimelineLoader } from "../live/LiveTimelineLoader.tsx";
 import { useLiveSessionKey, useLiveSessionStatus, type SessionStatusValue } from "../live/selectors.ts";
@@ -74,12 +74,20 @@ function useShouldMountTimelineLoader(sessionKey: number | null, status: Session
 // session key/status (`useLiveSessionKey`/`useLiveSessionStatus`) -- never
 // the *displayed* session, which in timeline mode is the synthesised push
 // and would feed the loader its own output back in.
+//
+// The transport bar and align button gate on `useBoardIsRacing()`, not the
+// session row's status alone: the fold is the authority on whether racing
+// has begun, and the row can lag it by one lifecycle check. The upcoming
+// banner is suppressed under the same condition, since it would otherwise
+// sit above a board that is already live. The finished banner and the
+// timeline-loader mount latch keep their own rules -- a stale row is never
+// the reason a viewer loses the finished/replay signal.
 export function BoardPage() {
   const polls = usePolls();
   const status = useBoardSessionStatus();
   const { sessionKey, session } = useBoardSessionMeta();
   const target = useLiveTimeTarget();
-  const isLive = status === "live";
+  const isRacing = useBoardIsRacing();
 
   const liveSessionKey = useLiveSessionKey();
   const liveSessionStatus = useLiveSessionStatus();
@@ -92,7 +100,7 @@ export function BoardPage() {
           This race has finished. Showing its final state. <Link to={`/races/${sessionKey}`}>Watch the replay</Link>
         </p>
       )}
-      {status === "upcoming" && (
+      {status === "upcoming" && !isRacing && (
         <p className={styles.banner}>Race starts {date(stringField(session ?? {}, "date_start"))}. Timing appears when the session goes live.</p>
       )}
       {shouldMountTimelineLoader && liveSessionKey !== null && (
@@ -104,10 +112,10 @@ export function BoardPage() {
             <>
               <ConnectionPill />
               <PollsButton />
-              {isLive && <AlignPanel />}
+              {isRacing && <AlignPanel />}
             </>
           }
-          transport={isLive ? <TransportBar /> : undefined}
+          transport={isRacing ? <TransportBar /> : undefined}
           side={<DriverPanel />}
         />
       </TimeTargetProvider>
