@@ -1,3 +1,4 @@
+import helmet from "@fastify/helmet";
 import Fastify from "fastify";
 import { describe, expect, test, vi } from "vitest";
 
@@ -208,6 +209,38 @@ describe("liveRoutes plugin", () => {
     const response = await app.inject({ method: "GET", url: "/api/live/snapshot" });
     expect(response.statusCode).toBe(503);
     expect(response.json()).toEqual({ error: "no snapshot yet" });
+
+    await app.close();
+  });
+
+  // Helmet decorates the reply in an `onRequest` hook, which runs before the
+  // handler calls `hijack()` -- so the hijacked SSE head carries the same
+  // security headers as any ordinary reply, via `replyHeaders` (cors.ts).
+  test("the hijacked SSE head carries helmet's security headers", async () => {
+    // Ends the raw response right after joining -- a real socket stays open
+    // for the stream's life, but the test only needs the written head.
+    const fanout: LiveFanout = {
+      join: vi.fn(async (res) => {
+        (res as unknown as { end(): void }).end();
+      }),
+      remove: vi.fn(),
+      snapshotJson: vi.fn(() => null),
+    };
+    const app = Fastify();
+    await app.register(helmet, {
+      contentSecurityPolicy: false,
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+      hsts: { maxAge: 31536000, includeSubDomains: false },
+      frameguard: { action: "deny" },
+    });
+    await app.register(liveRoutes, { prefix: "/api", fanout });
+    await app.ready();
+
+    const response = await app.inject({ method: "GET", url: "/api/live/events" });
+
+    expect(response.headers["strict-transport-security"]).toBe("max-age=31536000");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers["x-frame-options"]).toBe("DENY");
 
     await app.close();
   });
