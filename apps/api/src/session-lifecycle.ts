@@ -6,7 +6,7 @@
 // `health()` are unit-testable with a fake that returns null, without a
 // real Postgres or projector.
 import type { Session } from "@formula-time/db";
-import type { RaceState } from "@formula-time/domain";
+import type { PollPublic, RaceState, StatePush } from "@formula-time/domain";
 
 import type { EventSource } from "./projector/event-source.js";
 import { RaceStateProjector, type ProjectorLog } from "./projector/projector.js";
@@ -102,14 +102,17 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
           // produced this push (the client must then discard its timeline and
           // backfill again), so it is omitted -- rather than sent as `false` --
           // on every ordinary tick.
-          const payload: Record<string, unknown> = {
+          const payload: StatePush = {
             type: "state",
             seq: cursor.toString(),
             sent_at: Date.now(),
             session_key: forSession.sessionKey.toString(),
             total_laps: forSession.totalLaps,
             state,
-            polls: opts.polls.publicPolls(),
+            // PollHooks.publicPolls() stays `unknown[]` (a test fake exercises
+            // tick sequencing with placeholder poll objects, not the real
+            // shape); the real implementation always returns `PollPublic[]`.
+            polls: opts.polls.publicPolls() as PollPublic[],
             events,
           };
           if (rebuilt) {
