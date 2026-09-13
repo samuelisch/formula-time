@@ -35,9 +35,15 @@ fast-forward of `release` to a `main` commit that has already passed CI.
    railway-apply.yml --branch release --limit 1`) — a failed apply fails
    the release. A failed smoke job is red on the commit; it does not roll
    anything back — decide by hand whether to fix forward or roll back
-   (step 5).
+   ("Rolling back", below).
 
-4. Once green, confirm by hand:
+4. If `release.yml`'s `plan` job is red (the live Railway environment has
+   drifted from `.railway/railway.ts`), or a `.railway/**` change landed
+   without a push to `release` firing `railway-apply.yml`'s own trigger,
+   run the manual path instead of pushing again: Actions → Railway config
+   apply → Run workflow → branch `release`, confirm: `apply`.
+
+5. Once green, confirm by hand:
 
    - `https://api-production-8fbf2.up.railway.app/health` — confirm
      `"build"` equals the pushed commit SHA, not just that the response is

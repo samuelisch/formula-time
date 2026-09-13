@@ -71,7 +71,10 @@ Two GitHub Actions workflows apply it, driven by the `railway` CLI via
   comment. Never applies anything.
 - `.github/workflows/railway-apply.yml` — on push to `release` (same path
   filter), applies the plan pinned to the merged PR that last touched
-  `.railway/**`.
+  `.railway/**`. It also carries a manual path for when that push trigger
+  doesn't cover the gap (a stale drifted setting, or the release `plan`
+  job going red): Actions → Railway config apply → Run workflow → branch
+  `release`, confirm: `apply`.
 
 The web bundle is built and hosted by Netlify from `apps/web` on push to
 `release`; deploy previews and branch deploys are off, so a PR no longer
