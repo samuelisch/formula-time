@@ -1,7 +1,7 @@
 // No head polling: the live store's push stream carries the events applied
 // each tick, and this hook backfills once per join then keeps itself
 // current from the stream alone.
-import type { RaceEvent, RaceState } from "@formula-time/domain";
+import type { RaceEvent, RaceState, RawRecord } from "@formula-time/domain";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { useLayoutEffect } from "react";
 import { flushSync } from "react-dom";
@@ -67,6 +67,9 @@ function event(id: string): RaceEvent {
   return { event_id: id, endpoint: "position", source_time: null, payload: { driver_number: 1, position: 1 } };
 }
 
+/** The session row a real live push would carry -- used as the `session` argument every `useSessionTimeline` call needs now. */
+const SESSION_ROW: RawRecord = { session_key: 9999, name: "Race", country: "Italy", status: "live" };
+
 function minimalRaceState(): RaceState {
   return {
     sequence: 0,
@@ -114,7 +117,7 @@ function streamPushWithStatus(seq: string, status: SessionStatus, rebuilt?: bool
 /** Mirrors how a real page composes this hook: `status` comes from the live store itself (like `useSessionStatus()`), so this hook's own store subscriber and the caller's re-render are both driven by the same `set()` call -- the composition the `statusRef` race below depends on. */
 function useHarness(sessionKey: number) {
   const status = useLiveStore((state) => sessionStatusOf(state.live?.state.session) ?? "live") as SessionStatus;
-  return useSessionTimeline(sessionKey, status);
+  return useSessionTimeline(sessionKey, status, SESSION_ROW);
 }
 
 function fullPage(prefix: string, nextSeq: number, status: SessionStatus = "live"): RaceEventsPage {
@@ -175,7 +178,7 @@ describe("useSessionTimeline", () => {
     ]);
     vi.stubGlobal("fetch", fetchStub);
 
-    const { result } = renderHook(() => useSessionTimeline(9999, "live"));
+    const { result } = renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
 
     expect(result.current.loading).toBe(true);
 
@@ -193,6 +196,16 @@ describe("useSessionTimeline", () => {
     expect(result.current.timeline!.events).toHaveLength(3 * PAGE_LIMIT + 2);
   }, 15_000);
 
+  it("builds the timeline from the session row given, unchanged apart from session_key normalised to a string", async () => {
+    const fetchStub = queuedFetch([shortPage([], null)]);
+    vi.stubGlobal("fetch", fetchStub);
+
+    const { result } = renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.timeline!.session).toEqual({ ...SESSION_ROW, session_key: "9999" });
+  });
+
   it("merges the pending list buffered during backfill, deduping the overlap with the last page, in seq order", async () => {
     // The mock's own call is where we simulate a push landing on the live
     // store mid-backfill -- synchronously, before the fetch promise even
@@ -204,7 +217,7 @@ describe("useSessionTimeline", () => {
     });
     vi.stubGlobal("fetch", fetchStub);
 
-    const { result } = renderHook(() => useSessionTimeline(9999, "live"));
+    const { result } = renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -217,7 +230,7 @@ describe("useSessionTimeline", () => {
     const fetchStub = queuedFetch([shortPage([event("e1")], 1)]);
     vi.stubGlobal("fetch", fetchStub);
 
-    const { result } = renderHook(() => useSessionTimeline(9999, "live"));
+    const { result } = renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual(["e1"]);
 
@@ -241,7 +254,7 @@ describe("useSessionTimeline", () => {
     const fetchStub = queuedFetch([shortPage([event("e1")], 1), shortPage([event("r1")], 1)]);
     vi.stubGlobal("fetch", fetchStub);
 
-    const { result } = renderHook(() => useSessionTimeline(9999, "live"));
+    const { result } = renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual(["e1"]);
 
@@ -262,7 +275,7 @@ describe("useSessionTimeline", () => {
     vi.stubGlobal("fetch", fetchStub);
 
     useLiveStore.setState({ connection: "open" });
-    const { result } = renderHook(() => useSessionTimeline(9999, "live"));
+    const { result } = renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual(["e1"]);
 
@@ -327,7 +340,7 @@ describe("useSessionTimeline", () => {
     // process another event), never `useEffect` (deferred, no ordering
     // guarantee against the next SSE-driven `set()`).
     const callsBefore = vi.mocked(useLayoutEffect).mock.calls.length;
-    renderHook(() => useSessionTimeline(9999, "live"));
+    renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
     expect(vi.mocked(useLayoutEffect).mock.calls.length).toBeGreaterThan(callsBefore);
   });
 
@@ -336,7 +349,7 @@ describe("useSessionTimeline", () => {
     const fetchStub = queuedFetch([{ error: 503, message: "down" }, shortPage([event("e1")], 1)]);
     vi.stubGlobal("fetch", fetchStub);
 
-    const { result } = renderHook(() => useSessionTimeline(9999, "live"));
+    const { result } = renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
 
     await vi.waitFor(() => expect(fetchStub).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(result.current.error).not.toBeNull());
@@ -383,7 +396,7 @@ describe("useSessionTimeline", () => {
     const fetchStub = queuedFetch([shortPage([event("e1")], 1)]);
     vi.stubGlobal("fetch", fetchStub);
 
-    const { result } = renderHook(() => useSessionTimeline(9999, "live"));
+    const { result } = renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
 
     // Wait until the pending-merge call (call index 1) is paused mid-flight.
     await waitFor(() => expect(releasePendingMerge).not.toBeNull());
@@ -410,7 +423,7 @@ describe("useSessionTimeline", () => {
     const fetchStub = queuedFetch([shortPage([event("e1")], 1)]);
     vi.stubGlobal("fetch", fetchStub);
 
-    const { result } = renderHook(() => useSessionTimeline(9999, "live"));
+    const { result } = renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual(["e1"]);
 
@@ -445,7 +458,7 @@ describe("useSessionTimeline", () => {
     const fetchStub = queuedFetch([malformedFullPage]);
     vi.stubGlobal("fetch", fetchStub);
 
-    const { result } = renderHook(() => useSessionTimeline(9999, "live"));
+    const { result } = renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
 
     await waitFor(() => expect(result.current.error).not.toBeNull());
     expect(result.current.loading).toBe(false);
