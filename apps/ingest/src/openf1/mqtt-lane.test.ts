@@ -799,6 +799,53 @@ describe("MqttLane.stop()", () => {
     expect(recorded).toHaveLength(1);
   });
 
+  test("a handler that rejects does not make stop() reject; a later message is still processed and logged", async () => {
+    const { connectImpl, clients } = fakeConnect();
+    const auth = fakeAuth();
+    const queue = new EventQueue<QueueItem>();
+    let getNormalizerCalls = 0;
+    const normalizer = new LiveNormalizer();
+    const logs: Array<{ message: string; opts?: { level?: string; fields?: Record<string, unknown> } }> = [];
+    const lane = new MqttLane(queue, {
+      connectImpl,
+      auth,
+      username: "u",
+      // The first call (message A's handleMessage) throws, synchronously
+      // rejecting that call's returned promise; every later call returns
+      // the real, shared normalizer, so message B processes normally.
+      getNormalizer: () => {
+        getNormalizerCalls += 1;
+        if (getNormalizerCalls === 1) throw new Error("normalizer unavailable");
+        return normalizer;
+      },
+      getSessionKey: () => 11361,
+      onLog: (message, opts) => logs.push({ message, opts }),
+    });
+    lane.start();
+    await waitUntil(() => clients.length > 0);
+    const client = clients[0]!;
+    client.emit("connect", { sessionPresent: false });
+
+    const rowA = { session_key: 11361, driver_number: 1, date: "2026-09-06T13:00:00Z" };
+    const rowB = { session_key: 11361, driver_number: 2, date: "2026-09-06T13:00:01Z" };
+    client.emit("message", POSITION_TOPIC, Buffer.from(JSON.stringify(rowA), "utf8"));
+    client.emit("message", POSITION_TOPIC, Buffer.from(JSON.stringify(rowB), "utf8"));
+    await flushMicrotasks();
+
+    // Message B still queued despite message A's handler having rejected.
+    expect(queue.drain(10).some((i) => (i.payload as RawRecord)["driver_number"] === 2)).toBe(true);
+
+    // The rejection is logged as soon as it happens, not saved up for
+    // stop() — a lane can run for a long time between a failure and a
+    // shutdown.
+    const errorLog = logs.find((l) => l.opts?.level === "error" && l.message.includes("normalizer unavailable"));
+    expect(errorLog).toBeDefined();
+    expect(errorLog?.opts?.fields).toEqual({ endpoint: "position" });
+
+    // stop() itself never rejects because of it.
+    await expect(lane.stop()).resolves.toBeUndefined();
+  });
+
   test("stop() prevents any further reconnect (a close firing after stop is a no-op)", async () => {
     const { connectImpl, clients } = fakeConnect();
     const auth = fakeAuth();

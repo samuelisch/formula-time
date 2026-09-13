@@ -235,13 +235,14 @@ export class MqttLane {
   private unjoinedSinceLog = 0;
   private foreignSinceLog = 0;
 
-  // Every `handleMessage()` call still running, keyed by its own promise —
-  // `stop()` awaits these before resolving so a recording write already in
-  // flight lands before the process exits (main.ts's SIGTERM path drains the
-  // writer and calls `process.exit()` right after `stop()` resolves); without
-  // this, a row already queued but not yet written to the jsonl recording
-  // would be silently dropped from it.
-  private readonly inFlightMessages = new Set<Promise<void>>();
+  // Every `handleMessage()` call still running, mapped to the topic it was
+  // handling — `stop()` awaits these before resolving so a recording write
+  // already in flight lands before the process exits (main.ts's SIGTERM path
+  // drains the writer and calls `process.exit()` right after `stop()`
+  // resolves); without this, a row already queued but not yet written to the
+  // jsonl recording would be silently dropped from it. The topic is kept
+  // only so a handler that rejects can be logged with its endpoint.
+  private readonly inFlightMessages = new Map<Promise<void>, string>();
 
   public constructor(
     private readonly queue: EventQueue<QueueItem>,
@@ -296,7 +297,11 @@ export class MqttLane {
    * generation bump above stops a NEW message from starting one, but one
    * already running (its own recording write pending) must still finish
    * before this resolves, or main.ts's drain-then-exit path can beat that
-   * write to disk.
+   * write to disk. `allSettled`, not `all`: one handler rejecting must not
+   * reject `stop()` itself and skip the writer's drain in main.ts — the
+   * message listener's own `.then` already logs a rejection when it
+   * happens (`inFlightMessages`'s doc comment), so this only needs to wait,
+   * never to inspect the outcome itself.
    */
   public async stop(): Promise<void> {
     this.stopped = true;
@@ -307,7 +312,7 @@ export class MqttLane {
     const client = this.client;
     this.client = null;
     if (client) await this.endClient(client);
-    if (this.inFlightMessages.size > 0) await Promise.all(this.inFlightMessages);
+    if (this.inFlightMessages.size > 0) await Promise.allSettled(this.inFlightMessages.keys());
   }
 
   private endClient(client: MqttClientLike): Promise<void> {
@@ -413,17 +418,35 @@ export class MqttLane {
 
     client.on("message", (topic, payload) => {
       if (generation !== this.generation) return;
-      // Fire-and-forget from the event handler's point of view (`handleMessage`
-      // never rejects — its own recording attempt is caught and logged
-      // internally, see `recordRow` below — and `mqtt.js`'s EventEmitter does
-      // not await listener return values anyway; queuing itself still happens
-      // synchronously, before this call returns, since it happens before the
-      // recorder is ever awaited). Tracked in `inFlightMessages` regardless,
-      // so `stop()` can still wait for it.
-      const inFlight = this.handleMessage(topic, payload).finally(() => {
-        this.inFlightMessages.delete(inFlight);
-      });
-      this.inFlightMessages.add(inFlight);
+      // Fire-and-forget from the event handler's point of view (its own
+      // recording attempt is caught and logged internally, see `recordRow`
+      // below, and `mqtt.js`'s EventEmitter does not await listener return
+      // values anyway; queuing itself still happens synchronously, before
+      // this call returns, since it happens before the recorder is ever
+      // awaited) — but still tracked in `inFlightMessages`, keyed by topic,
+      // so `stop()` can wait for one still running. A handler is expected
+      // never to reject (see `recordRow`'s own try/catch); if one somehow
+      // does, it is logged here, at the moment it happens, rather than
+      // saved up for `stop()` — a lane can run for hours between messages
+      // and a call to `stop()`, and a failure must not wait that long to
+      // surface. This also attaches a handler to the promise in the same
+      // synchronous turn it was created, so it is never "unhandled" from
+      // Node's point of view regardless of how long it then sits in
+      // `inFlightMessages` before settling.
+      const inFlight = this.handleMessage(topic, payload);
+      this.inFlightMessages.set(inFlight, topic);
+      void inFlight.then(
+        () => {
+          this.inFlightMessages.delete(inFlight);
+        },
+        (error: unknown) => {
+          this.inFlightMessages.delete(inFlight);
+          this.log(`mqtt: message handler failed: ${error instanceof Error ? error.message : String(error)}`, {
+            level: "error",
+            fields: { endpoint: mqttTopicEndpoint(topic) ?? topic },
+          });
+        },
+      );
     });
 
     client.on("error", (error) => {
