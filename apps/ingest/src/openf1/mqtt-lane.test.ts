@@ -313,6 +313,36 @@ describe("MqttLane: message handling", () => {
     await lane.stop();
   });
 
+  test("a payload with an explicit session_key: null is treated as having no session_key of its own, not as a disagreeing key", async () => {
+    const { connectImpl, clients } = fakeConnect();
+    const auth = fakeAuth();
+    const queue = new EventQueue<QueueItem>();
+    const lane = new MqttLane(queue, {
+      connectImpl,
+      auth,
+      username: "u",
+      getNormalizer: () => new LiveNormalizer(),
+      getSessionKey: () => 11361,
+      onLog: () => {},
+    });
+    lane.start();
+    await waitUntil(() => clients.length > 0);
+    const client = clients[0]!;
+    client.emit("connect", { sessionPresent: false });
+
+    const nullKeyRow = { session_key: null, driver_number: 1, date: "2026-09-06T13:00:00Z" };
+    client.emit("message", POSITION_TOPIC, Buffer.from(JSON.stringify(nullKeyRow), "utf8"));
+
+    const [item] = queue.drain(10);
+    expect(item).toBeDefined();
+    expect(item?.sessionKey).toBe(11361n);
+    const stats = lane.takeStats();
+    expect(stats.foreign).toBe(0);
+    expect(stats.rows).toBe(1);
+
+    await lane.stop();
+  });
+
   test("a message for an unknown (non-named) topic is dropped and counted, never enqueued", async () => {
     const { connectImpl, clients } = fakeConnect();
     const auth = fakeAuth();
