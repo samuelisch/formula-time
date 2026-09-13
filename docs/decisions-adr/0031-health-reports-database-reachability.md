@@ -43,10 +43,10 @@ lag) reached nobody unless someone tailed the log for a rare line.
 ## Consequences
 
 - One lightweight query (`SELECT 1`) every 30 s per api process — ADR-0001
-  invariant 2 ("Postgres is touched per event and per join, never per
-  viewer per tick") permits this: it is a fixed per-process interval, not
-  a per-viewer or per-tick cost, so it does not reintroduce the scaling
-  problem that invariant guards against.
+  invariant 2 ("The database is touched per event (one write) and per join
+  (one read) — never per viewer per tick.") permits this: it is a fixed
+  per-process interval, not a per-viewer or per-tick cost, so it does not
+  reintroduce the scaling problem that invariant guards against.
 - Railway's healthcheck (which polls `/health`) never restarts the api
   purely for a database outage — a dead database degrades reads, it does
   not make the running process itself unhealthy.
