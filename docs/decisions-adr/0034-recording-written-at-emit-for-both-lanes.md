@@ -1,16 +1,18 @@
 # ADR-0034 — The jsonl recording is written at emit time, for both lanes
 
 - **Status:** Accepted
-- **Date:** 2026-09-14
+- **Date:** 2026-09-13
 - **Owner:** Samuel Chan
 - **Supersedes:** nothing
 - **Amends:** ADR-0025 (the Decision section's sentence "the REST lane
   routes its own meetings fetch through the same `onNewRows` →
-  jsonl-recorder path every other endpoint uses" — the meetings row and
-  every other endpoint are now recorded by the shared emit path itself,
-  under the name `onRecorded`, not a REST-lane-only `onNewRows` wrapper);
-  ADR-0007 §4 (names `LIVE_LOG_DIR` as a config seam but says nothing about
-  which lane writes the recording or when — this ADR states that
+  jsonl-recorder path every other endpoint uses" — the meetings row's call
+  site is unchanged, still the REST lane's own helper, outside `emitRows`;
+  only the callback's name changed, from `onNewRows` to `onRecorded`.
+  Every OTHER endpoint now records through the shared `emitRows`/
+  `emitTaggedDriverRows` path itself, not a REST-lane-only wrapper around
+  it); ADR-0007 §4 (names `LIVE_LOG_DIR` as a config seam but says nothing
+  about which lane writes the recording or when — this ADR states that
   mechanism for the first time).
 
 ## Context
