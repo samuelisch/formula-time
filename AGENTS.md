@@ -45,8 +45,10 @@ Read `docs/` before doing anything. What each part holds:
   supersede it. A PreToolUse hook blocks edits to accepted ADRs. Take the
   next free ADR number from `origin/main` and from every open PR
   (`gh pr list --search ADR-00`) when the PR opens, not when the draft
-  starts. A PR that adds a precondition, a config name, or a wire format
-  writes the ADR before asking for review.
+  starts. A PR that adds a precondition, a config name, or a wire format,
+  or changes a behaviour an accepted ADR documents (a `/health` field, a
+  stats line, a workflow's trigger), writes the amending ADR before asking
+  for review, and the brief names that ADR.
 - Tests (ADR-0002): vitest for unit (in-memory fakes) and integration
   (real Postgres in Docker — dedup + vote upsert); Playwright for e2e.
   `typecheck` + unit + the ADR check before a commit (the hook), plus
@@ -65,6 +67,9 @@ Read `docs/` before doing anything. What each part holds:
   drafts are invisible inside git worktrees. Task bodies must be
   self-contained (seam contracts pasted verbatim, ADR-0001 §4).
 - OpenF1 credentials only via the platform secret store; never in the repo.
+- Never run a second OpenF1 REST consumer (the POC recorder, a local ingest
+  on the live source) while the deployed ingest is live: the rate limit is
+  per account and a second consumer trips it on every tier.
 - Use the vocabulary in `docs/HLD.md` §7. "Projector" is the class,
   "authority" is the role. "Lock" is the poll state, not "close".
 - Comments state what the code is for and any invariant it relies on. Never

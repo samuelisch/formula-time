@@ -29,7 +29,9 @@ pnpm db:migrate:deploy
 ```
 
 Terminal 1 — drip a recording as if it were live, 20x speed, starting near
-the green light. The simulator never touches the database, so no export is
+the green light. The speed compresses the source axis, not the wall clock:
+at 20x a "60 s delay" spans 3 real seconds, so any measurement of a time
+window (a buffer bound, a delay, a lock) runs at `--speed 1`. The simulator never touches the database, so no export is
 needed here:
 
 ```
@@ -77,6 +79,19 @@ in any worktree.
 ```
 eval "$(scripts/db-env.sh)"
 curl -s "localhost:${API_PORT}/health"
+```
+
+## Confirm the push follows the session row
+
+The projector must pick up a session row that changes under a running api
+(status, `total_laps`, the meeting name), not only a new session key. With
+the api running, flip the row in this worktree's Postgres and read the
+snapshot within 5 s; the status must follow without a restart:
+
+```
+eval "$(scripts/db-env.sh)"
+docker compose exec postgres psql -U formula -d formula_time -c "UPDATE sessions SET status = 'live' WHERE session_key = 99911353"
+curl -s "localhost:${API_PORT}/api/live/snapshot" | grep -o '"status":"[a-z]*"' | head -1
 ```
 
 Run it twice, a minute apart. It should show the simulator's `session_key`
