@@ -98,9 +98,10 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
 - The delay axis is `Date.parse(state.latest_source_time)`, falling back
   to `sent_at` when null (`axisOf` in `src/live/types.ts`) -- the POC's
   alignment anchor, so an offset measured against the broadcast applies
-  directly. The push ring buffer (`src/live/buffer.ts`) caps at 600
-  entries or 180 000ms of span, whichever hits first, oldest evicted -- that
-  cap is the memory bound. `delayMs === 0` renders the live edge with zero
+  directly. The push ring buffer (`src/live/buffer.ts`) caps at 60
+  entries or 15 000ms of span, whichever hits first, oldest evicted -- it
+  serves only the short rewind; the timeline (`src/replay/timeline.ts`)
+  serves anything older. `delayMs === 0` renders the live edge with zero
   buffer work.
 - `src/live/useLiveStream.ts` is the only place in the app that
   constructs an `EventSource`; it is mounted once in `Shell`. No other
