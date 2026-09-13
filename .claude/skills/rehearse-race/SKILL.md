@@ -13,6 +13,13 @@ touches no network; it impersonates the recorder, not OpenF1.
 Never point any of this at a Railway URL or a deployed `DATABASE_URL`. A
 simulated session must only ever land in the local compose Postgres.
 
+The `--recording` directory can come from any of three sources, all in the
+same layout (`session.json`, `raw/<endpoint>.jsonl`): a live capture under
+`live-logs/<key>`, a POC recording under `recordings/<key>`, or a directory
+`pnpm ingest:dump` (`apps/ingest/src/dump-recording.ts`) produced by reading
+a finished session back out of Postgres — useful when the disk capture
+itself is gone but the database still has the session's rows.
+
 ## Run it
 
 Start Postgres:

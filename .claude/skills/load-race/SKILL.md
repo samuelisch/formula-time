@@ -203,3 +203,33 @@ hand:
 ```
 railway ssh -s ingest -- rm -rf /data/live-logs/<key>
 ```
+
+## Dump a recording
+
+The jsonl recording on the volume is one source of a recording; the
+database is another, and always has every row a finished session ever
+wrote, even when the volume's own copy is gone or was never captured (a
+redeploy between sessions, a disk that was unmounted, or the gap #289
+describes). `apps/ingest/src/dump-recording.ts` (`pnpm ingest:dump`
+locally) reads a session's `sessions` row and every `events` row back out
+of Postgres and writes them in the same recording layout the loader and
+the drip simulator both read. Same reason as the loader: Railway's
+Postgres has no public proxy, so this runs inside the `ingest` container
+too, over `railway ssh`, then streams the directory back as a tarball
+instead of a `railway ssh` file copy:
+
+```
+railway ssh -s ingest -- node apps/ingest/dist/dump-recording.js 11369 --out /tmp/rec
+```
+
+```
+railway ssh -s ingest -- tar -czf - -C /tmp rec > recordings-11369.tgz
+```
+
+`tar -xzf recordings-11369.tgz` extracts it locally as `rec/`, ready for
+`pnpm ingest:load`, `pnpm sim --recording`, or the round-trip check
+`load-recording --replace` gives: the dump reproduces the same `event_id`
+set, in the same `received_at` order, as the session it came from. An
+unknown `session_key` refuses with one log line and writes nothing; an
+`--out` directory already carrying `polls.jsonl` (a real recording) is
+refused the same way unless `--force` is passed.
