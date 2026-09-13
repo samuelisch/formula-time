@@ -163,6 +163,16 @@ export class PollModule {
     return Array.from(this.polls.values(), toPublic);
   }
 
+  // The session row is metadata the fold carries, refreshed on every
+  // lifecycle check: a total_laps that arrives late (the circuits table
+  // case) or a changed meeting name must reach the next applyState() tick
+  // without a restart, so this only replaces the in-memory fields -- no
+  // Postgres write, no event.
+  public updateSession(update: { totalLaps: number | null; meetingName: string | null }): void {
+    if (this.session === null) return;
+    this.session = { ...this.session, totalLaps: update.totalLaps, meetingName: update.meetingName };
+  }
+
   // Two concurrent votes from the same viewer race: Postgres decides which
   // option is stored last by commit order, but without serialization here,
   // poll.votes.set(viewerId, ...) below would run in whichever order the
