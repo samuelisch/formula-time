@@ -34,35 +34,69 @@
   font-variant-numeric: tabular-nums;
 }
 
-.position {
+/* The position cell is a <th scope="row"> (DriverRow.tsx), so it needs its
+   own colour/alignment/number formatting -- the header-row `.table th` rule
+   above would otherwise leave it muted, left-aligned in the header's own
+   weight, and without tabular numerals. Qualified as `.table th.position`,
+   not plain `.position`, because a bare single-class selector has lower
+   specificity than `.table th` and would silently lose to it on the same
+   element. */
+.table th.position {
+  color: var(--color-text);
   font-weight: 700;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Position-change cue: green for a gain, red for a loss, via the existing
-   palette variables (--color-accent is the site's F1 red). */
+/* Visually hidden but still in the accessibility tree -- the standard
+   clip-to-1px technique, not display:none (which screen readers skip). */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Position-change cue: green for a gain, a distinct red token for a loss
+   (--color-loss, not the site's own F1-red --color-accent) -- the arrow
+   glyph and the visually-hidden text next to it (DriverRow.tsx's
+   cueSrText) carry the same meaning too, so it never rides on colour
+   alone. */
 .cueGain {
   color: var(--color-green);
   font-weight: 700;
 }
 
 .cueLoss {
-  color: var(--color-accent);
+  color: var(--color-loss);
   font-weight: 700;
 }
 
 /* The row itself, subtly tinted on a position change -- a second, row-level
    signal alongside the arrow/number cue: a low-opacity wash of the same
-   green/red as the cue cell, not a solid fill, so it reads as secondary to
-   the arrow/number. Values are --color-green (#66d18f) and --color-accent
-   (#e10600) at 12% opacity; CSS custom properties can't be partially
-   applied inside rgba() without wider relative-color-syntax support, so
-   these are spelled out directly rather than computed from the variables. */
+   green/loss-red as the cue cell, not a solid fill, so it reads as
+   secondary to the arrow/number. Values are --color-green (#66d18f) and
+   --color-loss (#ff6b6b) at 12% opacity; CSS custom properties can't be
+   partially applied inside rgba() without wider relative-color-syntax
+   support, so these are spelled out directly rather than computed from the
+   variables. The row fades to this tint and back over `.row`'s own
+   transition below, collapsed to instant under prefers-reduced-motion
+   (index.css). */
 .rowGain {
   background: rgba(102, 209, 143, 0.12);
 }
 
 .rowLoss {
-  background: rgba(225, 6, 0, 0.12);
+  background: rgba(255, 107, 107, 0.12);
+}
+
+.row {
+  transition: background-color 400ms ease-out;
 }
 
 /* Resets a <button> to read as plain text inside the driver cell -- only
@@ -80,8 +114,10 @@
 }
 
 /* A retired (dnf/dns) row: every cell but the position number is muted, so
-   the car's place in the field still reads at full strength. */
-.retired td:not(.position) {
+   the car's place in the field still reads at full strength -- the
+   position cell is a `<th>`, so a plain `td` selector already excludes it
+   without needing a `:not()`. */
+.retired td {
   opacity: 0.55;
 }
 

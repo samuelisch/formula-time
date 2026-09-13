@@ -23,16 +23,17 @@ export function TimingTable() {
       </div>
       <div className={styles.scroll}>
         <table className={styles.table}>
+          <caption className={styles.visuallyHidden}>Timing, {driverCount} drivers</caption>
           <thead>
             <tr>
-              <th>Pos</th>
-              <th aria-label="Position change"></th>
-              <th>Driver</th>
-              <th>Team</th>
-              <th>Gap</th>
-              <th>Interval</th>
-              <th>Tyre</th>
-              <th>Last pit</th>
+              <th scope="col">Pos</th>
+              <th scope="col" aria-label="Position change"></th>
+              <th scope="col">Driver</th>
+              <th scope="col">Team</th>
+              <th scope="col">Gap</th>
+              <th scope="col">Interval</th>
+              <th scope="col">Tyre</th>
+              <th scope="col">Last pit</th>
             </tr>
           </thead>
           <tbody>

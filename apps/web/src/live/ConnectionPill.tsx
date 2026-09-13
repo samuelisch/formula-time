@@ -48,5 +48,9 @@ export function ConnectionPill() {
   if (status !== "live") return null;
 
   const pill = pillState(connection, catchingUp, lastMessageAt, now);
-  return <Pill tone={pill.tone}>{pill.text}</Pill>;
+  return (
+    <span role="status">
+      <Pill tone={pill.tone}>{pill.text}</Pill>
+    </span>
+  );
 }

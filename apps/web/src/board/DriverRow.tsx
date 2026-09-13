@@ -18,6 +18,14 @@ function cueText(delta: number): string {
   return "";
 }
 
+/** "gained 2 places"/"lost 1 place" for a screen reader -- the arrow glyph and the colour both carry this meaning visually, but neither reaches a screen reader on their own; empty for 0. */
+function cueSrText(delta: number): string {
+  if (delta === 0) return "";
+  const places = Math.abs(delta);
+  const verb = delta > 0 ? "gained" : "lost";
+  return `${verb} ${places} place${places === 1 ? "" : "s"}`;
+}
+
 /** `gainClass` for a positive delta, `lossClass` for a negative one, undefined for 0. */
 function deltaClass(delta: number, gainClass: string | undefined, lossClass: string | undefined): string | undefined {
   if (delta > 0) return gainClass;
@@ -65,8 +73,11 @@ export const DriverRow = memo(function DriverRow({ number: driverNumber, delta =
 
   return (
     <tr className={rowClassName}>
-      <td className={styles.position}>{driver.position === null ? "—" : driver.position}</td>
-      <td className={cueClass}>{isRetired ? "" : cueText(delta)}</td>
+      <th scope="row" className={styles.position}>{driver.position === null ? "—" : driver.position}</th>
+      <td className={cueClass}>
+        {isRetired ? "" : cueText(delta)}
+        {!isRetired && delta !== 0 && <span className={styles.visuallyHidden}>{cueSrText(delta)}</span>}
+      </td>
       <td>
         <button
           type="button"
