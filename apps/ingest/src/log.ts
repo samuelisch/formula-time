@@ -35,6 +35,24 @@ export function countFields(message: string): Record<string, number> {
   return fields;
 }
 
+/** Severity of a lane/writer log call — mirrors the pino methods `main.ts` dispatches to. */
+export type LogLevel = "info" | "error";
+
+export interface LogOptions {
+  level?: LogLevel;
+  /** Extra structured fields the caller already knows as numbers/strings, merged alongside whatever `countFields` finds in the message. */
+  fields?: Record<string, number | string>;
+}
+
+/**
+ * The `log(message, opts?)` callback every lane and the writer accept. A
+ * bare `log(message)` keeps defaulting to `level: "info"` with no extra
+ * fields, so every call site written before this option existed stays
+ * valid. `main.ts` wires each instance to `logger[level]({ lane, ...fields,
+ * ...countFields(message) }, message)`.
+ */
+export type LaneLog = (message: string, opts?: LogOptions) => void;
+
 export interface CreateLoggerOptions {
   /** Defaults to `process.env.LOG_LEVEL`, then `"info"`. */
   level?: string;

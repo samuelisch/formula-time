@@ -28,6 +28,7 @@ import mqtt from "mqtt";
 
 import { backoffDelayMs } from "../writer/writer.js";
 import { emitRows } from "./rest-lane.js";
+import type { LaneLog } from "../log.js";
 import type { LiveNormalizer } from "./normalize.js";
 import type { QueueItem, RawRecord } from "./types.js";
 import type { EventQueue } from "../writer/queue.js";
@@ -147,7 +148,7 @@ export interface MqttLaneOptions {
   getNormalizer: () => LiveNormalizer;
   /** Current live session key, or `null` when none is selected — the REST lane is the authority on which session is live. */
   getSessionKey: () => number | null;
-  onLog?: (line: string) => void;
+  onLog?: LaneLog;
   brokerUrl?: string;
   topics?: readonly string[];
   now?: () => number;
@@ -159,8 +160,6 @@ export interface MqttLaneOptions {
   baseBackoffMs?: number;
   /** Reconnect backoff cap (capped at 60 s). */
   maxBackoffMs?: number;
-  /** How often `messages/rows/dropped` is logged (one line per minute). */
-  statsIntervalMs?: number;
   connectTimeoutMs?: number;
 }
 
@@ -168,7 +167,6 @@ const DEFAULT_REFRESH_INTERVAL_MS = 50 * 60_000;
 const DEFAULT_AUTH_RETRY_DELAY_MS = 30_000;
 const DEFAULT_BASE_BACKOFF_MS = 1_000;
 const DEFAULT_MAX_BACKOFF_MS = 60_000;
-const DEFAULT_STATS_INTERVAL_MS = 60_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 
 /**
@@ -183,14 +181,13 @@ export class MqttLane {
   private readonly username: string;
   private readonly getNormalizer: () => LiveNormalizer;
   private readonly getSessionKey: () => number | null;
-  private readonly log: (line: string) => void;
+  private readonly log: LaneLog;
   private readonly brokerUrl: string;
   private readonly topics: readonly string[];
   private readonly refreshIntervalMs: number;
   private readonly authRetryDelayMs: number;
   private readonly baseBackoffMs: number;
   private readonly maxBackoffMs: number;
-  private readonly statsIntervalMs: number;
   private readonly connectTimeoutMs: number;
 
   // Monotonic id per `connectImpl()` call: event listeners close over the id
@@ -204,7 +201,6 @@ export class MqttLane {
   private stopped = true;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
-  private statsTimer: NodeJS.Timeout | null = null;
   private backoffAttempt = 0;
   private pendingAuthRetry = false;
 
@@ -228,13 +224,20 @@ export class MqttLane {
     this.authRetryDelayMs = opts.authRetryDelayMs ?? DEFAULT_AUTH_RETRY_DELAY_MS;
     this.baseBackoffMs = opts.baseBackoffMs ?? DEFAULT_BASE_BACKOFF_MS;
     this.maxBackoffMs = opts.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
-    this.statsIntervalMs = opts.statsIntervalMs ?? DEFAULT_STATS_INTERVAL_MS;
     this.connectTimeoutMs = opts.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
   }
 
-  /** `messages`/`rows`/`dropped` counted since the last per-minute log flush. */
-  public stats(): MqttLaneStats {
-    return { messages: this.messagesSinceLog, rows: this.rowsSinceLog, dropped: this.droppedSinceLog };
+  /** `messages`/`rows`/`dropped` since the previous call, then reset to zero. */
+  public takeStats(): MqttLaneStats {
+    const stats: MqttLaneStats = {
+      messages: this.messagesSinceLog,
+      rows: this.rowsSinceLog,
+      dropped: this.droppedSinceLog,
+    };
+    this.messagesSinceLog = 0;
+    this.rowsSinceLog = 0;
+    this.droppedSinceLog = 0;
+    return stats;
   }
 
   public start(): void {
@@ -245,7 +248,6 @@ export class MqttLane {
       this.log("mqtt: proactive 50-min token refresh, reconnecting");
       void this.reconnectNow();
     }, this.refreshIntervalMs);
-    this.statsTimer = setInterval(() => this.flushStats(), this.statsIntervalMs);
   }
 
   /** SIGTERM path: stop scheduling reconnects/timers and await the client's `end()` before returning. */
@@ -254,8 +256,6 @@ export class MqttLane {
     this.cancelScheduledReconnect();
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     this.refreshTimer = null;
-    if (this.statsTimer) clearInterval(this.statsTimer);
-    this.statsTimer = null;
     this.generation += 1; // orphan the current client's event listeners
     const client = this.client;
     this.client = null;
@@ -341,6 +341,7 @@ export class MqttLane {
       if (this.stopped || attemptGeneration !== this.generation) return;
       this.log(
         `mqtt: token fetch failed, will retry: ${error instanceof Error ? error.message : String(error)}`,
+        { level: "error" },
       );
       this.scheduleReconnect(mqttBackoffDelayMs(this.baseBackoffMs, ++this.backoffAttempt, this.maxBackoffMs));
     }
@@ -358,7 +359,7 @@ export class MqttLane {
       // first — a broker session resume can fire `connect` again without a
       // new client.
       client.subscribe([...this.topics], { qos: 0 }, (error) => {
-        if (error) this.log(`mqtt: subscribe error: ${error.message}`);
+        if (error) this.log(`mqtt: subscribe error: ${error.message}`, { level: "error" });
       });
     });
 
@@ -371,9 +372,9 @@ export class MqttLane {
       if (generation !== this.generation) return;
       if (isAuthRejection(error)) {
         this.pendingAuthRetry = true;
-        this.log(`mqtt: auth rejected: ${error.message}`);
+        this.log(`mqtt: auth rejected: ${error.message}`, { level: "error" });
       } else {
-        this.log(`mqtt: error: ${error.message}`);
+        this.log(`mqtt: error: ${error.message}`, { level: "error" });
       }
     });
 
@@ -423,14 +424,6 @@ export class MqttLane {
     const result = emitRows(this.getNormalizer(), this.queue, endpoint, sessionKey, [stripped]);
     this.droppedSinceLog += result.malformed;
     this.rowsSinceLog += result.newRows;
-  }
-
-  private flushStats(): void {
-    const { messages, rows, dropped } = this.stats();
-    this.messagesSinceLog = 0;
-    this.rowsSinceLog = 0;
-    this.droppedSinceLog = 0;
-    this.log(`mqtt: last ${Math.round(this.statsIntervalMs / 1000)}s messages=${messages} rows=${rows} dropped=${dropped}`);
   }
 }
 

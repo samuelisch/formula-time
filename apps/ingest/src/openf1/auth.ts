@@ -5,6 +5,7 @@
 // (historical use only; live will 401 — see apps/ingest/AGENTS.md "free tier
 // locks out during any live session").
 
+import type { LaneLog } from "../log.js";
 import type { Fetcher, RawRecord } from "./types.js";
 
 export interface Credentials {
@@ -43,10 +44,10 @@ function isTokenResponse(value: unknown): value is TokenResponse {
 // shape {"expires_in":"3600","access_token":"<912 chars>","token_type":
 // "bearer"}. expires_in is a STRING. Parse leniently and fall back to
 // 3600s when it's missing or not a finite positive number.
-function parseExpiresInSeconds(value: unknown): number {
+function parseExpiresInSeconds(value: unknown, log: LaneLog): number {
   const parsed = Number(value);
   if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  console.error(`token: expires_in missing or invalid (${String(value)}), assuming 3600 s`);
+  log(`token: expires_in missing or invalid (${String(value)}), assuming 3600 s`, { level: "error" });
   return 3600;
 }
 
@@ -60,13 +61,15 @@ export class OpenF1Auth {
   private expiresAt = 0;
   private readonly fetchImpl: FetchLike;
   private readonly now: () => number;
+  private readonly log: LaneLog;
 
   public constructor(
     private readonly creds: Credentials | null,
-    opts: { fetchImpl?: FetchLike; now?: () => number } = {},
+    opts: { fetchImpl?: FetchLike; now?: () => number; log?: LaneLog } = {},
   ) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.now = opts.now ?? Date.now;
+    this.log = opts.log ?? ((): void => {});
   }
 
   public async getToken(): Promise<string | null> {
@@ -93,7 +96,7 @@ export class OpenF1Auth {
       throw new Error("OpenF1 token endpoint: unexpected response shape");
     }
     this.token = data.access_token;
-    this.expiresAt = this.now() + parseExpiresInSeconds(data.expires_in) * 1000;
+    this.expiresAt = this.now() + parseExpiresInSeconds(data.expires_in, this.log) * 1000;
     return this.token;
   }
 }

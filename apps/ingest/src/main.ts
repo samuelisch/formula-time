@@ -7,6 +7,7 @@ import { createDb } from "@formula-time/db";
 import { credentialsFromEnv, createOpenF1Fetcher, OpenF1Auth } from "./openf1/auth.js";
 import { loadConfig } from "./config.js";
 import { countFields, logger } from "./log.js";
+import type { LaneLog } from "./log.js";
 import { createFileFetcher } from "./openf1/file-fetcher.js";
 import { MqttLane } from "./openf1/mqtt-lane.js";
 import { JsonlRecorder } from "./openf1/recorder.js";
@@ -19,16 +20,17 @@ import { EventWriter } from "./writer/writer.js";
 const config = loadConfig();
 
 if (!config.databaseUrl) {
-  console.error("ingest: DATABASE_URL is not set; refusing to start (ADR-0004 config seam).");
+  logger.error("ingest: DATABASE_URL is not set; refusing to start (ADR-0004 config seam).");
   process.exit(1);
 }
 
-// Every lane's and the writer's log(message) callback funnels through here,
-// so a log query can filter by lane and by the counts a message reports
-// without parsing `msg` (apps/ingest/src/log.ts).
-function laneLog(lane: "rest" | "mqtt" | "writer"): (message: string) => void {
-  return (message: string): void => {
-    logger.info({ lane, ...countFields(message) }, message);
+// Every lane's and the writer's log(message, opts?) callback funnels
+// through here, so a log query can filter by lane, by level, and by the
+// counts a message reports without parsing `msg` (apps/ingest/src/log.ts).
+function laneLog(lane: "rest" | "mqtt" | "writer"): LaneLog {
+  return (message, opts): void => {
+    const level = opts?.level ?? "info";
+    logger[level]({ lane, ...opts?.fields, ...countFields(message) }, message);
   };
 }
 
@@ -49,7 +51,7 @@ if (config.liveSource === "api") {
       "ingest: OPENF1_LOGIN/OPENF1_PASSWORD not set; running unauthenticated (historical use only, live will 401).",
     );
   }
-  const auth = new OpenF1Auth(creds);
+  const auth = new OpenF1Auth(creds, { log: laneLog("rest") });
   fetcher = createOpenF1Fetcher(auth);
   mqttAuth = auth;
   openf1Login = creds?.login ?? null;
@@ -114,10 +116,39 @@ logger.info(
   `ingest: started (REST lane${mqttLane ? " + MQTT lane" : ""} + writer running; discovering a session)`,
 );
 
+// One line per minute across both lanes and the writer, replacing the MQTT
+// lane's own former per-minute line — each of takeStats() resets its own
+// counters, so a query never double-counts across two lines. `build` is not
+// added here: pino's base fields (service, build) already land on every
+// line, this one included.
+const STATS_INTERVAL_MS = 60_000;
+const statsInterval = setInterval(() => {
+  const rest = restLane.takeStats();
+  const mqtt = mqttLane?.takeStats() ?? { messages: 0, rows: 0, dropped: 0 };
+  const writerStats = writer.takeStats();
+  logger.info(
+    {
+      rest_polls: rest.polls,
+      rest_rows: rest.rows,
+      rest_errors: rest.errors,
+      mqtt_messages: mqtt.messages,
+      mqtt_rows: mqtt.rows,
+      mqtt_dropped: mqtt.dropped,
+      writer_inserted: writerStats.inserted,
+      writer_skipped: writerStats.skipped,
+      writer_failures: writerStats.failures,
+      queue_depth: queue.size,
+      session_key: restLane.status().sessionKey,
+    },
+    "ingest: last 60s",
+  );
+}, STATS_INTERVAL_MS);
+
 let shuttingDown = false;
 process.on("SIGTERM", () => {
   if (shuttingDown) return;
   shuttingDown = true;
+  clearInterval(statsInterval);
   logger.info("ingest: SIGTERM received, draining queue");
   // Wait for any in-flight poll to finish enqueueing (REST) and the MQTT
   // client to end before draining the writer — otherwise a lane still
@@ -133,7 +164,7 @@ process.on("SIGTERM", () => {
       return db.$disconnect();
     })
     .catch((error: unknown) => {
-      console.error(`ingest: error while draining: ${error instanceof Error ? error.message : String(error)}`);
+      logger.error(`ingest: error while draining: ${error instanceof Error ? error.message : String(error)}`);
     })
     .finally(() => {
       process.exit(0);
