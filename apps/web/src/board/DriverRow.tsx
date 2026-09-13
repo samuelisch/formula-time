@@ -65,7 +65,7 @@ export const DriverRow = memo(function DriverRow({ number: driverNumber, delta =
 
   return (
     <tr className={rowClassName}>
-      <td className={styles.position}>{driver.position === null ? "—" : driver.position}</td>
+      <th scope="row" className={styles.position}>{driver.position === null ? "—" : driver.position}</th>
       <td className={cueClass}>{isRetired ? "" : cueText(delta)}</td>
       <td>
         <button

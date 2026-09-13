@@ -34,8 +34,29 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The position cell is a <th scope="row"> (DriverRow.tsx), so it needs its
+   own colour/alignment/number formatting -- the header-row `th` rule above
+   would otherwise leave it muted, left-aligned in the header's own weight,
+   and without tabular numerals. */
 .position {
+  color: var(--color-text);
   font-weight: 700;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Visually hidden but still in the accessibility tree -- the standard
+   clip-to-1px technique, not display:none (which screen readers skip). */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Position-change cue: green for a gain, red for a loss, via the existing

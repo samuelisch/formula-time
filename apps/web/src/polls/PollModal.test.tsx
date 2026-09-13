@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, type RenderResult } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { BoardSourceProvider } from "../board/useBoardState.ts";
@@ -119,6 +120,35 @@ describe("PollModal", () => {
     renderModal([makePoll({ poll_id: "poll-1", status: "resolved", winning_option_ids: ["opt-a"] })]);
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("moves focus to the first option button on open, and returns it to the opener on close", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient();
+
+    function Wrapper({ polls }: { polls: PollModalProps["polls"] }) {
+      return (
+        <QueryClientProvider client={queryClient}>
+          <BoardSourceProvider push={pushFor("session-1")}>
+            <button type="button">Opener</button>
+            <PollModal polls={polls} />
+          </BoardSourceProvider>
+        </QueryClientProvider>
+      );
+    }
+
+    const { rerender } = render(<Wrapper polls={[makePoll({ poll_id: "poll-1", status: "locked" })]} />);
+    await user.click(screen.getByRole("button", { name: "Opener" }));
+    expect(screen.getByRole("button", { name: "Opener" })).toHaveFocus();
+
+    // locked -> open is a real transition, so the modal auto-opens.
+    rerender(<Wrapper polls={[makePoll({ poll_id: "poll-1", status: "open" })]} />);
+
+    expect(screen.getByRole("button", { name: /Verstappen/ })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.getByRole("button", { name: "Opener" })).toHaveFocus();
   });
 
   it("closes on backdrop click and stays closed until the next transition", () => {

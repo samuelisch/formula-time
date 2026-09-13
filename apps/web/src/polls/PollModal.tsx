@@ -15,9 +15,10 @@
 // `polls` is passed in (from `usePolls()` at the mount site in BoardPage)
 // so this stays testable by rerendering with new props rather than driving
 // the live store.
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { useBoardPush } from "../board/useBoardState.ts";
+import { focusableElements, trapTabKey } from "../components/focusTrap.ts";
 import { cx } from "../lib/classNames.ts";
 import { useNarrowViewport } from "../lib/useNarrowViewport.ts";
 import type { PollPublic } from "../live/types.ts";
@@ -43,6 +44,37 @@ export function PollModal({ polls }: PollModalProps) {
   // query alone, so it is one flag driving both the backdrop alignment and
   // the sheet's own shape.
   const narrow = useNarrowViewport();
+
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  // On open: remember what had focus (to give it back on close) and move
+  // focus to the first option button, or the close button when the dialog
+  // holds no other focusable control (e.g. "No polls yet"). On close, the
+  // cleanup below returns focus to the opener -- this runs whether the
+  // dialog closes via Escape, the backdrop, or the close button, since all
+  // three go through the same `isOpen` state.
+  useEffect(() => {
+    if (!isOpen) return;
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const dialog = dialogRef.current;
+    if (dialog !== null) {
+      // The first option (vote) button, not the close button and not a
+      // PollCard's own disclosure trigger (which carries aria-expanded) --
+      // a viewer opens the dialog to vote, so that is what should have
+      // focus first.
+      const firstOption = focusableElements(dialog).find(
+        (element) => element !== closeButtonRef.current && !element.hasAttribute("aria-expanded"),
+      );
+      (firstOption ?? closeButtonRef.current)?.focus();
+    }
+
+    return () => {
+      openerRef.current?.focus();
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     const signature = signatureOf(polls);
@@ -80,13 +112,17 @@ export function PollModal({ polls }: PollModalProps) {
   return (
     <div className={cx(styles.backdrop, narrow && styles.backdropSheet)} onClick={close}>
       <div
+        ref={dialogRef}
         className={cx(styles.dialog, narrow && styles.sheet)}
         role="dialog"
         aria-modal="true"
         aria-label="Race polls"
         onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (dialogRef.current !== null) trapTabKey(dialogRef.current, event);
+        }}
       >
-        <button type="button" className={styles.close} onClick={close} aria-label="Close">
+        <button type="button" ref={closeButtonRef} className={styles.close} onClick={close} aria-label="Close">
           ×
         </button>
         <PollList polls={polls} />
