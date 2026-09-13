@@ -35,10 +35,13 @@
 }
 
 /* The position cell is a <th scope="row"> (DriverRow.tsx), so it needs its
-   own colour/alignment/number formatting -- the header-row `th` rule above
-   would otherwise leave it muted, left-aligned in the header's own weight,
-   and without tabular numerals. */
-.position {
+   own colour/alignment/number formatting -- the header-row `.table th` rule
+   above would otherwise leave it muted, left-aligned in the header's own
+   weight, and without tabular numerals. Qualified as `.table th.position`,
+   not plain `.position`, because a bare single-class selector has lower
+   specificity than `.table th` and would silently lose to it on the same
+   element. */
+.table th.position {
   color: var(--color-text);
   font-weight: 700;
   text-align: left;
@@ -101,8 +104,10 @@
 }
 
 /* A retired (dnf/dns) row: every cell but the position number is muted, so
-   the car's place in the field still reads at full strength. */
-.retired td:not(.position) {
+   the car's place in the field still reads at full strength -- the
+   position cell is a `<th>`, so a plain `td` selector already excludes it
+   without needing a `:not()`. */
+.retired td {
   opacity: 0.55;
 }
 
