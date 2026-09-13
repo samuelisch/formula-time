@@ -57,6 +57,12 @@ fast-forward of `release` to a `main` commit that has already passed CI.
   main commit, for a rollback). Never commit directly on `release`.
 - `release` only ever fast-forwards. If a push is ever rejected as
   non-fast-forward, stop and ask the owner rather than force-pushing.
+- `apps/web/public/_headers`' `Content-Security-Policy` names the api's
+  origin verbatim (`connect-src`) as `https://api-production-8fbf2.up.railway.app`.
+  If a custom domain lands for the api (or for the site, changing what
+  origin the api is reachable from), that `connect-src` value changes with
+  it in the same PR — a stale CSP silently breaks the live push stream and
+  polls on the new domain.
 
 ## Rolling back
 

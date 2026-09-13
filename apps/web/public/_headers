@@ -1,2 +1,14 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# The OCR worker, core and language data are vendored into this origin
+# (scripts/vendor-ocr.mjs), so a policy naming only 'self' plus the api's
+# own origin is possible; 'wasm-unsafe-eval' is what tesseract.js's WASM
+# core needs, 'unsafe-inline' is CSS Modules' injected <style> tags, and
+# blob: is the OCR worker's own worker-thread URL plus getDisplayMedia's
+# media stream.
+/*
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://api-production-8fbf2.up.railway.app; worker-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000
