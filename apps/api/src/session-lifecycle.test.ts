@@ -306,6 +306,50 @@ describe("createSessionLifecycle", () => {
       expect((pushed[1] as { polls: unknown }).polls).toEqual([{ poll_id: "fold-2" }]);
     });
 
+    test("a same-key status flip refreshes the projector's row and total_laps without a restart", async () => {
+      vi.useFakeTimers();
+      const polls = fakePollHooks();
+      const pushed: unknown[] = [];
+      const pusher: Pusher = {
+        push: vi.fn(async (payload: object) => {
+          pushed.push(payload);
+        }),
+        size: () => 0,
+      };
+      const upcoming = fakeSession({ status: "upcoming", totalLaps: null });
+      const live = fakeSession({ status: "live", totalLaps: 66 });
+      const pickSession = vi.fn(async () => upcoming);
+
+      const lifecycle = createSessionLifecycle({
+        db: fakePrisma(),
+        source: fakeEventSource([]),
+        pusher,
+        pickSession,
+        polls,
+        log: noopLog,
+      });
+      projectors.push({ stop: () => lifecycle.stop() });
+
+      await lifecycle.check(); // discovers `upcoming`
+      await vi.advanceTimersByTimeAsync(0); // catch-up tick's push
+
+      expect(pushed).toHaveLength(1);
+      expect((pushed[0] as { total_laps: unknown }).total_laps).toBeNull();
+
+      pickSession.mockImplementation(async () => live);
+      await lifecycle.check(); // same key: status and total_laps changed
+      await vi.advanceTimersByTimeAsync(0); // let updateSession's push land
+
+      expect(pushed).toHaveLength(2);
+      const payload = pushed[1] as {
+        total_laps: unknown;
+        state: { session: { status: unknown } | null };
+      };
+      expect(payload.total_laps).toBe(66);
+      expect(payload.state.session?.status).toBe("live");
+      expect(polls.updateSession).toHaveBeenCalledWith({ totalLaps: 66, meetingName: null });
+    });
+
     test("a status flip to finished calls onSessionFinished exactly once", async () => {
       vi.useFakeTimers();
       const polls = fakePollHooks();

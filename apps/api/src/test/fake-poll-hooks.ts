@@ -40,6 +40,9 @@ export function fakePollHooks(
       calls.push("onSessionFinished");
     }),
     publicPolls: vi.fn(() => [{ poll_id: "fake" }]),
+    updateSession: vi.fn(() => {
+      calls.push("updateSession");
+    }),
     resolveNext(): void {
       const next = pending.shift();
       if (next !== undefined) next();
