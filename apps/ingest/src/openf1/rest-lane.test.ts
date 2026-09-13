@@ -717,6 +717,48 @@ describe("emitTaggedDriverRows", () => {
   });
 });
 
+describe("RestLane: a rejected recording attempt does not stop the lane", () => {
+  test("logged at error level with the endpoint, row stays queued, later polls still run", async () => {
+    const positionRow = { session_key: 11361, driver_number: 1, date: "2026-09-06T13:00:01Z" };
+    const { fetcher } = fakeFetcher({ sessions: [SESSION], drivers: [], position: [positionRow] });
+    const queue = new EventQueue<QueueItem>();
+    const logs: Array<{ message: string; opts?: { level?: string; fields?: Record<string, unknown> } }> = [];
+    const onRecorded = async (): Promise<void> => {
+      throw new Error("disk full");
+    };
+    const lane = new RestLane(queue, {
+      fetcher,
+      now: () => START,
+      onRecorded,
+      onLog: (message, opts) => logs.push({ message, opts }),
+    });
+
+    await lane.discoverOnce(); // selects SESSION; the entry-list fallback's own recording also rejects
+
+    let result = await lane.pollOnce();
+    while (result?.endpoint !== "position") result = await lane.pollOnce();
+
+    // The row is queued regardless of the recording rejection.
+    expect(queue.drain(1000).some((i) => i.endpoint === "position")).toBe(true);
+
+    // Both the entry-list fallback's own recording attempt (endpoint
+    // "drivers", during discoverOnce above) and this poll's (endpoint
+    // "position") rejected and were logged; check the one for this poll.
+    const errorLog = logs.find(
+      (l) =>
+        l.opts?.level === "error" &&
+        l.message.includes("recording failed") &&
+        (l.opts?.fields as { endpoint?: string } | undefined)?.endpoint === "position",
+    );
+    expect(errorLog).toBeDefined();
+    expect(errorLog?.opts?.fields).toEqual({ endpoint: "position" });
+
+    // The lane keeps polling: the next rotation step still runs.
+    const next = await lane.pollOnce();
+    expect(next).not.toBeNull();
+  });
+});
+
 describe("RestLane: fetched entry list at session selection (issue #39)", () => {
   test("zero rows at selection -> static fallback emitted once; the poll loop retries every 5 minutes; fetched rows are emitted once they arrive, with no duplicate fallback", async () => {
     let now = START;
