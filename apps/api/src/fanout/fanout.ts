@@ -94,8 +94,11 @@ export class Fanout {
   private readonly deflater: DeflateRaw = createDeflateRaw();
 
   // Every call that feeds the shared deflater (a push, a join's catching-up
-  // frame, a heartbeat) is chained through this promise so only one write +
-  // full-flush is ever in flight -- the deflater is one stateful stream.
+  // frame) is chained through this promise so only one write + full-flush
+  // is ever in flight -- the deflater is one stateful stream. A heartbeat's
+  // WRITE is chained through it too (for socket-write ordering against an
+  // in-flight push), even once its bytes are cached and no longer feed the
+  // deflater itself.
   private deflateChain: Promise<unknown> = Promise.resolve();
 
   // `latest` per format (ADR point 5's implementation note): the state
@@ -138,27 +141,36 @@ export class Fanout {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   // The heartbeat frame's gzip bytes, compressed once, at construction,
-  // and reused forever after. `deflate()` writes through Z_FULL_FLUSH (see
-  // its own comment), so each call's result is one independently
-  // decodable raw-deflate block -- it carries no dependency on any later
-  // write to the shared stream. `HEARTBEAT_FRAME` is a constant, so that
-  // block is the same bytes every time; computing it once here skips
-  // writing to the shared deflater (and the awaited round trip through
-  // it) on every later heartbeat, and replaying the cached block
-  // mid-stream is exactly as valid as deflating it fresh at that point
-  // would be.
-  private readonly heartbeatGzPromise: Promise<Buffer>;
+  // and reused forever after a successful compute. `deflate()` writes
+  // through Z_FULL_FLUSH (see its own comment), so each call's result is
+  // one independently decodable raw-deflate block -- it carries no
+  // dependency on any later write to the shared stream. `HEARTBEAT_FRAME`
+  // is a constant, so that block is the same bytes every time; computing
+  // it once here skips writing to the shared deflater (and the awaited
+  // round trip through it) on every later heartbeat, and replaying the
+  // cached block mid-stream is exactly as valid as deflating it fresh at
+  // that point would be. A `Fanout` lives for one whole race, not one
+  // connection, so a rejected promise here must not become a permanent
+  // heartbeat outage (ADR-0001: the heartbeat is load-bearing) --
+  // maybeSendHeartbeat re-arms this field on a failure, so only a
+  // transient deflate error is ever cached, never a rejection.
+  private heartbeatGzPromise: Promise<Buffer>;
 
   public constructor(opts: { log?: FanoutLog } = {}) {
     this.log = opts.log ?? (() => {});
-    this.heartbeatGzPromise = this.deflate(HEARTBEAT_FRAME);
-    // Nothing awaits this promise until the first heartbeat actually
-    // fires, which can be seconds away -- attach a no-op handler now so a
-    // construction-time deflate failure can't trip Node's
-    // unhandled-rejection detector before then. The real handling (log,
-    // skip this heartbeat) still happens in maybeSendHeartbeat below,
-    // against this same promise.
-    this.heartbeatGzPromise.catch(() => {});
+    this.heartbeatGzPromise = this.armHeartbeatGz();
+  }
+
+  /** Starts one deflate of the heartbeat frame and returns its promise.
+   * Nothing awaits the returned promise until a heartbeat actually fires,
+   * which can be seconds away -- attach a no-op handler now so a failure
+   * can't trip Node's unhandled-rejection detector before then. The real
+   * handling (log, skip, re-arm) happens in maybeSendHeartbeat, against
+   * this same promise. */
+  private armHeartbeatGz(): Promise<Buffer> {
+    const promise = this.deflate(HEARTBEAT_FRAME);
+    promise.catch(() => {});
+    return promise;
   }
 
   /**
@@ -300,12 +312,15 @@ export class Fanout {
       } catch (err) {
         // Called through `void this.maybeSendHeartbeat()` on a bare interval
         // timer with no catch of its own -- a deflate failure here must
-        // not reject out of this method. Skip this heartbeat; the cached
-        // promise stays rejected, so every later heartbeat logs the same
-        // way rather than retrying a deflate that already failed once.
+        // not reject out of this method. Skip this heartbeat, and re-arm:
+        // a `Fanout` lives for a whole race, so caching this rejection
+        // forever would turn one transient deflate error into a permanent
+        // heartbeat outage. The next heartbeat gets a fresh attempt; only
+        // a success is ever cached long-term.
         this.log("deflate failed, skipping this heartbeat", {
           error: err instanceof Error ? err.message : String(err),
         });
+        this.heartbeatGzPromise = this.armHeartbeatGz();
         return;
       }
       // Format-agnostic: the heartbeat is a comment frame, not a push:
