@@ -1,4 +1,4 @@
-# ADR-0027 — Manual Railway apply uses the CLI directly, not railwayapp/config
+# ADR-0028 — Manual Railway apply uses the CLI directly, not railwayapp/config
 
 - **Status:** Proposed (accepted when this PR merges)
 - **Date:** 2026-09-13
