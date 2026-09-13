@@ -81,10 +81,10 @@ const lifecycle = createSessionLifecycle({
 });
 
 // /health stays at the root: it is the platform's probe (Railway
-// healthcheck, .railway/railway.ts), not a client route. `ok` stays true
-// even when `db` is "unreachable" as long as the projector holds a fold --
-// a dead database degrades reads, it does not make the running process
-// unhealthy.
+// healthcheck, .railway/railway.ts), not a client route. `ok` is always
+// true while this process is serving; `db` is informational only -- a
+// dead database degrades reads, it does not make the running process
+// unhealthy, so it never flips `ok`.
 app.get("/health", async () => healthWithBuild(lifecycle.health(), dbProbe.status()));
 
 // Every client-facing route lives under /api (owner decision) -- the

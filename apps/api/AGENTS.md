@@ -129,10 +129,10 @@ viewer, which the fan-out design forbids.
   `release.yml`'s smoke job polls this to prove a release actually
   redeployed the new build, not the old one. It also carries `db`: `"ok"` or
   `"unreachable"`, a cached `SELECT 1` result refreshed every 30 s
-  (`health.ts`'s `createDbProbe`), never run per request. `ok` at the top
-  level stays `true` even when `db` is `"unreachable"`, as long as the
-  projector still holds a fold — a dead database degrades reads, it does
-  not make the running process unhealthy.
+  (`health.ts`'s `createDbProbe`), never run per request. `ok` is always
+  `true` while the process is serving; `db` is informational only — a dead
+  database degrades reads, it does not make the running process unhealthy,
+  so it never flips `ok`.
 - Every 60 s the api logs one structured line, `"api: last 60s"`, with
   fields `viewers`, `delta_viewers`, `pushes`, `state_bytes_gz` (summed),
   `delta_bytes_gz` (summed), `slow_drops`, `cursor`, `caught_up`,
