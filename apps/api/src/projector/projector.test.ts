@@ -140,6 +140,23 @@ describe("RaceStateProjector", () => {
     expect(session?.["location"]).toBeNull();
   });
 
+  test("updateSession replaces state.session and publishes once with no events", async () => {
+    const source = new FakeSource([], []);
+    const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }));
+
+    const seen: Array<{ events: RaceEvent[]; rebuilt: boolean }> = [];
+    projector.subscribe((_state, _cursor, events, rebuilt) => seen.push({ events, rebuilt }));
+
+    const live: Session = { ...SESSION, status: "live", totalLaps: 58 };
+    projector.updateSession(live);
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.events).toEqual([]);
+    expect(seen[0]?.rebuilt).toBe(false);
+    expect(projector.snapshot().session).toMatchObject({ status: "live", total_laps: 58 });
+    expect(projector.currentSession()).toEqual(live);
+  });
+
   test("the first (just-caught-up) tick publishes events: [] even though it applied a historical backlog (issue #114, review round 1)", async () => {
     // A brand new projector's first tick re-folds cursor 0's entire
     // backlog -- structurally the same as a rebuild (HLD §7 "Fold"), not
