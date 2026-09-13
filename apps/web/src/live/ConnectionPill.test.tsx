@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { emptyBuffer } from "./buffer.ts";
 import { useLiveStore } from "./store.ts";
@@ -145,5 +145,60 @@ describe("ConnectionPill", () => {
     render(<ConnectionPill />);
     expect(screen.getByText(/Live · last update \d+s ago/)).toBeInTheDocument();
     expect(pillToneOf(/Live · last update \d+s ago/)).toBe("live");
+  });
+
+  // The visible pill ticks once a second so "last update Ns ago" keeps
+  // advancing; a screen reader must not re-announce every one of those
+  // ticks, only a real change in connection state -- so the role="status"
+  // region's accessible name (an explicit aria-label, not the ticking text
+  // content) has to stay put across ticks.
+  describe("accessible name stability", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("keeps the announced name unchanged across ticks that only advance the quiet-feed seconds", () => {
+      vi.useFakeTimers();
+      const start = Date.now();
+      resetStore({
+        connection: "open",
+        lastMessageAt: start - 6_000,
+        displayed: displayedWithSession({ status: "live" }),
+      });
+      render(<ConnectionPill />);
+
+      const status = screen.getByRole("status");
+      const nameBefore = status.getAttribute("aria-label");
+      expect(nameBefore).toBe("Live · quiet feed");
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      // The visible seconds count keeps advancing, but the announced name does not.
+      expect(screen.getByText(/Live · last update \d+s ago/)).toBeInTheDocument();
+      expect(status.getAttribute("aria-label")).toBe(nameBefore);
+    });
+
+    it("changes the announced name as the connection moves from connecting to open to reconnecting", () => {
+      resetStore({ connection: "connecting", displayed: displayedWithSession({ status: "live" }) });
+      const { rerender } = render(<ConnectionPill />);
+      const connecting = screen.getByRole("status").getAttribute("aria-label");
+
+      resetStore({ connection: "open", lastMessageAt: Date.now(), displayed: displayedWithSession({ status: "live" }) });
+      rerender(<ConnectionPill />);
+      const open = screen.getByRole("status").getAttribute("aria-label");
+
+      resetStore({ connection: "reconnecting", displayed: displayedWithSession({ status: "live" }) });
+      rerender(<ConnectionPill />);
+      const reconnecting = screen.getByRole("status").getAttribute("aria-label");
+
+      expect(connecting).not.toBe(open);
+      expect(open).not.toBe(reconnecting);
+      expect(connecting).not.toBe(reconnecting);
+    });
   });
 });
