@@ -36,9 +36,14 @@ One process holding:
   every 200th push. Identical bytes to every socket of the same format. A
   vote never triggers a push. Every push, `state` or `delta` alike, also
   carries `events` (the `RaceEvent` rows the projector applied that tick,
-  `[]` on a catch-up or rebuild tick) and, only on a rebuild's push,
-  `rebuilt: true` (ADR-0014) — a client folds them into its own deep-rewind
-  timeline; the fan-out itself does not interpret either field.
+  `[]` on a catch-up or rebuild tick) and, on a rebuild's push or a push
+  rejected upstream of the fan-out, `rebuilt: true` (ADR-0014, ADR-0032) —
+  a client folds `events` into its own deep-rewind timeline. The fan-out
+  does not interpret `events`, but it does interpret `rebuilt`: a deflate
+  error skips a tick's frame entirely (that tick's `events` reach no
+  client), so the fan-out remembers the skip and forces the next frame it
+  actually delivers to be a full `state` push carrying `rebuilt: true`,
+  overriding whatever the caller set, on every socket format.
 - **The SSE route handler** — attaches the socket to the fan-out for
   whichever session the projector currently folds (live, the next
   upcoming, or, with neither, the most recent finished one, per

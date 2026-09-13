@@ -56,6 +56,30 @@ function failNthDeflateWrite(fanout: Fanout, n: number): void {
   });
 }
 
+/** Fails the one deflate write whose buffer contains `marker` (matched
+ * once, on first occurrence), rather than counting raw write() calls --
+ * a Node major version can differ in how many internal write() calls one
+ * logical deflate + full-flush produces (see `failNthDeflateWrite`'s own
+ * comment on `flush()`'s extra internal call), which makes an ordinal
+ * count fragile across a sequence of several pushes. Matching on the
+ * pushed payload's own content instead keeps the test stable regardless
+ * of that internal call count. */
+function failDeflateWriteContaining(fanout: Fanout, marker: string): void {
+  const deflater = (fanout as unknown as { deflater: { write: (...args: unknown[]) => boolean } }).deflater;
+  const originalWrite = deflater.write.bind(deflater);
+  let failed = false;
+  vi.spyOn(deflater, "write").mockImplementation((...args: unknown[]) => {
+    const buf = args[0];
+    if (!failed && buf instanceof Buffer && buf.toString("utf8").includes(marker)) {
+      failed = true;
+      const cb = args.find((a): a is (err?: Error) => void => typeof a === "function");
+      cb?.(new Error("deflate write failed"));
+      return true;
+    }
+    return originalWrite(...(args as [Buffer, ((err?: Error) => void)?]));
+  });
+}
+
 describe("Fanout", () => {
   // A prototype-level spy (used below to observe the constructor's own
   // heartbeat deflate) outlives the test that installs it unless
@@ -119,7 +143,7 @@ describe("Fanout", () => {
     expect(fine.destroyed).toBe(false);
   });
 
-  test("a deflate write error on one frame is skipped for that tick; the next push is delivered normally", async () => {
+  test("a deflate write error skips that tick's frame; the next delivered push is forced to carry rebuilt: true, then a later push is normal again", async () => {
     const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
     const fanout = new Fanout({ log: (msg, fields) => logs.push({ msg, fields }) });
     await readyForTest(fanout);
@@ -129,14 +153,18 @@ describe("Fanout", () => {
     failNthDeflateWrite(fanout, 1); // the state frame's deflate write, inside push #1
 
     await fanout.push({ n: 1 }); // this tick's deflate write fails: must not reject
-    await fanout.push({ n: 2 }); // next tick: delivered normally
+    await fanout.push({ n: 2 }); // next delivered push: forced to a full state push, rebuilt: true
+    await fanout.push({ n: 3 }); // the push after that: normal again
 
     const delivered = res.chunks
       .map((chunk) => chunk.toString("utf8"))
       .filter((frame) => frame.startsWith("event: state"))
-      .map((frame) => JSON.parse(frame.split("data: ")[1] ?? "{}") as { n: number });
+      .map((frame) => JSON.parse(frame.split("data: ")[1] ?? "{}") as { n: number; rebuilt?: boolean });
 
-    expect(delivered).toEqual([{ n: 2 }]);
+    expect(delivered).toEqual([
+      { n: 2, rebuilt: true },
+      { n: 3 },
+    ]);
     expect(logs.some((l) => l.msg.includes("deflate"))).toBe(true);
   });
 
@@ -291,6 +319,28 @@ describe("Fanout", () => {
       .map((chunk) => chunk.toString("utf8"))
       .filter((frame) => frame.startsWith("event: state"));
     expect(delivered).toHaveLength(1);
+  });
+
+  test("a deflate error on one push forces the next delivered push to be a full state push carrying rebuilt: true on a delta socket too", async () => {
+    const fanout = new Fanout({ log: () => {} });
+    const res = new FakeRes();
+    await fanout.join(res, "plain", "delta"); // no push yet: catching_up frame, no deflate call consumed
+
+    failDeflateWriteContaining(fanout, '"seq":"2"'); // frame N's state deflate write fails
+    await fanout.push(statePush(2, raceState({ sequence: 2 }))); // frame N: skipped entirely
+    await fanout.push(statePush(3, raceState({ sequence: 3 }))); // frame N+1: forced full state, rebuilt: true
+    await fanout.push(statePush(4, raceState({ sequence: 4 }))); // frame N+2: normal delta again
+
+    const delivered = frames(res).filter((f) => f.event !== "status") as Array<{
+      event: string;
+      data: { seq: string; rebuilt?: boolean };
+    }>;
+    // frame N never reached this socket at all.
+    expect(delivered.map((d) => d.data.seq)).toEqual(["3", "4"]);
+    expect(delivered[0]?.event).toBe("state");
+    expect(delivered[0]?.data.rebuilt).toBe(true);
+    expect(delivered[1]?.event).toBe("delta");
+    expect(delivered[1]?.data.rebuilt).toBeUndefined();
   });
 
   test("overlapping pushes coalesce to the newest payload; intermediate ones are dropped", async () => {

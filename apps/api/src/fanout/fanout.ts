@@ -129,6 +129,15 @@ export class Fanout {
   private pendingPayload: object | null = null;
   private hasPending = false;
 
+  // Set when a deflate write error (below) skips a tick's frame entirely --
+  // that tick's `events` reach no connected client. The next frame this
+  // class actually delivers is forced to be a full `state` push carrying
+  // `rebuilt: true`, on every socket format, so every connected client
+  // discards its timeline and backfills again -- the same signal a
+  // reconnecting client already gets. Cleared once that forced push is
+  // delivered; left set if it, too, fails to deflate.
+  private skippedSinceLastDelivery = false;
+
   // The stats line's counters: each counts what happened since the last
   // statsSnapshot() call, which reads and zeroes all four in one step -- a
   // push in flight while a snapshot is taken lands in the next window,
@@ -334,7 +343,13 @@ export class Fanout {
   }
 
   private async deliver(payload: object): Promise<void> {
-    const json = JSON.stringify(payload);
+    // A prior tick's frame was skipped entirely (below): force this one to
+    // be a full state push carrying `rebuilt: true`, overriding whatever
+    // the source payload set, so a client that missed the skipped tick's
+    // `events` discards its timeline and backfills again.
+    const forceRebuild = this.skippedSinceLastDelivery;
+    const outgoing = forceRebuild ? { ...payload, rebuilt: true } : payload;
+    const json = JSON.stringify(outgoing);
     const statePlain = Buffer.from(`event: state\ndata: ${json}\n\n`);
     let stateGz: Buffer;
     try {
@@ -343,10 +358,13 @@ export class Fanout {
       // A deflate write error on this frame (the shared deflater rejecting
       // one write) must not reject the push -- push()'s caller chains
       // straight into an unhandled-rejection path. Log and skip this
-      // tick's frame; the next push starts a fresh deflate call.
+      // tick's frame; the next push starts a fresh deflate call. Leaves
+      // `skippedSinceLastDelivery` set (already true, or newly so) so the
+      // next delivered push still carries the forced rebuild.
       this.log("deflate failed, skipping this push", {
         error: err instanceof Error ? err.message : String(err),
       });
+      this.skippedSinceLastDelivery = true;
       return;
     }
     const stateFrame: Frame = { plain: statePlain, gz: stateGz };
@@ -355,22 +373,37 @@ export class Fanout {
     this.pushesSinceLog += 1;
     this.stateBytesGzSinceLog += stateGz.length;
 
-    const deltaFrame = await this.buildDeltaFrame(payload);
+    // A forced rebuild is delivered as a full state push to every socket,
+    // never a delta. `diffState` is a full structural diff between
+    // `prevState` and the current state, so a delta's `patch` would in
+    // fact already span the skipped tick's changes correctly -- what a
+    // patch cannot carry back is the skipped tick's own `events` rows
+    // (the discrete applied-event log, not derivable from a before/after
+    // state diff), which is the actual reason this must be `rebuilt:
+    // true` at all. Forcing the full state frame here simply reuses the
+    // same fallback path the keyframe mechanism already takes
+    // (`buildDeltaFrame` returning `null`), so every socket format gets
+    // identical bytes for this one tick.
+    const deltaFrame = forceRebuild ? null : await this.buildDeltaFrame(outgoing);
     this.latestDelta = deltaFrame ?? stateFrame;
     // Only a real delta frame counts here -- when buildDeltaFrame falls
     // back to null (a keyframe tick, the first push after a delta socket
-    // joins, or a failed diff) `latestDelta` is `stateFrame` again, whose
-    // bytes are already counted in `state_bytes_gz` above.
+    // joins, a failed diff, or a forced rebuild) `latestDelta` is
+    // `stateFrame` again, whose bytes are already counted in
+    // `state_bytes_gz` above.
     if (deltaFrame !== null) {
       this.deltaBytesGzSinceLog += deltaFrame.gz.length;
     }
 
     this.writePush(stateFrame, this.latestDelta);
     this.lastActivityAt = Date.now();
+    if (forceRebuild) {
+      this.skippedSinceLastDelivery = false;
+    }
 
-    if (isStateLike(payload)) {
-      this.prevState = payload.state as RaceState;
-      this.prevSeq = String(payload.seq);
+    if (isStateLike(outgoing)) {
+      this.prevState = outgoing.state as RaceState;
+      this.prevSeq = String(outgoing.seq);
     }
   }
 

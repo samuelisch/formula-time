@@ -30,8 +30,12 @@ export interface StatePush {
   events?: RaceEvent[];
   /**
    * Set when the server rebuilt `RaceState` from the fold after a
-   * late-commit alarm, or the client's own delta-stream gap detection
-   * marks the push that resolves it -- both mean the same thing to a
+   * late-commit alarm; or a deflate error made the fan-out skip a frame,
+   * so the next push it actually delivers carries this instead (that
+   * skipped tick's `events` reached no one); or a push was rejected before
+   * it ever reached the fan-out, so the next push built carries this for
+   * the same reason; or the client's own delta-stream gap detection marks
+   * the push that resolves it -- all four mean the same thing to a
    * client's deep-rewind timeline: discard it and re-backfill.
    */
   rebuilt?: boolean;

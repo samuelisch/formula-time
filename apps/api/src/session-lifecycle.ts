@@ -91,6 +91,20 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
   }
 
   function wireProjector(p: RaceStateProjector, forSession: Session): void {
+    // A rejected push (below) means this class cannot know whether any
+    // client actually saw that tick's events -- the same situation as a
+    // fan-out-level skipped frame. Written only in the .catch() below, and
+    // consumed (read, then cleared) only where the next payload is built --
+    // never reset anywhere else. Ticks run on a fixed interval regardless
+    // of whether the previous tick's push has settled, so if push N is
+    // still in flight when N+1's payload is built, N+1 goes out without
+    // `rebuilt` and N's rejection is only observed afterward: the
+    // guarantee is that the first payload built once the rejection *is*
+    // observed carries `rebuilt: true` -- N+2 at the latest (the tick
+    // interval vastly exceeds a promise settling), never later -- and no
+    // payload built after that point goes out without it.
+    let skippedSinceLastPush = false;
+
     p.subscribe((state, cursor, events, rebuilt) => {
       // The poll module folds from the same authority state before the one
       // serialize: a push must never carry a stale lock. onState() only
@@ -103,10 +117,13 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
           // `events` is the RaceEvent rows the projector applied this tick, in
           // seq order (`[]` when none) -- a client folds them into its own
           // deep-rewind timeline rather than the api building one server-side.
-          // `rebuilt` rides along only when the late-commit detector's rebuild
-          // produced this push (the client must then discard its timeline and
-          // backfill again), so it is omitted -- rather than sent as `false` --
-          // on every ordinary tick.
+          // `rebuilt` rides along when the late-commit detector's rebuild
+          // produced this push, or this projector's previous push was
+          // rejected or skipped by the fan-out (a deflate error, e.g.) --
+          // in either case the client must discard its timeline and
+          // backfill again, since a tick's events may have reached no one.
+          // It is omitted -- rather than sent as `false` -- on every
+          // ordinary tick.
           const payload: StatePush = {
             type: "state",
             seq: cursor.toString(),
@@ -120,9 +137,10 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
             polls: opts.polls.publicPolls() as PollPublic[],
             events,
           };
-          if (rebuilt) {
+          if (rebuilt || skippedSinceLastPush) {
             payload.rebuilt = true;
           }
+          skippedSinceLastPush = false;
           return opts.pusher.push(payload);
         })
         .catch((err) => {
@@ -130,7 +148,10 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
           // mid-write) must never reach an unhandled rejection: on Node 24
           // that kills the process. The next tick pushes the next state;
           // the socket that caused the failure is already dropped by the
-          // fan-out's own write loop.
+          // fan-out's own write loop. This tick's events reached no
+          // client, so the next push actually attempted is marked
+          // rebuilt: true above.
+          skippedSinceLastPush = true;
           const message = err instanceof Error ? err.message : String(err);
           opts.log("push failed", { level: "error", cursor: cursor.toString(), error: message });
         });
