@@ -7,6 +7,7 @@
 
 import type { Prisma } from "@formula-time/db";
 
+import type { LaneLog } from "../log.js";
 import type { QueueItem } from "../openf1/types.js";
 import type { EventQueue } from "./queue.js";
 
@@ -31,6 +32,13 @@ export interface DrainResult {
   skipped: number;
 }
 
+/** Counters `takeStats()` returns and resets — feeds `main.ts`'s per-minute `ingest: last 60s` line. */
+export interface WriterStats {
+  inserted: number;
+  skipped: number;
+  failures: number;
+}
+
 const DEFAULT_BATCH_SIZE = 100;
 
 /**
@@ -48,7 +56,12 @@ export class EventWriter {
   // Count-carrying lines route through here (main.ts wires it to the
   // structured logger with lane="writer"); no-op when the caller doesn't
   // care, so tests aren't forced to supply one.
-  private readonly log: (message: string) => void;
+  private readonly log: LaneLog;
+  // Inserted/skipped/failures since the last takeStats() call — feeds
+  // main.ts's per-minute composed line; reset on read, not on every batch.
+  private statsInserted = 0;
+  private statsSkipped = 0;
+  private statsFailures = 0;
   private stopped = false;
   private timer: NodeJS.Timeout | null = null;
   // Tracks the drain currently in flight (awaiting `db.event.createMany`) so
@@ -62,10 +75,23 @@ export class EventWriter {
   public constructor(
     private readonly db: EventWriterDb,
     private readonly queue: EventQueue<QueueItem>,
-    opts: { batchSize?: number; log?: (message: string) => void } = {},
+    opts: { batchSize?: number; log?: LaneLog } = {},
   ) {
     this.batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
     this.log = opts.log ?? ((): void => {});
+  }
+
+  /** Inserted/skipped/failures since the previous call, then reset to zero. */
+  public takeStats(): WriterStats {
+    const stats: WriterStats = {
+      inserted: this.statsInserted,
+      skipped: this.statsSkipped,
+      failures: this.statsFailures,
+    };
+    this.statsInserted = 0;
+    this.statsSkipped = 0;
+    this.statsFailures = 0;
+    return stats;
   }
 
   /**
@@ -81,7 +107,10 @@ export class EventWriter {
     // that once per batch rather than losing rows silently.
     const dropped = this.queue.takeDropped();
     if (dropped > 0) {
-      console.error(`writer: queue at capacity, dropped ${dropped} rows since the last batch`);
+      this.log(`writer: queue at capacity, dropped ${dropped} rows since the last batch`, {
+        level: "error",
+        fields: { dropped },
+      });
     }
     const batch = this.queue.drain(this.batchSize);
     if (batch.length === 0) return null;
@@ -97,11 +126,15 @@ export class EventWriter {
     }));
     try {
       const result = await this.db.event.createMany({ data, skipDuplicates: true });
+      this.statsInserted += result.count;
+      this.statsSkipped += batch.length - result.count;
       return { inserted: result.count, skipped: batch.length - result.count };
     } catch (error) {
       this.queue.requeueFront(batch);
-      console.error(
+      this.statsFailures += 1;
+      this.log(
         `writer: batch of ${batch.length} failed, requeued: ${error instanceof Error ? error.message : String(error)}`,
+        { level: "error", fields: { failures: 1 } },
       );
       throw error;
     }
@@ -128,8 +161,9 @@ export class EventWriter {
       } catch {
         consecutiveFailures += 1;
         if (consecutiveFailures >= EventWriter.MAX_CONSECUTIVE_FAILURES) {
-          console.error(
+          this.log(
             `writer: giving up after ${consecutiveFailures} consecutive failures, dropped=${this.queue.size}`,
+            { level: "error" },
           );
           return { inserted, skipped };
         }
@@ -171,9 +205,9 @@ export class EventWriter {
           // and requeued the batch at the front; the next tick retries it,
           // after backing off, at a delay based on the count below.
           this.consecutiveRunFailures += 1;
-          console.error(
-            `writer: ${this.consecutiveRunFailures} consecutive failures, queue depth=${this.queue.size}`,
-          );
+          this.log(`writer: ${this.consecutiveRunFailures} consecutive failures, queue depth=${this.queue.size}`, {
+            level: "error",
+          });
           return null;
         })
         .finally(() => {

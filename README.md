@@ -61,7 +61,12 @@ three services — `api` (builds from the Dockerfile, runs
 build, starts `node apps/ingest/dist/main.js` directly, no pre-deploy step).
 Both read their source from the `release` branch. The Dockerfile's runtime
 stage ships only `dist` output and production dependencies, non-root, with
-the Prisma CLI present for `migrate deploy`.
+the Prisma CLI present for `migrate deploy`. `ingest` also carries a
+Railway volume mounted at `/data`, holding the jsonl recording of
+whichever race is currently or was last live (`LIVE_LOG_DIR=/data/live-logs`)
+— the container's own disk is wiped on every deploy, the volume is not.
+Nothing on it is deleted automatically; the `load-race` skill's "Copy a
+recording out" step is how a finished recording gets off it.
 
 Two GitHub Actions workflows apply it, driven by the `railway` CLI via
 `railwayapp/config@v1`:

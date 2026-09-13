@@ -67,7 +67,18 @@ else.
   same writer with endpoint `drivers`.
 - Always on: discovers sessions itself, captures during a session window.
   The jsonl recording is still written — it is the irreplaceable artefact,
-  not a stopgap.
+  not a stopgap. In production it is written under a Railway volume
+  mounted at `/data` on the `ingest` service (`.railway/railway.ts`,
+  `LIVE_LOG_DIR=/data/live-logs`), so it survives a redeploy — the
+  container's own disk does not. If the volume is ever unmounted (a local
+  run has none), `LIVE_LOG_DIR` still defaults to `./live-logs`
+  (`config.ts`) and the recorder creates that directory as it does today;
+  nothing about the recorder changes, only where its writes land. The REST
+  lane logs `recording closed <session_key> rows=<n> path=<dir>` once,
+  when a followed session's live window closes, so the owner knows there
+  is a completed recording worth copying off the volume — see the
+  `load-race` skill's "Copy a recording out" step. Retention is manual:
+  nothing under the volume is deleted automatically.
 - The drip simulator (`src/sim/`, `pnpm sim`) and the `rehearse-race` skill
   that runs the whole local stack against it: replays a recording through
   the unmodified REST lane via `LIVE_SOURCE`, no network involved.
@@ -161,13 +172,25 @@ happens only at emission time, not in the recording.
 - Logging: `src/log.ts` exports a pino logger with base fields `service:
   "ingest"` and `build` (`RAILWAY_GIT_COMMIT_SHA`, else `"unknown"`), JSON
   only (no pretty printing — Railway shows JSON fine). The REST lane, the
-  MQTT lane and the writer each report through their `log(message)`
-  callback; `main.ts` wires each to `logger.info({ lane }, message)` with
-  `lane` one of `"rest" | "mqtt" | "writer"`. A message carrying any of
-  `messages=`, `rows=`, `dropped=`, `inserted=`, `skipped=`, `new=`,
-  `foreign=`, `unknown_session=` also gets those counts as structured
-  fields (`countFields()`), so a log query can filter on them instead of
-  parsing `msg`.
+  MQTT lane, the writer, and `OpenF1Auth` each report through their
+  `log(message, opts?)` callback (`LaneLog`); `main.ts` wires each to
+  `logger[level]({ lane, ...fields, ...countFields(message) }, message)`
+  with `lane` one of `"rest" | "mqtt" | "writer"` and `level` defaulting to
+  `"info"`. A caller passes `{ level: "error", fields }` for a failure —
+  every one of their former `console.error` calls is now one of these. A
+  message carrying any of `messages=`, `rows=`, `dropped=`, `inserted=`,
+  `skipped=`, `new=`, `foreign=`, `unknown_session=` also gets those counts
+  parsed out as structured fields (`countFields()`), so a log query can
+  filter on them instead of parsing `msg`.
+- Each lane and the writer expose a `takeStats()` that returns its
+  counters since the previous call and resets them. `main.ts` owns one
+  60 s interval (cleared on SIGTERM) that composes them into one line,
+  `ingest: last 60s`, carrying `rest_polls`, `rest_rows`, `rest_errors`,
+  `mqtt_messages`, `mqtt_rows`, `mqtt_dropped`, `writer_inserted`,
+  `writer_skipped`, `writer_failures`, `queue_depth`, and `session_key`
+  (`build` is already on every line via the logger's base fields). This is
+  the only per-minute line — it replaces the MQTT lane's former standalone
+  `mqtt: last 60s messages= rows= dropped=` line.
 - Vocabulary, defined once for the whole repo: *fold* — reduce over the
   event log into RaceState; ingest appends to that log but never folds
   it. *projector*/*authority* — the class name and the role it plays

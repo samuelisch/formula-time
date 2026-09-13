@@ -89,22 +89,24 @@ describe("OpenF1Auth", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  test("expires_in missing -> falls back to 3600s and logs once", async () => {
+  test("expires_in missing -> falls back to 3600s and logs once, at error level", async () => {
     const fetchImpl = vi.fn<FetchLike>().mockImplementation(() =>
       Promise.resolve(tokenResponseNoExpiry("token-1")),
     );
     let now = 0;
-    const auth = new OpenF1Auth({ login: "l", password: "p" }, { fetchImpl, now: () => now });
-    const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logs: Array<{ message: string; level: string | undefined }> = [];
+    const auth = new OpenF1Auth(
+      { login: "l", password: "p" },
+      { fetchImpl, now: () => now, log: (message, opts) => logs.push({ message, level: opts?.level }) },
+    );
 
     expect(await auth.getToken()).toBe("token-1");
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0]?.[0]).toMatch(/expires_in missing or invalid/);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]?.level).toBe("error");
+    expect(logs[0]?.message).toMatch(/expires_in missing or invalid/);
     now += 3600 * 1000 - 2 * 60 * 1000 + 1; // inside the 2-minute refresh margin of the 3600s fallback
     await auth.getToken();
     expect(fetchImpl).toHaveBeenCalledTimes(2);
-
-    warnSpy.mockRestore();
   });
 
   test("non-string access_token -> still rejected as unexpected shape", async () => {

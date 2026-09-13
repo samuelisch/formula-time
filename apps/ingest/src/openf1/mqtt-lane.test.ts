@@ -246,9 +246,10 @@ describe("MqttLane: message handling", () => {
     );
 
     expect(queue.size).toBe(0);
-    expect(lane.stats().dropped).toBe(1);
-    expect(lane.stats().messages).toBe(1);
-    expect(lane.stats().rows).toBe(0);
+    const stats = lane.takeStats();
+    expect(stats.dropped).toBe(1);
+    expect(stats.messages).toBe(1);
+    expect(stats.rows).toBe(0);
 
     await lane.stop();
   });
@@ -273,7 +274,7 @@ describe("MqttLane: message handling", () => {
     client.emit("message", "v1/location", Buffer.from(JSON.stringify({ x: 1 }), "utf8"));
 
     expect(queue.size).toBe(0);
-    expect(lane.stats().dropped).toBe(1);
+    expect(lane.takeStats().dropped).toBe(1);
 
     await lane.stop();
   });
@@ -298,7 +299,7 @@ describe("MqttLane: message handling", () => {
     expect(() => client.emit("message", POSITION_TOPIC, Buffer.from("not json{{{", "utf8"))).not.toThrow();
 
     expect(queue.size).toBe(0);
-    expect(lane.stats().dropped).toBe(1);
+    expect(lane.takeStats().dropped).toBe(1);
 
     await lane.stop();
   });
@@ -406,7 +407,6 @@ describe("MqttLane: reconnect races (review round 1)", () => {
       baseBackoffMs: 10, // the stale broker-unreachable reconnect would fire ~20ms later
       maxBackoffMs: 100,
       refreshIntervalMs: 1_000_000, // never fires on its own in this test window
-      statsIntervalMs: 1_000_000,
     });
 
     lane.start();
@@ -548,21 +548,19 @@ describe("MqttLane.stop()", () => {
   });
 });
 
-describe("MqttLane: per-minute stats", () => {
-  test("stats() reports messages/rows/dropped since the last log flush", async () => {
+describe("MqttLane.takeStats()", () => {
+  test("returns messages/rows/dropped since the previous call, then resets them", async () => {
     const { connectImpl, clients } = fakeConnect();
     const auth = fakeAuth();
     const queue = new EventQueue<QueueItem>();
     const normalizer = new LiveNormalizer();
-    const logs: string[] = [];
     const lane = new MqttLane(queue, {
       connectImpl,
       auth,
       username: "u",
       getNormalizer: () => normalizer,
       getSessionKey: () => 11361,
-      onLog: (line) => logs.push(line),
-      statsIntervalMs: 5,
+      onLog: () => {},
     });
     lane.start();
     await waitUntil(() => clients.length > 0);
@@ -574,7 +572,13 @@ describe("MqttLane: per-minute stats", () => {
       Buffer.from(JSON.stringify({ driver_number: 1, date: "2026-09-06T13:00:00Z" }), "utf8"),
     );
 
-    await waitUntil(() => logs.some((line) => line.includes("messages=1") && line.includes("rows=1")));
+    await waitUntil(() => queue.size === 1);
+
+    const first = lane.takeStats();
+    expect(first).toEqual({ messages: 1, rows: 1, dropped: 0 });
+
+    const second = lane.takeStats();
+    expect(second).toEqual({ messages: 0, rows: 0, dropped: 0 });
 
     await lane.stop();
   });

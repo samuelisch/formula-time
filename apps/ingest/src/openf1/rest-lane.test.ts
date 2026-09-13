@@ -475,6 +475,97 @@ describe("RestLane.pollOnce", () => {
     expect(result).toBeNull();
     expect(lane.status().active).toBe(false);
   });
+
+  test("logs the closed-recording line once per session, at window close, with the row count and path", async () => {
+    const driverRow = { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" };
+    const positionRow = { driver_number: 1, date: "2026-09-06T13:00:00Z" };
+    const { fetcher } = fakeFetcher({ sessions: [SESSION], drivers: [driverRow], position: [positionRow] });
+    const queue = new EventQueue<QueueItem>();
+    let now = START;
+    const logs: string[] = [];
+    const lane = new RestLane(queue, {
+      fetcher,
+      now: () => now,
+      liveLogDir: "/data/live-logs",
+      onLog: (l) => logs.push(l),
+    });
+
+    await lane.discoverOnce(); // selects the session, records the fetched entry-list row (1)
+    await lane.pollOnce(); // rotation's first slot ("position"), records 1 more row
+
+    now = END + WINDOW + 1;
+    const result = await lane.pollOnce();
+
+    expect(result).toBeNull();
+    expect(logs.filter((l) => l.startsWith("recording closed "))).toEqual([
+      "recording closed 11361 rows=2 path=/data/live-logs/11361",
+    ]);
+
+    // No active session left: a further pollOnce is a no-op and does not repeat the line.
+    await lane.pollOnce();
+    expect(logs.filter((l) => l.startsWith("recording closed "))).toHaveLength(1);
+  });
+});
+
+describe("RestLane.takeStats()", () => {
+  test("returns REST polls/rows/errors since the previous call, then resets to zero", async () => {
+    const driverRow = { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" };
+    const positionRow = { driver_number: 1, date: "2026-09-06T13:00:00Z" };
+    const { fetcher } = fakeFetcher({ sessions: [SESSION], drivers: [driverRow], position: [positionRow] });
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START, onLog: () => {} });
+
+    // discoverOnce(): one sessions poll, one meetings poll, one entry-list
+    // drivers poll (satisfied on the first fetch, since driverRow is non-empty).
+    await lane.discoverOnce();
+    // pollOnce(): one rotation poll (endpoint "position").
+    await lane.pollOnce();
+
+    const stats = lane.takeStats();
+    expect(stats).toEqual({ polls: 4, rows: 2, errors: 0 });
+    expect(lane.takeStats()).toEqual({ polls: 0, rows: 0, errors: 0 });
+  });
+
+  test("the static entry-list fallback's rows count toward rest_rows, same as a fetched entry list", async () => {
+    // Zero rows at selection -> the static ENTRY_LIST_2026 fallback fires
+    // (22 drivers) instead of a fetched entry list, but it still emitted
+    // real rows through the same queue and must count the same way.
+    const { fetcher } = fakeFetcher({ sessions: [SESSION], drivers: [] });
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START, onLog: () => {} });
+
+    await lane.discoverOnce();
+
+    const stats = lane.takeStats();
+    expect(stats.rows).toBe(22);
+  });
+
+  test("a failed rotation poll counts as an error and logs through the injected logger at error level", async () => {
+    let failPosition = false;
+    const fetcher = async (url: string): Promise<unknown> => {
+      const parsed = new URL(url);
+      const endpoint = parsed.pathname.split("/").at(-1) ?? "";
+      if (endpoint === "position" && failPosition) throw new Error("network error");
+      if (endpoint === "sessions") return [SESSION];
+      return [];
+    };
+    const queue = new EventQueue<QueueItem>();
+    const logs: Array<{ message: string; level: string | undefined }> = [];
+    const lane = new RestLane(queue, {
+      fetcher,
+      now: () => START,
+      onLog: (message, opts) => logs.push({ message, level: opts?.level }),
+    });
+    await lane.discoverOnce();
+    lane.takeStats(); // isolate the rotation failure below from discovery/entry-list activity
+
+    failPosition = true;
+    const result = await lane.pollOnce();
+
+    expect(result).toEqual({ endpoint: "position", rows: 0, newRows: 0, malformed: 0 });
+    expect(lane.takeStats()).toEqual({ polls: 1, rows: 0, errors: 1 });
+    expect(logs.some((l) => l.level === "error" && l.message.includes("rest: poll position failed"))).toBe(true);
+  });
 });
 
 async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<void> {

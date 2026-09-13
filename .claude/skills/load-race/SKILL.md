@@ -170,3 +170,36 @@ railway logs -s <service> | tail -50
 ```
 
 The newest deployment reads SUCCESS and the tail shows no repeated failure line. A repeated line is the fault to fix first; a load on top of a broken service only hides it.
+
+For the `ingest` service specifically, also confirm the per-minute stats line is flowing:
+
+```
+railway logs -s ingest | grep "ingest: last 60s"
+```
+
+At least one line should appear within a couple of minutes of the deploy, carrying `rest_polls`, `rest_rows`, `rest_errors`, `mqtt_messages`, `mqtt_rows`, `mqtt_dropped`, `writer_inserted`, `writer_skipped`, `writer_failures`, `queue_depth`, and `session_key`. No line at all means the process crashed before its first interval tick, or the interval itself broke — check `railway logs -s ingest | tail -50` for the actual fault.
+
+## Copy a recording out
+
+The ingest service's jsonl recordings live on a Railway volume mounted at
+`/data` (`LIVE_LOG_DIR=/data/live-logs`), so a recording survives a
+redeploy — but nothing is backed up automatically. The REST lane logs
+`recording closed <session_key> rows=<n> path=<dir>` once, when a followed
+session's live window closes; that line is the signal a recording is
+complete and worth copying off before it is needed (to `pnpm ingest:load`
+it elsewhere, or to replay it with the drip simulator).
+
+```
+railway ssh -s ingest -- tar -czf - /data/live-logs/<key> > recordings-<key>.tgz
+```
+
+`tar -xzf recordings-<key>.tgz` extracts it locally, under the same
+`data/live-logs/<key>` path the container used.
+
+Nothing under `/data/live-logs` is deleted automatically. Once a
+recording has been copied out and verified, remove it from the volume by
+hand:
+
+```
+railway ssh -s ingest -- rm -rf /data/live-logs/<key>
+```
