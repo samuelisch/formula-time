@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "preview": "vite preview",
-    "test:e2e": "cd ../.. && export $(scripts/db-env.sh) && playwright test --config apps/web/playwright.config.ts"
+    "test:e2e": "cd ../.. && export $(scripts/db-env.sh) && playwright test --config apps/web/playwright.config.ts",
+    "vendor:ocr": "cd ../.. && node scripts/vendor-ocr.mjs"
   },
   "dependencies": {
     "@formula-time/domain": "workspace:*",

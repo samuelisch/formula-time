@@ -8,8 +8,26 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { OcrWorker, TesseractModule } from "./capture.ts";
+import { createOcrWorker, type OcrWorker, type TesseractModule } from "./capture.ts";
 import { useCapture } from "./useCapture.ts";
+
+describe("createOcrWorker", () => {
+  it("points the worker, core and language data at this origin's vendored copies", async () => {
+    const worker = fakeWorker();
+    const createWorker = vi.fn().mockResolvedValue(worker);
+    await createOcrWorker({ createWorker } as unknown as TesseractModule);
+
+    expect(createWorker).toHaveBeenCalledExactlyOnceWith(
+      "eng",
+      undefined,
+      expect.objectContaining({
+        workerPath: "/ocr/worker.min.js",
+        corePath: "/ocr/tesseract-core-lstm.wasm.js",
+        langPath: "/ocr/",
+      }),
+    );
+  });
+});
 
 function fakeTrack(): MediaStreamTrack {
   return { stop: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as MediaStreamTrack;
