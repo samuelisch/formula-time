@@ -20,5 +20,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/align/*.node.test.ts"]
+  "include": ["src/**/*.node.test.ts"]
 }
