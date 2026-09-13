@@ -132,7 +132,7 @@ logger.info(
 const STATS_INTERVAL_MS = 60_000;
 const statsInterval = setInterval(() => {
   const rest = restLane.takeStats();
-  const mqtt = mqttLane?.takeStats() ?? { messages: 0, rows: 0, dropped: 0, unjoined: 0 };
+  const mqtt = mqttLane?.takeStats() ?? { messages: 0, rows: 0, dropped: 0, unjoined: 0, foreign: 0 };
   const writerStats = writer.takeStats();
   logger.info(
     {
@@ -144,6 +144,7 @@ const statsInterval = setInterval(() => {
       mqtt_rows: mqtt.rows,
       mqtt_dropped: mqtt.dropped,
       mqtt_unjoined: mqtt.unjoined,
+      mqtt_foreign: mqtt.foreign,
       writer_inserted: writerStats.inserted,
       writer_skipped: writerStats.skipped,
       writer_failures: writerStats.failures,

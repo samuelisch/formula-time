@@ -139,6 +139,8 @@ export interface MqttLaneStats {
   dropped: number;
   /** `stints` rows normalized with a null `sourceTime` (their lap hadn't been seen yet) — an out-of-order stint. */
   unjoined: number;
+  /** Messages whose own payload `session_key` disagreed with the REST lane's selected session — dropped, never tagged to the selected session. */
+  foreign: number;
 }
 
 export interface MqttLaneOptions {
@@ -210,6 +212,7 @@ export class MqttLane {
   private rowsSinceLog = 0;
   private droppedSinceLog = 0;
   private unjoinedSinceLog = 0;
+  private foreignSinceLog = 0;
 
   public constructor(
     private readonly queue: EventQueue<QueueItem>,
@@ -237,11 +240,13 @@ export class MqttLane {
       rows: this.rowsSinceLog,
       dropped: this.droppedSinceLog,
       unjoined: this.unjoinedSinceLog,
+      foreign: this.foreignSinceLog,
     };
     this.messagesSinceLog = 0;
     this.rowsSinceLog = 0;
     this.droppedSinceLog = 0;
     this.unjoinedSinceLog = 0;
+    this.foreignSinceLog = 0;
     return stats;
   }
 
@@ -426,6 +431,22 @@ export class MqttLane {
       return;
     }
     const stripped = stripMqttMeta(parsed as RawRecord);
+
+    // The payload's own session_key, when it carries one, must agree with
+    // the REST lane's selection — REST is the authority on which session is
+    // live (AGENTS.md). A row naming a different session is dropped and
+    // counted `foreign`, never tagged to the selected session. A payload
+    // with no session_key of its own keeps the existing behaviour: tagged
+    // to the selected session, same as always.
+    const payloadSessionKey = stripped["session_key"];
+    if (payloadSessionKey !== undefined) {
+      const numericPayloadKey = Number(payloadSessionKey);
+      if (Number.isFinite(numericPayloadKey) && numericPayloadKey !== sessionKey) {
+        this.foreignSinceLog += 1;
+        return;
+      }
+    }
+
     const result = emitRows(this.getNormalizer(), this.queue, endpoint, sessionKey, [stripped]);
     this.droppedSinceLog += result.malformed;
     this.rowsSinceLog += result.newRows;
