@@ -137,19 +137,28 @@ export class Fanout {
   private lastActivityAt = Date.now();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-  // The heartbeat frame's gzip bytes, compressed once and reused forever
-  // after. `deflate()` writes through Z_FULL_FLUSH (see its own comment),
-  // so each call's result is one independently decodable raw-deflate
-  // block -- it carries no dependency on any later write to the shared
-  // stream. `HEARTBEAT_FRAME` is a constant, so that block is the same
-  // bytes on every call; caching it after the first success skips writing
-  // to the shared deflater (and the awaited round trip through it) on
-  // every later heartbeat, and replaying the cached block mid-stream is
-  // exactly as valid as deflating it fresh at that point would be.
-  private heartbeatGz: Buffer | null = null;
+  // The heartbeat frame's gzip bytes, compressed once, at construction,
+  // and reused forever after. `deflate()` writes through Z_FULL_FLUSH (see
+  // its own comment), so each call's result is one independently
+  // decodable raw-deflate block -- it carries no dependency on any later
+  // write to the shared stream. `HEARTBEAT_FRAME` is a constant, so that
+  // block is the same bytes every time; computing it once here skips
+  // writing to the shared deflater (and the awaited round trip through
+  // it) on every later heartbeat, and replaying the cached block
+  // mid-stream is exactly as valid as deflating it fresh at that point
+  // would be.
+  private readonly heartbeatGzPromise: Promise<Buffer>;
 
   public constructor(opts: { log?: FanoutLog } = {}) {
     this.log = opts.log ?? (() => {});
+    this.heartbeatGzPromise = this.deflate(HEARTBEAT_FRAME);
+    // Nothing awaits this promise until the first heartbeat actually
+    // fires, which can be seconds away -- attach a no-op handler now so a
+    // construction-time deflate failure can't trip Node's
+    // unhandled-rejection detector before then. The real handling (log,
+    // skip this heartbeat) still happens in maybeSendHeartbeat below,
+    // against this same promise.
+    this.heartbeatGzPromise.catch(() => {});
   }
 
   /**
@@ -280,25 +289,32 @@ export class Fanout {
     if (Date.now() - this.lastActivityAt < HEARTBEAT_MS) {
       return;
     }
-    if (this.heartbeatGz === null) {
+    // The bytes are constant and already cached (constructor) -- only the
+    // WRITE is chained through deflateChain here, the same chain a push's
+    // own deflate call runs through, so a heartbeat can never reach a
+    // socket ahead of an in-flight push's frame.
+    const sent = this.deflateChain.then(async () => {
+      let gz: Buffer;
       try {
-        this.heartbeatGz = await this.deflate(HEARTBEAT_FRAME);
+        gz = await this.heartbeatGzPromise;
       } catch (err) {
         // Called through `void this.maybeSendHeartbeat()` on a bare interval
-        // timer with no catch of its own -- a deflate write error here must
-        // not reject out of this method. Skip this heartbeat; the next
-        // interval tick tries again (and still has nothing cached, so it
-        // retries the deflate).
+        // timer with no catch of its own -- a deflate failure here must
+        // not reject out of this method. Skip this heartbeat; the cached
+        // promise stays rejected, so every later heartbeat logs the same
+        // way rather than retrying a deflate that already failed once.
         this.log("deflate failed, skipping this heartbeat", {
           error: err instanceof Error ? err.message : String(err),
         });
         return;
       }
-    }
-    // Format-agnostic: the heartbeat is a comment frame, not a push: every
-    // socket gets the same bytes regardless of `format`.
-    this.writeFixed(HEARTBEAT_FRAME, this.heartbeatGz);
-    this.lastActivityAt = Date.now();
+      // Format-agnostic: the heartbeat is a comment frame, not a push:
+      // every socket gets the same bytes regardless of `format`.
+      this.writeFixed(HEARTBEAT_FRAME, gz);
+      this.lastActivityAt = Date.now();
+    });
+    this.deflateChain = sent.catch(() => undefined);
+    await sent;
   }
 
   private async deliver(payload: object): Promise<void> {
