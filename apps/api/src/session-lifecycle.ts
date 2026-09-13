@@ -91,6 +91,14 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
   }
 
   function wireProjector(p: RaceStateProjector, forSession: Session): void {
+    // A rejected push (below) means this class cannot know whether any
+    // client actually saw that tick's events -- the same situation as a
+    // fan-out-level skipped frame. Set on a rejection; the next payload
+    // built for this projector is marked rebuilt: true so a connected
+    // client discards its timeline and backfills again, then this clears.
+    // Left set if that next push rejects too.
+    let skippedSinceLastPush = false;
+
     p.subscribe((state, cursor, events, rebuilt) => {
       // The poll module folds from the same authority state before the one
       // serialize: a push must never carry a stale lock. onState() only
@@ -120,9 +128,10 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
             polls: opts.polls.publicPolls() as PollPublic[],
             events,
           };
-          if (rebuilt) {
+          if (rebuilt || skippedSinceLastPush) {
             payload.rebuilt = true;
           }
+          skippedSinceLastPush = false;
           return opts.pusher.push(payload);
         })
         .catch((err) => {
@@ -130,7 +139,10 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
           // mid-write) must never reach an unhandled rejection: on Node 24
           // that kills the process. The next tick pushes the next state;
           // the socket that caused the failure is already dropped by the
-          // fan-out's own write loop.
+          // fan-out's own write loop. This tick's events reached no
+          // client, so the next push actually attempted is marked
+          // rebuilt: true above.
+          skippedSinceLastPush = true;
           const message = err instanceof Error ? err.message : String(err);
           opts.log("push failed", { level: "error", cursor: cursor.toString(), error: message });
         });

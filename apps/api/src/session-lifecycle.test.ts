@@ -486,6 +486,51 @@ describe("createSessionLifecycle", () => {
       await vi.advanceTimersByTimeAsync(250); // second tick: push succeeds
 
       expect(pushed).toHaveLength(1);
+      // A rejected push means we cannot know whether any client saw the
+      // rejected tick's events, so the next one that actually goes through
+      // is marked rebuilt: true, same as a fan-out-level skip.
+      expect((pushed[0] as { rebuilt?: boolean }).rebuilt).toBe(true);
+    });
+
+    test("a rejected push followed by a successful one delivers rebuilt: true only on the successful one; the push after that is normal again", async () => {
+      vi.useFakeTimers();
+      const polls = fakePollHooks();
+      const pushed: unknown[] = [];
+      let pushCalls = 0;
+      const pusher: Pusher = {
+        push: vi.fn(async (payload: object) => {
+          pushCalls += 1;
+          if (pushCalls === 1) {
+            throw new Error("deflate write after end");
+          }
+          pushed.push(payload);
+        }),
+        size: () => 0,
+      };
+      const source = fakeEventSource([]);
+
+      const lifecycle = createSessionLifecycle({
+        db: fakePrisma(),
+        source,
+        pusher,
+        pickSession: vi.fn(async () => fakeSession()),
+        polls,
+        log: noopLog,
+      });
+      projectors.push({ stop: () => lifecycle.stop() });
+
+      await lifecycle.check();
+      await vi.advanceTimersByTimeAsync(0); // first tick: push rejects
+
+      source.rows.push(driverRow(1, 1));
+      await vi.advanceTimersByTimeAsync(250); // second tick: push succeeds, forced rebuilt: true
+
+      source.rows.push(driverRow(2, 2));
+      await vi.advanceTimersByTimeAsync(250); // third tick: normal again
+
+      expect(pushed).toHaveLength(2);
+      expect((pushed[0] as { rebuilt?: boolean }).rebuilt).toBe(true);
+      expect((pushed[1] as { rebuilt?: boolean }).rebuilt).toBeUndefined();
     });
 
     test("a rejected polls.start() is logged and check() still resolves", async () => {
