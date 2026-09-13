@@ -190,11 +190,15 @@ happens only at emission time, not in the recording.
   counters since the previous call and resets them. `main.ts` owns one
   60 s interval (cleared on SIGTERM) that composes them into one line,
   `ingest: last 60s`, carrying `rest_polls`, `rest_rows`, `rest_errors`,
-  `mqtt_messages`, `mqtt_rows`, `mqtt_dropped`, `writer_inserted`,
-  `writer_skipped`, `writer_failures`, `queue_depth`, and `session_key`
-  (`build` is already on every line via the logger's base fields). This is
-  the only per-minute line — it replaces the MQTT lane's former standalone
-  `mqtt: last 60s messages= rows= dropped=` line.
+  `rest_unjoined`, `mqtt_messages`, `mqtt_rows`, `mqtt_dropped`,
+  `mqtt_unjoined`, `writer_inserted`, `writer_skipped`, `writer_failures`,
+  `queue_depth`, and `session_key` (`build` is already on every line via
+  the logger's base fields). `rest_unjoined`/`mqtt_unjoined` count
+  `stints` rows normalized with a null `sourceTime` because their lap
+  hadn't been seen yet (`LiveNormalizer.normalize`'s `unjoined`) — an
+  out-of-order stint. This is the only per-minute line — it replaces the
+  MQTT lane's former standalone `mqtt: last 60s messages= rows= dropped=`
+  line.
 - Vocabulary, defined once for the whole repo: *fold* — reduce over the
   event log into RaceState; ingest appends to that log but never folds
   it. *projector*/*authority* — the class name and the role it plays

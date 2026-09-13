@@ -575,10 +575,10 @@ describe("MqttLane.takeStats()", () => {
     await waitUntil(() => queue.size === 1);
 
     const first = lane.takeStats();
-    expect(first).toEqual({ messages: 1, rows: 1, dropped: 0 });
+    expect(first).toEqual({ messages: 1, rows: 1, dropped: 0, unjoined: 0 });
 
     const second = lane.takeStats();
-    expect(second).toEqual({ messages: 0, rows: 0, dropped: 0 });
+    expect(second).toEqual({ messages: 0, rows: 0, dropped: 0, unjoined: 0 });
 
     await lane.stop();
   });

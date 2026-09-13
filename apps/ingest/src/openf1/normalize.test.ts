@@ -87,6 +87,34 @@ describe("LiveNormalizer", () => {
     expect(stint?.sourceTime).toBeNull();
   });
 
+  test("a stint before its lap increments unjoined; after its lap has been seen it does not", () => {
+    // Before: the lap hasn't been seen yet, sourceTime comes back null, and
+    // unjoined counts it.
+    const before = new LiveNormalizer();
+    const beforeResult = before.normalize("stints", [{ driver_number: 44, lap_start: 3 }]);
+    expect(beforeResult.rows[0]?.sourceTime).toBeNull();
+    expect(beforeResult.unjoined).toBe(1);
+
+    // After: the same driver/lap's `laps` row was seen first, so the stint
+    // resolves a sourceTime and unjoined stays 0.
+    const after = new LiveNormalizer();
+    after.normalize("laps", [{ driver_number: 44, lap_number: 3, date_start: "2026-09-06T13:10:00Z" }]);
+    const afterResult = after.normalize("stints", [{ driver_number: 44, lap_start: 3 }]);
+    expect(afterResult.rows[0]?.sourceTime).toBe("2026-09-06T13:10:00Z");
+    expect(afterResult.unjoined).toBe(0);
+  });
+
+  test("a stints row missing driver_number or lap_start gets a null sourceTime but is not counted unjoined (malformed, not out-of-order)", () => {
+    const normalizer = new LiveNormalizer();
+    const missingLapStart = normalizer.normalize("stints", [{ driver_number: 44 }]);
+    expect(missingLapStart.rows[0]?.sourceTime).toBeNull();
+    expect(missingLapStart.unjoined).toBe(0);
+
+    const missingDriverNumber = normalizer.normalize("stints", [{ lap_start: 3 }]);
+    expect(missingDriverNumber.rows[0]?.sourceTime).toBeNull();
+    expect(missingDriverNumber.unjoined).toBe(0);
+  });
+
   test("an endpoint with no configured timestamp field gets a null sourceTime", () => {
     const normalizer = new LiveNormalizer();
     const { rows: [event] } = normalizer.normalize("drivers", [{ driver_number: 1 }]);

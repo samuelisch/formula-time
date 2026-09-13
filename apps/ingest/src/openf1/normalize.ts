@@ -104,6 +104,8 @@ export interface NormalizeResult {
   rows: NormalizedRow[];
   /** Rows that threw while normalizing (e.g. `null`, or anything else `eventId` can't hash) — skipped, not lost to a crash. */
   malformed: number;
+  /** `stints` rows whose lap hadn't been seen yet, so `sourceTime` came back null (an out-of-order stint — arrived before its lap row). */
+  unjoined: number;
 }
 
 // Stateful: dedups by event id across polls (the live API rejects date
@@ -129,6 +131,7 @@ export class LiveNormalizer {
     this.seen.set(endpoint, seen);
     const out: NormalizedRow[] = [];
     let malformed = 0;
+    let unjoined = 0;
 
     for (const payload of rows) {
       try {
@@ -151,10 +154,16 @@ export class LiveNormalizer {
         if (endpoint === "stints") {
           const driverNumber = getNumber(payload, "driver_number");
           const lapStart = getNumber(payload, "lap_start");
-          sourceTime =
-            driverNumber !== null && lapStart !== null
-              ? (this.lapStartByDriverAndLap.get(`${driverNumber}:${lapStart}`) ?? null)
-              : null;
+          if (driverNumber !== null && lapStart !== null) {
+            const lapDate = this.lapStartByDriverAndLap.get(`${driverNumber}:${lapStart}`);
+            sourceTime = lapDate ?? null;
+            // Only a well-formed stint (both fields present) whose lap
+            // genuinely hasn't been seen yet counts as out-of-order; a row
+            // missing either field is malformed, not unjoined.
+            if (lapDate === undefined) unjoined += 1;
+          } else {
+            sourceTime = null;
+          }
         }
 
         out.push({ eventId: id, endpoint, sourceTime, payload });
@@ -163,6 +172,6 @@ export class LiveNormalizer {
         malformed += 1;
       }
     }
-    return { rows: out, malformed };
+    return { rows: out, malformed, unjoined };
   }
 }

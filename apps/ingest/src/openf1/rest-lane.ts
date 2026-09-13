@@ -76,6 +76,8 @@ const defaultFetcher: Fetcher = async (url) => {
 export interface EmitRowsResult {
   newRows: number;
   malformed: number;
+  /** `stints` rows normalized with a null `sourceTime` because their lap hadn't been seen yet — an out-of-order stint (`LiveNormalizer.normalize`'s `unjoined`). */
+  unjoined: number;
   /** The normalized (already-deduped-against-`normalizer`) payloads, for a caller that also records them (e.g. the jsonl recorder's `onNewRows`). */
   payloads: RawRecord[];
 }
@@ -96,9 +98,9 @@ export function emitRows(
   sessionKey: number,
   rows: RawRecord[],
 ): EmitRowsResult {
-  if (rows.length === 0) return { newRows: 0, malformed: 0, payloads: [] };
-  const { rows: normalized, malformed } = normalizer.normalize(endpoint, rows);
-  if (normalized.length === 0) return { newRows: 0, malformed, payloads: [] };
+  if (rows.length === 0) return { newRows: 0, malformed: 0, unjoined: 0, payloads: [] };
+  const { rows: normalized, malformed, unjoined } = normalizer.normalize(endpoint, rows);
+  if (normalized.length === 0) return { newRows: 0, malformed, unjoined, payloads: [] };
   const items: QueueItem[] = normalized.map((n) => ({
     eventId: n.eventId,
     sessionKey: BigInt(sessionKey),
@@ -107,12 +109,14 @@ export function emitRows(
     payload: n.payload,
   }));
   queue.pushAll(items);
-  return { newRows: normalized.length, malformed, payloads: normalized.map((n) => n.payload) };
+  return { newRows: normalized.length, malformed, unjoined, payloads: normalized.map((n) => n.payload) };
 }
 
 export interface EmitTaggedRowsResult {
   newRows: number;
   malformed: number;
+  /** See `EmitRowsResult.unjoined` — always 0 here, `drivers` rows never carry a `stints` timestamp, kept for shape consistency with `emitRows`. */
+  unjoined: number;
   /** Rows whose OWN `session_key` differs from `expectedSessionKey` — still written, tagged to the session they name, and counted as `foreign`. `null` `expectedSessionKey` (the Friday meeting-wide fetch has no single session to compare against) counts nothing as foreign. */
   foreign: number;
   /** Rows naming a `session_key` that is not in the `sessions` table (per `isKnownSession`): dropped, never queued. `events.session_key` is a real FK, and one such row would fail the writer's whole batch and requeue it forever. */
@@ -167,16 +171,18 @@ export function emitTaggedDriverRows(
   }
 
   let newRows = 0;
+  let unjoined = 0;
   const payloads: RawRecord[] = [];
   const groups: EmitTaggedRowsResult["groups"] = [];
   for (const [key, groupRows] of byKey) {
     const result = emitRows(normalizer, queue, "drivers", key, groupRows);
     newRows += result.newRows;
     malformed += result.malformed;
+    unjoined += result.unjoined;
     payloads.push(...result.payloads);
     if (result.payloads.length > 0) groups.push({ sessionKey: key, payloads: result.payloads });
   }
-  return { newRows, malformed, foreign, unknownSession, payloads, groups };
+  return { newRows, malformed, unjoined, foreign, unknownSession, payloads, groups };
 }
 
 export interface RestLaneOptions {
@@ -231,6 +237,8 @@ export interface RestLaneStats {
   polls: number;
   rows: number;
   errors: number;
+  /** `stints` rows normalized with a null `sourceTime` (their lap hadn't been seen yet) — an out-of-order stint. */
+  unjoined: number;
 }
 
 export class RestLane {
@@ -250,6 +258,7 @@ export class RestLane {
   private pollsSinceStats = 0;
   private rowsSinceStats = 0;
   private errorsSinceStats = 0;
+  private unjoinedSinceStats = 0;
 
   // Rows recorded (via onNewRows, i.e. written into the jsonl recording) for
   // the currently followed session only — reset when a NEW session is
@@ -346,10 +355,12 @@ export class RestLane {
       polls: this.pollsSinceStats,
       rows: this.rowsSinceStats,
       errors: this.errorsSinceStats,
+      unjoined: this.unjoinedSinceStats,
     };
     this.pollsSinceStats = 0;
     this.rowsSinceStats = 0;
     this.errorsSinceStats = 0;
+    this.unjoinedSinceStats = 0;
     return stats;
   }
 
@@ -859,6 +870,7 @@ export class RestLane {
     rows: RawRecord[],
   ): Promise<{ newRows: number; malformed: number }> {
     const result = emitRows(this.normalizer, this.queue, endpoint, sessionKey, rows);
+    this.unjoinedSinceStats += result.unjoined;
     if (result.payloads.length > 0) {
       await this.recordRows(sessionKey, endpoint, result.payloads);
     }
@@ -875,6 +887,7 @@ export class RestLane {
     const result = emitTaggedDriverRows(this.normalizer, this.queue, rows, expectedSessionKey, (key) =>
       this.knownSessionKeys.has(key),
     );
+    this.unjoinedSinceStats += result.unjoined;
     for (const group of result.groups) {
       await this.recordRows(group.sessionKey, "drivers", group.payloads);
     }
