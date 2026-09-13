@@ -753,6 +753,52 @@ describe("MqttLane.stop()", () => {
     expect(stopped).toBe(true);
   });
 
+  test("awaits an in-flight recording write before resolving, so a row is never dropped from the recording at shutdown", async () => {
+    const { connectImpl, clients } = fakeConnect();
+    const auth = fakeAuth();
+    const queue = new EventQueue<QueueItem>();
+    const recorded: RawRecord[] = [];
+    let releaseRecording: (() => void) | null = null;
+    const onRecorded = async (_sessionKey: number, _endpoint: string, payloads: RawRecord[]): Promise<void> => {
+      await new Promise<void>((resolve) => {
+        releaseRecording = resolve;
+      });
+      recorded.push(...payloads);
+    };
+    const lane = new MqttLane(queue, {
+      connectImpl,
+      auth,
+      username: "u",
+      getNormalizer: () => new LiveNormalizer(),
+      getSessionKey: () => 11361,
+      onLog: () => {},
+      onRecorded,
+    });
+    lane.start();
+    await waitUntil(() => clients.length > 0);
+    const client = clients[0]!;
+    client.emit("connect", { sessionPresent: false });
+
+    const row = { session_key: 11361, driver_number: 1, date: "2026-09-06T13:00:00Z" };
+    client.emit("message", POSITION_TOPIC, Buffer.from(JSON.stringify(row), "utf8"));
+    await flushMicrotasks();
+    expect(releaseRecording).not.toBeNull(); // the recording write is in flight
+
+    let stopped = false;
+    const stopPromise = lane.stop().then(() => {
+      stopped = true;
+    });
+
+    await flushMicrotasks();
+    expect(stopped).toBe(false); // stop() must wait for the pending recording write
+    expect(recorded).toHaveLength(0);
+
+    releaseRecording!();
+    await stopPromise;
+    expect(stopped).toBe(true);
+    expect(recorded).toHaveLength(1);
+  });
+
   test("stop() prevents any further reconnect (a close firing after stop is a no-op)", async () => {
     const { connectImpl, clients } = fakeConnect();
     const auth = fakeAuth();

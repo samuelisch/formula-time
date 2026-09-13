@@ -235,6 +235,14 @@ export class MqttLane {
   private unjoinedSinceLog = 0;
   private foreignSinceLog = 0;
 
+  // Every `handleMessage()` call still running, keyed by its own promise —
+  // `stop()` awaits these before resolving so a recording write already in
+  // flight lands before the process exits (main.ts's SIGTERM path drains the
+  // writer and calls `process.exit()` right after `stop()` resolves); without
+  // this, a row already queued but not yet written to the jsonl recording
+  // would be silently dropped from it.
+  private readonly inFlightMessages = new Set<Promise<void>>();
+
   public constructor(
     private readonly queue: EventQueue<QueueItem>,
     opts: MqttLaneOptions,
@@ -282,7 +290,14 @@ export class MqttLane {
     }, this.refreshIntervalMs);
   }
 
-  /** SIGTERM path: stop scheduling reconnects/timers and await the client's `end()` before returning. */
+  /**
+   * SIGTERM path: stop scheduling reconnects/timers, await the client's
+   * `end()`, then await any `handleMessage()` call still in flight — the
+   * generation bump above stops a NEW message from starting one, but one
+   * already running (its own recording write pending) must still finish
+   * before this resolves, or main.ts's drain-then-exit path can beat that
+   * write to disk.
+   */
   public async stop(): Promise<void> {
     this.stopped = true;
     this.cancelScheduledReconnect();
@@ -292,6 +307,7 @@ export class MqttLane {
     const client = this.client;
     this.client = null;
     if (client) await this.endClient(client);
+    if (this.inFlightMessages.size > 0) await Promise.all(this.inFlightMessages);
   }
 
   private endClient(client: MqttClientLike): Promise<void> {
@@ -397,12 +413,17 @@ export class MqttLane {
 
     client.on("message", (topic, payload) => {
       if (generation !== this.generation) return;
-      // Fire-and-forget: `handleMessage` never rejects (its own recording
-      // attempt is caught and logged internally, see `recordRow` below), and
-      // `mqtt.js`'s EventEmitter does not await listener return values
-      // anyway — queuing itself still happens synchronously, before this
-      // call returns, since it happens before the recorder is ever awaited.
-      void this.handleMessage(topic, payload);
+      // Fire-and-forget from the event handler's point of view (`handleMessage`
+      // never rejects — its own recording attempt is caught and logged
+      // internally, see `recordRow` below — and `mqtt.js`'s EventEmitter does
+      // not await listener return values anyway; queuing itself still happens
+      // synchronously, before this call returns, since it happens before the
+      // recorder is ever awaited). Tracked in `inFlightMessages` regardless,
+      // so `stop()` can still wait for it.
+      const inFlight = this.handleMessage(topic, payload).finally(() => {
+        this.inFlightMessages.delete(inFlight);
+      });
+      this.inFlightMessages.add(inFlight);
     });
 
     client.on("error", (error) => {
