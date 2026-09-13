@@ -61,7 +61,12 @@ export default defineRailway(() => {
     start: "node apps/api/dist/main.js",
     preDeploy: "pnpm db:migrate:deploy",
     healthcheck: "/health",
-    deploy: { restartPolicyType: "ON_FAILURE" },
+    // No `deploy.restartPolicyType` here: Railway's default restart policy
+    // is On Failure, and the platform stores nothing for a service left on
+    // the default. Declaring `ON_FAILURE` reads back as null and plans as a
+    // permanent change. The api runs on the platform default and this file
+    // does not manage it; ingest's `ALWAYS` below is a real non-default
+    // setting the platform keeps.
     // CORS_ORIGIN: the web bundle's origins, comma-separated (ADR-0008).
     // Set in the dashboard once the custom domain exists; preserved here.
     env: { ...secrets, CORS_ORIGIN: preserve() },
