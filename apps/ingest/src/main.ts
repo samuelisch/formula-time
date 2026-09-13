@@ -84,6 +84,7 @@ const restLane = new RestLane(queue, {
   onNewRows: async (sessionKey, endpoint, rows) => {
     await recorder.appendRows(sessionKey, endpoint, rows);
   },
+  liveLogDir: config.liveLogDir,
   onLog: laneLog("rest"),
 });
 
