@@ -309,13 +309,13 @@ describe("isValidCrop", () => {
 describe("formatStartFailure", () => {
   it("includes the error message and the network/screen-share hint", () => {
     expect(formatStartFailure(new Error("Permission denied"))).toBe(
-      "Couldn't start: Permission denied — check network (OCR loads from a CDN) and allow screen sharing, then try again",
+      "Couldn't start: Permission denied — the OCR engine failed to load from this site; reload the page and allow screen sharing, then try again",
     );
   });
 
   it("falls back to a generic reason for a non-Error throw", () => {
     expect(formatStartFailure("boom")).toBe(
-      "Couldn't start: Screen capture failed — check network (OCR loads from a CDN) and allow screen sharing, then try again",
+      "Couldn't start: Screen capture failed — the OCR engine failed to load from this site; reload the page and allow screen sharing, then try again",
     );
   });
 });

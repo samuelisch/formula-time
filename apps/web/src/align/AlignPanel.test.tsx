@@ -130,7 +130,7 @@ describe("AlignPanel", () => {
 
     expect(
       await screen.findByText(
-        "Couldn't start: Permission denied — check network (OCR loads from a CDN) and allow screen sharing, then try again",
+        "Couldn't start: Permission denied — the OCR engine failed to load from this site; reload the page and allow screen sharing, then try again",
       ),
     ).toBeInTheDocument();
     // Phase reset to idle (capture never got going) -- the panel offers a

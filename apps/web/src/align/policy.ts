@@ -220,5 +220,5 @@ export function isValidCrop(box: unknown): box is Crop {
 
 export function formatStartFailure(error: unknown): string {
   const reason = error instanceof Error ? error.message : "Screen capture failed";
-  return `Couldn't start: ${reason} — check network (OCR loads from a CDN) and allow screen sharing, then try again`;
+  return `Couldn't start: ${reason} — the OCR engine failed to load from this site; reload the page and allow screen sharing, then try again`;
 }

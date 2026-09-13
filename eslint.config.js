@@ -25,6 +25,7 @@ export default tseslint.config(
       "packages/db/src/generated/**",
       "**/*.tsbuildinfo",
       ".railway/**",
+      "apps/web/public/ocr/**",
     ],
   },
   js.configs.recommended,

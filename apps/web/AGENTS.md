@@ -40,9 +40,11 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   UI for nudging the delay; auto-align (`AlignPanel`/`useAligner`) is
   experimental. `tesseract.js` (the OCR library) is a dependency loaded with a dynamic
   `import()` in `src/align/capture.ts` so ordinary viewers never download
-  it; worker and core paths are left at the library's CDN defaults --
-  Netlify serves this app's bundle, but the OCR worker itself comes from
-  jsDelivr at runtime. From version 6 on, `recognize()` returns only the
+  it; the worker script, WASM core and `eng` language data are vendored into
+  `public/ocr/` by `scripts/vendor-ocr.mjs` (`pnpm --filter @formula-time/web
+  vendor:ocr`) and served from this origin -- `createOcrWorker` pins
+  `workerPath`/`corePath`/`langPath` there so the engine never loads from a
+  CDN at runtime. From version 6 on, `recognize()` returns only the
   output formats explicitly requested (default `{ text: true }`, no
   `data.lines`); a caller that needs line geometry passes
   `{ text: true, blocks: true }` and reads `data.blocks[].paragraphs[].lines[]`.

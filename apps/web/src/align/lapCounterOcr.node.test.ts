@@ -1,7 +1,8 @@
 // Runs the real tesseract.js (no fake) against real-footage crops of the
 // broadcast HUD lap counter, the OCR counterpart to lightsFixtures.test.ts's
-// pixel traces. Needs the library's language data from its CDN on first
-// run, so it's opt-in (`OCR_FIXTURES=1 pnpm vitest run
+// pixel traces. Reads the vendored language data straight off disk (the
+// same files under apps/web/public/ocr/ the browser build fetches over
+// HTTP), so it needs no network. Opt-in (`OCR_FIXTURES=1 pnpm vitest run
 // lapCounterOcr.node.test.ts`) and skipped by default -- the commit hook
 // and CI stay offline; the owner runs it locally and quotes the pass count
 // in the PR body. Runs in the plain-node vitest project
@@ -14,6 +15,13 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createOcrWorker, loadTesseract, type OcrWorker } from "./capture.ts";
 import { parseLapText } from "./core.ts";
 import manifest from "./fixtures/lap-counter/manifest.json" with { type: "json" };
+
+// tesseract.js resolves a non-http langPath straight off the filesystem
+// when it runs in Node (unlike the browser, which only ever fetches
+// `/ocr/`), so this points it at the same vendored directory instead of
+// the browser's `/ocr/` URL -- workerPath/corePath stay at the library's
+// own Node defaults (createOcrWorker's OcrPaths leaves them unset).
+const VENDORED_OCR_DIR = fileURLToPath(new URL("../../public/ocr", import.meta.url));
 
 interface ManifestFrame {
   file: string;
@@ -37,7 +45,7 @@ describe.skipIf(!process.env.OCR_FIXTURES)("lap counter OCR against real footage
 
   beforeAll(async () => {
     const tesseract = await loadTesseract();
-    worker = await createOcrWorker(tesseract);
+    worker = await createOcrWorker(tesseract, { langPath: VENDORED_OCR_DIR });
   }, 60_000);
 
   afterAll(async () => {
