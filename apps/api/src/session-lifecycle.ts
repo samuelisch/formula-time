@@ -111,10 +111,13 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
           // `events` is the RaceEvent rows the projector applied this tick, in
           // seq order (`[]` when none) -- a client folds them into its own
           // deep-rewind timeline rather than the api building one server-side.
-          // `rebuilt` rides along only when the late-commit detector's rebuild
-          // produced this push (the client must then discard its timeline and
-          // backfill again), so it is omitted -- rather than sent as `false` --
-          // on every ordinary tick.
+          // `rebuilt` rides along when the late-commit detector's rebuild
+          // produced this push, or this projector's previous push was
+          // rejected or skipped by the fan-out (a deflate error, e.g.) --
+          // in either case the client must discard its timeline and
+          // backfill again, since a tick's events may have reached no one.
+          // It is omitted -- rather than sent as `false` -- on every
+          // ordinary tick.
           const payload: StatePush = {
             type: "state",
             seq: cursor.toString(),
