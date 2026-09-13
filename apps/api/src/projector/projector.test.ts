@@ -140,6 +140,23 @@ describe("RaceStateProjector", () => {
     expect(session?.["location"]).toBeNull();
   });
 
+  test("updateSession replaces state.session and publishes once with no events", async () => {
+    const source = new FakeSource([], []);
+    const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }));
+
+    const seen: Array<{ events: RaceEvent[]; rebuilt: boolean }> = [];
+    projector.subscribe((_state, _cursor, events, rebuilt) => seen.push({ events, rebuilt }));
+
+    const live: Session = { ...SESSION, status: "live", totalLaps: 58 };
+    projector.updateSession(live);
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.events).toEqual([]);
+    expect(seen[0]?.rebuilt).toBe(false);
+    expect(projector.snapshot().session).toMatchObject({ status: "live", total_laps: 58 });
+    expect(projector.currentSession()).toEqual(live);
+  });
+
   test("the first (just-caught-up) tick publishes events: [] even though it applied a historical backlog (issue #114, review round 1)", async () => {
     // A brand new projector's first tick re-folds cursor 0's entire
     // backlog -- structurally the same as a rebuild (HLD §7 "Fold"), not
@@ -312,6 +329,75 @@ describe("RaceStateProjector", () => {
     // since a rebuild is a fold correction, not new events.
     expect(seen[1]?.events).toEqual([]);
     expect(seen[1]?.rebuilt).toBe(true);
+  });
+
+  test("updateSession during an in-flight rebuild is not reverted by the rebuild's swap", async () => {
+    vi.useFakeTimers();
+    try {
+      const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3), driverRow(4, 4), driverRow(5, 5)];
+      const initiallyVisible = rows.filter((r) => r.eventId !== "event-3").map((r) => r.eventId);
+      const source = new FakeSource(rows, initiallyVisible);
+
+      // The rebuild's own fold always starts a fresh readAfter loop at
+      // afterSeq 0n; the normal per-tick fold never does once caught up
+      // (it continues from the current cursor), so afterSeq === 0n on any
+      // call after the first tick uniquely identifies the rebuild's read.
+      // Pausing there lets the test call updateSession() while the rebuild
+      // is still mid-flight.
+      const originalReadAfter = source.readAfter.bind(source);
+      let pauseNextRebuildRead = false;
+      let releaseRebuildRead: (() => void) | null = null;
+      source.readAfter = async (sessionKey, afterSeq, limit) => {
+        if (pauseNextRebuildRead && afterSeq === 0n) {
+          pauseNextRebuildRead = false;
+          await new Promise<void>((resolve) => {
+            releaseRebuildRead = resolve;
+          });
+        }
+        return originalReadAfter(sessionKey, afterSeq, limit);
+      };
+
+      const projector = tracked(
+        new RaceStateProjector({ source, session: SESSION, tickMs: 10, detectorEveryTicks: 1, log: noopLog }),
+      );
+
+      const seen: Array<{ status: unknown; totalLaps: unknown; rebuilt: boolean }> = [];
+      projector.subscribe((state, _cursor, _events, rebuilt) => {
+        const session = state.session as { status: unknown; total_laps: unknown } | null;
+        seen.push({ status: session?.status, totalLaps: session?.total_laps, rebuilt });
+      });
+
+      projector.start();
+      await vi.advanceTimersByTimeAsync(0); // tick 1: normal fold, catches up at cursor 5
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.status).toBe("live");
+
+      source.reveal("event-3"); // commits late, below the cursor -- next detector pass rebuilds
+      pauseNextRebuildRead = true;
+
+      await vi.advanceTimersByTimeAsync(10); // tick 2: detector fires, rebuild's read pauses mid-flight
+      expect(seen).toHaveLength(1); // rebuild hasn't landed yet
+
+      const refreshed: Session = { ...SESSION, status: "finished", totalLaps: 66 };
+      projector.updateSession(refreshed); // races the in-flight rebuild
+
+      expect(seen).toHaveLength(2); // updateSession's own immediate publish
+      expect(seen[1]?.status).toBe("finished");
+      expect(seen[1]?.totalLaps).toBe(66);
+      expect(seen[1]?.rebuilt).toBe(false);
+
+      releaseRebuildRead?.();
+      await vi.advanceTimersByTimeAsync(0); // let the rebuild's fold finish and swap in
+
+      const last = seen[seen.length - 1];
+      expect(last?.status).toBe("finished");
+      expect(last?.totalLaps).toBe(66);
+      expect(last?.rebuilt).toBe(true);
+      expect(projector.currentSession()).toEqual(refreshed);
+      expect(projector.snapshot().drivers["3"]).toBeDefined(); // the rebuild itself still landed
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("runDetector: a rejected re-fold read keeps serving the previous state and retries next pass", async () => {

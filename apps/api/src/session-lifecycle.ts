@@ -6,7 +6,7 @@
 // `health()` are unit-testable with a fake that returns null, without a
 // real Postgres or projector.
 import type { Session } from "@formula-time/db";
-import type { PollPublic, RaceState, StatePush } from "@formula-time/domain";
+import type { PollPublic, RaceState, RawRecord, StatePush } from "@formula-time/domain";
 
 import type { EventSource } from "./projector/event-source.js";
 import { RaceStateProjector, type ProjectorLog } from "./projector/projector.js";
@@ -40,6 +40,10 @@ export interface PollHooks {
   onState(state: RaceState): Promise<void>;
   onSessionFinished(): Promise<void>;
   publicPolls(): unknown[];
+  /** A total_laps or meeting_name refreshed on a lifecycle check without a
+   * session-key change (the circuits table case): merged in-memory, no
+   * Postgres write, so it takes effect on the poll module's next tick. */
+  updateSession(update: { totalLaps: number | null; meetingName: string | null }): void;
 }
 
 export interface SessionLifecycleOptions {
@@ -74,6 +78,17 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
   // polls.onSessionFinished); main.ts fires it on a fixed interval, so a
   // slow tick must not overlap the next one.
   let checking = false;
+
+  // The pushed payload's top-level total_laps must come from the same
+  // session read as the state it accompanies: a push is built after an
+  // await (the poll fold), and the projector's session can move in that
+  // gap, so reading it live here rather than from this frame's own
+  // `state.session` could disagree with the state this same frame carries.
+  function totalLapsFromSession(session: RawRecord | null): number | null {
+    if (session === null) return null;
+    const value = session["total_laps"];
+    return typeof value === "number" ? value : null;
+  }
 
   function logPollHookFailure(hook: string, err: unknown): void {
     opts.log(`poll hook ${hook} failed`, { error: err instanceof Error ? err.message : String(err) });
@@ -129,7 +144,12 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
             seq: cursor.toString(),
             sent_at: Date.now(),
             session_key: forSession.sessionKey.toString(),
-            total_laps: forSession.totalLaps,
+            // Read from this frame's own state, not the projector's live
+            // session: the projector's session can move between this
+            // callback firing and onState()'s await resolving, and this
+            // field must never disagree with the state this same frame
+            // carries.
+            total_laps: totalLapsFromSession(state.session),
             state,
             // PollHooks.publicPolls() stays `unknown[]` (a test fake exercises
             // tick sequencing with placeholder poll objects, not the real
@@ -169,8 +189,30 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
         return;
       }
 
-      if (candidate.sessionKey === session?.sessionKey) {
+      if (session !== null && candidate.sessionKey === session.sessionKey) {
+        const previous = session;
         session = candidate;
+        // The session row is metadata the fold carries, refreshed on every
+        // lifecycle check: compare only the fields that travel on the wire,
+        // and push a fresh copy to the projector (and the poll module, for
+        // total_laps/meeting_name) the moment any of them changes, rather
+        // than waiting for a restart to re-pick the row.
+        const changed =
+          candidate.status !== previous.status ||
+          candidate.totalLaps !== previous.totalLaps ||
+          candidate.meetingName !== previous.meetingName ||
+          candidate.circuitShortName !== previous.circuitShortName ||
+          candidate.location !== previous.location ||
+          candidate.dateStart.getTime() !== previous.dateStart.getTime() ||
+          candidate.dateEnd.getTime() !== previous.dateEnd.getTime();
+        if (changed) {
+          projector?.updateSession(candidate);
+          try {
+            opts.polls.updateSession({ totalLaps: candidate.totalLaps, meetingName: candidate.meetingName });
+          } catch (err) {
+            logPollHookFailure("updateSession", err);
+          }
+        }
         if (candidate.status === "finished") {
           await notifyFinished();
         }

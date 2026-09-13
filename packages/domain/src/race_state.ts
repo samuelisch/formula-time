@@ -214,6 +214,13 @@ export class RaceStateReducer {
     return structuredClone(this.state);
   }
 
+  // The session row is metadata the fold carries, not part of the event
+  // log: replacing it is neither an event nor a sequence advance, so this
+  // touches only `state.session`, never `sequence` or any other field.
+  public setSession(raw: RawRecord): void {
+    this.state.session = raw;
+  }
+
   private updateLatestSourceTime(sourceTime: string | null): void {
     const current = sourceMillis(this.state.latest_source_time);
     const incoming = sourceMillis(sourceTime);

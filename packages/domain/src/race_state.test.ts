@@ -198,6 +198,29 @@ describe("RaceStateReducer (drivers as events)", () => {
   });
 });
 
+describe("RaceStateReducer (setSession)", () => {
+  it("replaces state.session and touches nothing else", () => {
+    const reducer = new RaceStateReducer(
+      createInitialState({ sessions: [{ session_key: "1", status: "upcoming" }], drivers: [] }),
+    );
+
+    reducer.apply(
+      event("position-1", "position", "2026-01-01T00:00:01Z", {
+        driver_number: 1,
+        position: 3,
+      }),
+    );
+    const beforeSequence = reducer.snapshot().sequence;
+
+    reducer.setSession({ session_key: "1", status: "live" });
+
+    const state = reducer.snapshot();
+    expect(state.session).toEqual({ session_key: "1", status: "live" });
+    expect(state.sequence).toBe(beforeSequence);
+    expect(state.drivers["1"]?.position).toBe(3);
+  });
+});
+
 // Real rows from the Italian GP recording (recordings/11361/raw/intervals.jsonl),
 // pasted verbatim: a lapped car's interval/gap_to_leader arrive as strings.
 describe("RaceStateReducer (lapped gaps)", () => {

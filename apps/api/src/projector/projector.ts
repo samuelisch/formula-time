@@ -79,7 +79,7 @@ function sessionAsRawRecord(session: Session): RawRecord {
 
 export class RaceStateProjector {
   private readonly source: EventSource;
-  private readonly session: Session;
+  private session: Session;
   private readonly tickMs: number;
   private readonly batchLimit: number;
   private readonly detectorEveryTicks: number;
@@ -151,6 +151,24 @@ export class RaceStateProjector {
 
   public status(): { sessionKey: bigint; cursor: bigint; caughtUp: boolean } {
     return { sessionKey: this.session.sessionKey, cursor: this.cursor, caughtUp: this.caughtUp };
+  }
+
+  /** The session row this projector currently folds against -- read this at
+   * push time rather than closing over the row from wiring time, since the
+   * row can change (status, total_laps, ...) without a session-key change. */
+  public currentSession(): Session {
+    return this.session;
+  }
+
+  // The session row is metadata the fold carries, refreshed on every
+  // lifecycle check: no event, no seq. Replaces the row and updates the
+  // reducer's state.session in place, then publishes immediately with
+  // events: [] so a status flip reaches viewers within a tick rather than
+  // at the next event.
+  public updateSession(session: Session): void {
+    this.session = session;
+    this.reducer.setSession(sessionAsRawRecord(session));
+    this.publish([]);
   }
 
   private scheduleTick(delayMs: number, generation: number): void {
@@ -299,6 +317,13 @@ export class RaceStateProjector {
       return;
     }
 
+    // The session row is metadata the projector owns, not any one reducer
+    // instance: `this.session` may have moved (updateSession()) while this
+    // rebuild was awaiting its reads, and `freshReducer()` above baked in
+    // whatever row was current before those awaits. Re-apply the current
+    // row right before the swap so the rebuild can never revert a refresh
+    // that landed while it was in flight.
+    localReducer.setSession(sessionAsRawRecord(this.session));
     this.reducer = localReducer;
     this.cursor = localCursor;
     this.appliedIds = localAppliedIds;

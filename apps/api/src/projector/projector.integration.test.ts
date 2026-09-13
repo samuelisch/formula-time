@@ -165,6 +165,58 @@ test("folds real rows from Postgres, sits idle with no subscriber call, and rebu
   }
 });
 
+test("updateSession carries a real UPDATE sessions SET status='live' into the next push", async () => {
+  const upcomingKey = 9_000_003n;
+  await db.session.deleteMany({ where: { sessionKey: upcomingKey } });
+  await db.session.create({
+    data: {
+      sessionKey: upcomingKey,
+      name: "Projector updateSession Test Grand Prix",
+      country: "Testland",
+      circuitKey: 1,
+      dateStart: new Date("2026-09-08T12:00:00.000Z"),
+      dateEnd: new Date("2026-09-08T14:00:00.000Z"),
+      totalLaps: 60,
+      status: "upcoming",
+    },
+  });
+
+  try {
+    const session = await db.session.findUniqueOrThrow({ where: { sessionKey: upcomingKey } });
+    const source = prismaEventSource(db);
+    const projector = new RaceStateProjector({
+      source,
+      session,
+      tickMs: 50,
+      log: () => {},
+    });
+
+    const seen: Array<{ status: unknown; events: RaceEvent[]; rebuilt: boolean }> = [];
+    projector.subscribe((state, _cursor, events, rebuilt) =>
+      seen.push({ status: (state.session as { status: unknown } | null)?.status, events, rebuilt }),
+    );
+
+    try {
+      projector.start();
+      await vi_waitFor(() => projector.status().caughtUp === true);
+      expect(seen[0]?.status).toBe("upcoming");
+
+      await db.session.update({ where: { sessionKey: upcomingKey }, data: { status: "live" } });
+      const updated = await db.session.findUniqueOrThrow({ where: { sessionKey: upcomingKey } });
+      projector.updateSession(updated);
+
+      const last = seen[seen.length - 1];
+      expect(last?.status).toBe("live");
+      expect(last?.events).toEqual([]);
+      expect(last?.rebuilt).toBe(false);
+    } finally {
+      projector.stop();
+    }
+  } finally {
+    await db.session.deleteMany({ where: { sessionKey: upcomingKey } });
+  }
+});
+
 /** Polls a real timer until `predicate()` is true, or throws after 2s. */
 async function vi_waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
   const start = Date.now();

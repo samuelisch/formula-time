@@ -207,6 +207,26 @@ describe("PollModule.onState — opening templates", () => {
     expect(log.info).toHaveBeenCalledWith("polls not opened: total_laps unknown");
     expect(localDb.calls).not.toContain("poll.createMany");
   });
+
+  it("updateSession lets a total_laps that arrives late open polls on the next tick, no restart", async () => {
+    const log = { info: vi.fn() };
+    const localDb = makeFakeDb();
+    const localModule = new PollModule({ db: localDb as unknown as PrismaClient, log });
+    await localModule.start({ sessionKey: SESSION_KEY, totalLaps: null, country: "Dutch", meetingName: null });
+
+    localModule.onState(raceState({ drivers: { "1": driver({ driver_number: 1 }) } }));
+    await localModule.waitForIdle();
+    expect(localModule.publicPolls()).toHaveLength(0);
+
+    localModule.updateSession({ totalLaps: 72, meetingName: "Dutch Grand Prix" });
+
+    localModule.onState(raceState({ drivers: { "1": driver({ driver_number: 1 }) } }));
+    await localModule.waitForIdle();
+
+    expect(localModule.publicPolls()).toHaveLength(2);
+    const [winner] = localModule.publicPolls();
+    expect(winner?.question).toBe("Who wins the Dutch Grand Prix?");
+  });
 });
 
 describe("PollModule.onState — locking", () => {
