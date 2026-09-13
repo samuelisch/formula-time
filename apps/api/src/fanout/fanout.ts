@@ -170,9 +170,19 @@ export class Fanout {
 
     if (this.latestState !== null) {
       res.write(encoding === "gzip" ? this.latestState.gz : this.latestState.plain);
+    } else if (encoding === "gzip") {
+      try {
+        res.write(await this.deflate(CATCHING_UP_FRAME));
+      } catch (err) {
+        // A deflate write error on the catching-up frame must not reject
+        // join() -- skip writing this one frame; the socket is still
+        // attached below and gets the next push like any other socket.
+        this.log("deflate failed, skipping the join snapshot frame", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     } else {
-      const gz = encoding === "gzip" ? await this.deflate(CATCHING_UP_FRAME) : null;
-      res.write(encoding === "gzip" ? (gz as Buffer) : CATCHING_UP_FRAME);
+      res.write(CATCHING_UP_FRAME);
     }
 
     this.sockets.add({ res, encoding, format });
@@ -226,7 +236,19 @@ export class Fanout {
     if (Date.now() - this.lastActivityAt < HEARTBEAT_MS) {
       return;
     }
-    const gz = await this.deflate(HEARTBEAT_FRAME);
+    let gz: Buffer;
+    try {
+      gz = await this.deflate(HEARTBEAT_FRAME);
+    } catch (err) {
+      // Called through `void this.maybeSendHeartbeat()` on a bare interval
+      // timer with no catch of its own -- a deflate write error here must
+      // not reject out of this method. Skip this heartbeat; the next
+      // interval tick tries again.
+      this.log("deflate failed, skipping this heartbeat", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
     // Format-agnostic: the heartbeat is a comment frame, not a push: every
     // socket gets the same bytes regardless of `format`.
     this.writeFixed(HEARTBEAT_FRAME, gz);
