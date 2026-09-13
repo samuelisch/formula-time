@@ -67,7 +67,18 @@ else.
   same writer with endpoint `drivers`.
 - Always on: discovers sessions itself, captures during a session window.
   The jsonl recording is still written — it is the irreplaceable artefact,
-  not a stopgap.
+  not a stopgap. In production it is written under a Railway volume
+  mounted at `/data` on the `ingest` service (`.railway/railway.ts`,
+  `LIVE_LOG_DIR=/data/live-logs`), so it survives a redeploy — the
+  container's own disk does not. If the volume is ever unmounted (a local
+  run has none), `LIVE_LOG_DIR` still defaults to `./live-logs`
+  (`config.ts`) and the recorder creates that directory as it does today;
+  nothing about the recorder changes, only where its writes land. The REST
+  lane logs `recording closed <session_key> rows=<n> path=<dir>` once,
+  when a followed session's live window closes, so the owner knows there
+  is a completed recording worth copying off the volume — see the
+  `load-race` skill's "Copy a recording out" step. Retention is manual:
+  nothing under the volume is deleted automatically.
 - The drip simulator (`src/sim/`, `pnpm sim`) and the `rehearse-race` skill
   that runs the whole local stack against it: replays a recording through
   the unmodified REST lane via `LIVE_SOURCE`, no network involved.

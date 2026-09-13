@@ -801,7 +801,9 @@ export class RestLane {
     const nowMs = this.now();
     if (sessionExpired(this.session, nowMs)) {
       const recordingDir = path.join(this.liveLogDir, String(this.sessionKey));
-      this.log(`recording closed ${this.sessionKey} rows=${this.followedRecordedRows} path=${recordingDir}`);
+      this.log(`recording closed ${this.sessionKey} rows=${this.followedRecordedRows} path=${recordingDir}`, {
+        fields: { rows: this.followedRecordedRows },
+      });
       this.log(`rest: session ${this.sessionKey} left its live window; releasing`);
       this.session = null;
       this.sessionKey = null;
