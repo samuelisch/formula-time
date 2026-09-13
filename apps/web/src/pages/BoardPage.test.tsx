@@ -11,6 +11,7 @@ import { BoardSourceProvider } from "../board/useBoardState.ts";
 import { emptyAnchors } from "../live/anchors.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
+import { appendEvents, createTimeline } from "../replay/timeline.ts";
 import { makePush } from "../test/fixtures.ts";
 import { BoardPage } from "./BoardPage.tsx";
 
@@ -177,6 +178,37 @@ describe("BoardPage", () => {
 
       expect(screen.queryByRole("slider", { name: "Playback position" })).not.toBeInTheDocument();
       expect(screen.getByText("Race starts 2026-09-08. Timing appears when the session goes live.")).toBeInTheDocument();
+    });
+
+    // Regression: the timeline used to be built with only a session_key, so
+    // once a rewound viewer fell into timeline mode the displayed push's
+    // session lost its status and both the transport bar and the align
+    // button (gated on `useBoardSessionStatus() === "live"`) disappeared.
+    // No `BoardSourceProvider` here -- unlike the other tests in this file
+    // -- so `BoardPage` reads the live store's own `displayed` push, the
+    // same as it does in production.
+    it("still shows the transport bar and align button after a seek rewinds past the buffer into timeline mode", async () => {
+      const push = makePush();
+      const timeline = createTimeline(push.state.session!);
+      await appendEvents(timeline, [
+        { event_id: "t1", endpoint: "position", source_time: "2026-09-08T12:00:00.000Z", payload: { driver_number: 1, position: 1 } },
+      ]);
+
+      const now = Date.now();
+      useLiveStore.getState().onState(push, now);
+      useLiveStore.getState().setTimeline(timeline, now);
+      useLiveStore.getState().setDelayMs(60_000, now);
+
+      render(
+        <MemoryRouter>
+          <BoardPage />
+        </MemoryRouter>,
+      );
+
+      expect(useLiveStore.getState().mode).toBe("timeline");
+      expect(screen.getByRole("slider", { name: "Playback position" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Align with my screen/ })).toBeInTheDocument();
+      expect(screen.queryByText(/This race has finished/)).not.toBeInTheDocument();
     });
 
     it("keeps the polls button mounted on every session status", () => {

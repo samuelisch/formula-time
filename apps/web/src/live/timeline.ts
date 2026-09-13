@@ -30,7 +30,7 @@
 // the last one already folded in.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { RaceEvent } from "@formula-time/domain";
+import type { RaceEvent, RawRecord } from "@formula-time/domain";
 
 import { fetchRaceEventsPage, type SessionStatus } from "../races/api.ts";
 import { appendEvents, createTimeline, type Timeline } from "../replay/timeline.ts";
@@ -72,7 +72,7 @@ interface Snapshot {
 
 const EMPTY_SNAPSHOT: Snapshot = { timeline: null, headSeq: 0 };
 
-export function useSessionTimeline(sessionKey: number, status: SessionStatus): UseSessionTimelineResult {
+export function useSessionTimeline(sessionKey: number, status: SessionStatus, session: RawRecord): UseSessionTimelineResult {
   // `timeline` and `headSeq` are one state value, not two `useState`s:
   // `publish` always updates them together, and coupling them into a
   // single `setSnapshot` call is what guarantees they commit in the same
@@ -105,6 +105,21 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus): U
     statusRef.current = status;
   }, [status]);
 
+  // Mirrors `statusRef` above, but for the opposite purpose: `session` is
+  // read through this ref so it can stay out of the join-sequence effect's
+  // dependency array (a plain dependency would restart -- and re-backfill --
+  // the whole join sequence on every push, since `session` is a new object
+  // each time). `start()` reads `sessionRef.current` exactly once, at the
+  // moment it builds the timeline, so a later change to this ref (the
+  // session's `status` flipping to "finished", say) is never picked up --
+  // the row a timeline is created with is the one it keeps for its whole
+  // life, which is the point: a viewer rewound past the chequered flag must
+  // still see the session as it was when the timeline first captured it.
+  const sessionRef = useRef(session);
+  useLayoutEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
   useEffect(() => {
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -131,7 +146,7 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus): U
       setLoading(true);
       setError(null);
 
-      const built = createTimeline({ session_key: String(sessionKey) });
+      const built = createTimeline(sessionRef.current);
       let pending: RaceEvent[] = [];
       let backfilling = true;
 
