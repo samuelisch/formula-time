@@ -1,6 +1,6 @@
 import { constants as zlibConstants, inflateRawSync } from "node:zlib";
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import type { RaceState } from "@formula-time/domain";
 
@@ -75,6 +75,42 @@ describe("Fanout", () => {
     expect(slow.destroyed).toBe(true);
     expect(fanout.size()).toBe(1);
     expect(fine.destroyed).toBe(false);
+  });
+
+  test("a deflate write error on one frame is skipped for that tick; the next push is delivered normally", async () => {
+    const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+    const fanout = new Fanout({ log: (msg, fields) => logs.push({ msg, fields }) });
+    const res = new FakeRes();
+    await fanout.join(res, "plain");
+
+    // `flush()` (called after every successful write, fanout.ts's
+    // deflateOnce) internally re-enters `write()` with its own 3-arg form
+    // (chunk, encoding, callback) to send its zero-length flush marker, so
+    // this mock must forward every arg it did not itself consume rather
+    // than assume write's 2-arg (chunk, callback) shape.
+    const deflater = (fanout as unknown as { deflater: { write: (...args: unknown[]) => boolean } }).deflater;
+    const originalWrite = deflater.write.bind(deflater);
+    let writeCalls = 0;
+    vi.spyOn(deflater, "write").mockImplementation((...args: unknown[]) => {
+      writeCalls += 1;
+      if (writeCalls === 1) {
+        const cb = args.find((a): a is (err?: Error) => void => typeof a === "function");
+        cb?.(new Error("deflate write failed"));
+        return true;
+      }
+      return originalWrite(...(args as [Buffer, ((err?: Error) => void)?]));
+    });
+
+    await fanout.push({ n: 1 }); // this tick's deflate write fails: must not reject
+    await fanout.push({ n: 2 }); // next tick: delivered normally
+
+    const delivered = res.chunks
+      .map((chunk) => chunk.toString("utf8"))
+      .filter((frame) => frame.startsWith("event: state"))
+      .map((frame) => JSON.parse(frame.split("data: ")[1] ?? "{}") as { n: number });
+
+    expect(delivered).toEqual([{ n: 2 }]);
+    expect(logs.some((l) => l.msg.includes("deflate"))).toBe(true);
   });
 
   test("overlapping pushes coalesce to the newest payload; intermediate ones are dropped", async () => {

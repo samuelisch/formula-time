@@ -236,7 +236,19 @@ export class Fanout {
   private async deliver(payload: object): Promise<void> {
     const json = JSON.stringify(payload);
     const statePlain = Buffer.from(`event: state\ndata: ${json}\n\n`);
-    const stateGz = await this.deflate(statePlain);
+    let stateGz: Buffer;
+    try {
+      stateGz = await this.deflate(statePlain);
+    } catch (err) {
+      // A deflate write error on this frame (the shared deflater rejecting
+      // one write) must not reject the push -- push()'s caller chains
+      // straight into an unhandled-rejection path. Log and skip this
+      // tick's frame; the next push starts a fresh deflate call.
+      this.log("deflate failed, skipping this push", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
     const stateFrame: Frame = { plain: statePlain, gz: stateGz };
     this.latestState = stateFrame;
     this.latestStateJson = json;
