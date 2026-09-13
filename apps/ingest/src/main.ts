@@ -9,6 +9,7 @@ import { loadConfig } from "./config.js";
 import { countFields, logger } from "./log.js";
 import type { LaneLog } from "./log.js";
 import { createFileFetcher } from "./openf1/file-fetcher.js";
+import { ENTRY_LIST_SEASON } from "./openf1/entry-list.js";
 import { MqttLane } from "./openf1/mqtt-lane.js";
 import { JsonlRecorder } from "./openf1/recorder.js";
 import { RestLane } from "./openf1/rest-lane.js";
@@ -29,6 +30,8 @@ if (config.restTickMsInvalid !== undefined) {
     `ingest: REST_TICK_MS=${config.restTickMsInvalid} is invalid; using the tier default ${config.restTickMs}ms (ADR-0030).`,
   );
 }
+
+logger.info(`entry list: static fallback is for ${ENTRY_LIST_SEASON}`);
 
 // Every lane's and the writer's log(message, opts?) callback funnels
 // through here, so a log query can filter by lane, by level, and by the
