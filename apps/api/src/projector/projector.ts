@@ -317,6 +317,13 @@ export class RaceStateProjector {
       return;
     }
 
+    // The session row is metadata the projector owns, not any one reducer
+    // instance: `this.session` may have moved (updateSession()) while this
+    // rebuild was awaiting its reads, and `freshReducer()` above baked in
+    // whatever row was current before those awaits. Re-apply the current
+    // row right before the swap so the rebuild can never revert a refresh
+    // that landed while it was in flight.
+    localReducer.setSession(sessionAsRawRecord(this.session));
     this.reducer = localReducer;
     this.cursor = localCursor;
     this.appliedIds = localAppliedIds;
