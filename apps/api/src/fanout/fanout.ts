@@ -330,8 +330,16 @@ export class Fanout {
     this.stateBytesGzSinceLog += stateGz.length;
 
     // A forced rebuild is delivered as a full state push to every socket,
-    // never a delta -- a delta's `base_seq` would still match, but its
-    // `patch` would omit the skipped tick's changes.
+    // never a delta. `diffState` is a full structural diff between
+    // `prevState` and the current state, so a delta's `patch` would in
+    // fact already span the skipped tick's changes correctly -- what a
+    // patch cannot carry back is the skipped tick's own `events` rows
+    // (the discrete applied-event log, not derivable from a before/after
+    // state diff), which is the actual reason this must be `rebuilt:
+    // true` at all. Forcing the full state frame here simply reuses the
+    // same fallback path the keyframe mechanism already takes
+    // (`buildDeltaFrame` returning `null`), so every socket format gets
+    // identical bytes for this one tick.
     const deltaFrame = forceRebuild ? null : await this.buildDeltaFrame(outgoing);
     this.latestDelta = deltaFrame ?? stateFrame;
     // Only a real delta frame counts here -- when buildDeltaFrame falls

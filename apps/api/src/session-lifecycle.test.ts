@@ -533,6 +533,74 @@ describe("createSessionLifecycle", () => {
       expect((pushed[1] as { rebuilt?: boolean }).rebuilt).toBeUndefined();
     });
 
+    test("push N settling after push N+1 was already requested does not lose the signal: it lands on N+2, never later", async () => {
+      vi.useFakeTimers();
+      const polls = fakePollHooks();
+      const pushed: unknown[] = [];
+      const gates: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
+      const pusher: Pusher = {
+        push: vi.fn(
+          (payload: object) =>
+            new Promise<void>((resolve, reject) => {
+              gates.push({
+                resolve: () => {
+                  pushed.push(payload);
+                  resolve();
+                },
+                reject,
+              });
+            }),
+        ),
+        size: () => 0,
+      };
+      const source = fakeEventSource([]);
+
+      const lifecycle = createSessionLifecycle({
+        db: fakePrisma(),
+        source,
+        pusher,
+        pickSession: vi.fn(async () => fakeSession()),
+        polls,
+        log: noopLog,
+      });
+      projectors.push({ stop: () => lifecycle.stop() });
+
+      await lifecycle.check();
+      await vi.advanceTimersByTimeAsync(0); // tick N: push requested, left pending
+      expect(gates).toHaveLength(1);
+
+      source.rows.push(driverRow(1, 1));
+      await vi.advanceTimersByTimeAsync(250); // tick N+1: requested while push N is still in flight
+      expect(gates).toHaveLength(2);
+
+      // Push N rejects only now -- after N+1 was already built and sent, so
+      // N+1 went out plain; too late to change a payload already handed to
+      // the pusher.
+      gates[0]?.reject(new Error("deflate write after end"));
+      await vi.advanceTimersByTimeAsync(0); // let the rejection's .catch() set the flag
+      gates[1]?.resolve(); // N+1 itself succeeds
+      await vi.advanceTimersByTimeAsync(0);
+
+      source.rows.push(driverRow(2, 2));
+      await vi.advanceTimersByTimeAsync(250); // tick N+2: the flag is now observed
+      expect(gates).toHaveLength(3);
+      gates[2]?.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      source.rows.push(driverRow(3, 3));
+      await vi.advanceTimersByTimeAsync(250); // tick N+3: normal again
+      expect(gates).toHaveLength(4);
+      gates[3]?.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Push N itself rejected, so only N+1, N+2 and N+3 were ever recorded
+      // as delivered.
+      expect(pushed).toHaveLength(3);
+      expect((pushed[0] as { rebuilt?: boolean }).rebuilt).toBeUndefined(); // N+1: built before N's rejection was observed
+      expect((pushed[1] as { rebuilt?: boolean }).rebuilt).toBe(true); // N+2: the first push built after the rejection was observed
+      expect((pushed[2] as { rebuilt?: boolean }).rebuilt).toBeUndefined(); // N+3: normal again
+    });
+
     test("a rejected polls.start() is logged and check() still resolves", async () => {
       vi.useFakeTimers();
       const log = vi.fn();

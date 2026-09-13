@@ -93,10 +93,16 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
   function wireProjector(p: RaceStateProjector, forSession: Session): void {
     // A rejected push (below) means this class cannot know whether any
     // client actually saw that tick's events -- the same situation as a
-    // fan-out-level skipped frame. Set on a rejection; the next payload
-    // built for this projector is marked rebuilt: true so a connected
-    // client discards its timeline and backfills again, then this clears.
-    // Left set if that next push rejects too.
+    // fan-out-level skipped frame. Written only in the .catch() below, and
+    // consumed (read, then cleared) only where the next payload is built --
+    // never reset anywhere else. Ticks run on a fixed interval regardless
+    // of whether the previous tick's push has settled, so if push N is
+    // still in flight when N+1's payload is built, N+1 goes out without
+    // `rebuilt` and N's rejection is only observed afterward: the
+    // guarantee is that the first payload built once the rejection *is*
+    // observed carries `rebuilt: true` -- N+2 at the latest (the tick
+    // interval vastly exceeds a promise settling), never later -- and no
+    // payload built after that point goes out without it.
     let skippedSinceLastPush = false;
 
     p.subscribe((state, cursor, events, rebuilt) => {
