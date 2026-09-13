@@ -477,6 +477,53 @@ describe("RestLane.pollOnce", () => {
   });
 });
 
+describe("RestLane.takeStats()", () => {
+  test("returns REST polls/rows/errors since the previous call, then resets to zero", async () => {
+    const driverRow = { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" };
+    const positionRow = { driver_number: 1, date: "2026-09-06T13:00:00Z" };
+    const { fetcher } = fakeFetcher({ sessions: [SESSION], drivers: [driverRow], position: [positionRow] });
+    const queue = new EventQueue<QueueItem>();
+    const lane = new RestLane(queue, { fetcher, now: () => START, onLog: () => {} });
+
+    // discoverOnce(): one sessions poll, one meetings poll, one entry-list
+    // drivers poll (satisfied on the first fetch, since driverRow is non-empty).
+    await lane.discoverOnce();
+    // pollOnce(): one rotation poll (endpoint "position").
+    await lane.pollOnce();
+
+    const stats = lane.takeStats();
+    expect(stats).toEqual({ polls: 4, rows: 2, errors: 0 });
+    expect(lane.takeStats()).toEqual({ polls: 0, rows: 0, errors: 0 });
+  });
+
+  test("a failed rotation poll counts as an error and logs through the injected logger at error level", async () => {
+    let failPosition = false;
+    const fetcher = async (url: string): Promise<unknown> => {
+      const parsed = new URL(url);
+      const endpoint = parsed.pathname.split("/").at(-1) ?? "";
+      if (endpoint === "position" && failPosition) throw new Error("network error");
+      if (endpoint === "sessions") return [SESSION];
+      return [];
+    };
+    const queue = new EventQueue<QueueItem>();
+    const logs: Array<{ message: string; level: string | undefined }> = [];
+    const lane = new RestLane(queue, {
+      fetcher,
+      now: () => START,
+      onLog: (message, opts) => logs.push({ message, level: opts?.level }),
+    });
+    await lane.discoverOnce();
+    lane.takeStats(); // isolate the rotation failure below from discovery/entry-list activity
+
+    failPosition = true;
+    const result = await lane.pollOnce();
+
+    expect(result).toEqual({ endpoint: "position", rows: 0, newRows: 0, malformed: 0 });
+    expect(lane.takeStats()).toEqual({ polls: 1, rows: 0, errors: 1 });
+    expect(logs.some((l) => l.level === "error" && l.message.includes("rest: poll position failed"))).toBe(true);
+  });
+});
+
 async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
   const start = Date.now();
   while (!predicate()) {

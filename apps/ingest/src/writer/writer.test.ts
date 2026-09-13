@@ -236,6 +236,65 @@ describe("EventWriter retry on a failed write", () => {
     expect(calls).toBe(3); // 3 consecutive failures of the same requeued batch, then give up
     expect(queue.size).toBe(2); // the batch is still there — dropped, not discarded
   });
+
+  test("a failed batch logs through the injected logger at error level, with the failure counted", async () => {
+    const db: EventWriterDb = {
+      event: {
+        async createMany() {
+          throw new Error("connection reset");
+        },
+      },
+    };
+    const queue = new EventQueue<QueueItem>();
+    queue.push(item("a"));
+    const calls: Array<{ message: string; level: string | undefined; fields: Record<string, unknown> | undefined }> =
+      [];
+    const writer = new EventWriter(db, queue, {
+      log: (message, opts) => calls.push({ message, level: opts?.level, fields: opts?.fields }),
+    });
+
+    await expect(writer.drainOnce()).rejects.toThrow("connection reset");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.level).toBe("error");
+    expect(calls[0]?.message).toMatch(/batch of 1 failed/);
+    expect(calls[0]?.fields).toMatchObject({ failures: 1 });
+  });
+});
+
+describe("EventWriter.takeStats()", () => {
+  test("returns inserted/skipped/failures since the previous call, then resets to zero", async () => {
+    let shouldFail = false;
+    const inserted = new Map<string, unknown>();
+    const db: EventWriterDb = {
+      event: {
+        async createMany(args) {
+          if (shouldFail) throw new Error("db down");
+          let count = 0;
+          for (const row of args.data) {
+            if (inserted.has(row.eventId)) continue;
+            inserted.set(row.eventId, row);
+            count += 1;
+          }
+          return { count };
+        },
+      },
+    };
+    const queue = new EventQueue<QueueItem>();
+    queue.push(item("a"));
+    queue.push(item("b"));
+    const writer = new EventWriter(db, queue);
+
+    await writer.drainOnce(); // inserts a, b
+    queue.push(item("a")); // duplicate -> skipped
+    await writer.drainOnce();
+    shouldFail = true;
+    queue.push(item("c"));
+    await expect(writer.drainOnce()).rejects.toThrow("db down");
+
+    expect(writer.takeStats()).toEqual({ inserted: 2, skipped: 1, failures: 1 });
+    expect(writer.takeStats()).toEqual({ inserted: 0, skipped: 0, failures: 0 });
+  });
 });
 
 describe("backoffDelayMs", () => {
