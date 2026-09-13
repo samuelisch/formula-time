@@ -83,11 +83,13 @@ jobs:
         # log.
         run: |
           set -euo pipefail
-          destroy_count="$(grep -oE '^Plan: [0-9]+ to add, [0-9]+ to change, [0-9]+ to destroy' /tmp/railway-plan.txt | grep -oE '[0-9]+ to destroy' | grep -oE '^[0-9]+')"
-          if [ -z "$destroy_count" ]; then
-            echo "could not find the 'Plan: ... to destroy' summary line in the plan output" >&2
+          summary_line="$(grep -E '^Plan: [0-9]+ to add, [0-9]+ to change, [0-9]+ to destroy' /tmp/railway-plan.txt)" || true
+          if [ -z "$summary_line" ]; then
+            echo "cannot read the plan summary, refusing to apply. Full plan output:" >&2
+            cat /tmp/railway-plan.txt >&2
             exit 1
           fi
+          destroy_count="$(echo "$summary_line" | grep -oE '[0-9]+ to destroy' | grep -oE '^[0-9]+')"
           if [ "$destroy_count" != "0" ]; then
             echo "railway config plan reports $destroy_count destroy(s); refusing to apply. Review the plan above; a destructive change here was never shown in a PR comment, so this job will not apply it -- run it by hand instead." >&2
             exit 1

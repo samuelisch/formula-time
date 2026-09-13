@@ -69,6 +69,20 @@ describe("railway-apply.yml", () => {
     }
   });
 
+  test("the destroy-count check tolerates an unparseable plan instead of dying on a bare pipefail", () => {
+    const wf = loadWorkflow("railway-apply.yml");
+    const job = wf.jobs["apply-manual"];
+    const steps = job.steps ?? [];
+    const destroyCheck = steps.find((s) => s.name === "Fail if the plan would destroy anything");
+    const script = destroyCheck?.run ?? "";
+    // The summary-line grep is expected to fail (no match) when the CLI's
+    // output format changes; under `set -e` that would abort the step
+    // before the "cannot read the plan summary" diagnostic ever runs
+    // unless the grep's own failure is caught.
+    const summaryLineAssignment = script.split("\n").find((line) => line.includes("summary_line="));
+    expect(summaryLineAssignment).toMatch(/\|\|\s*true\s*$/);
+  });
+
   test("apply-manual pins an exact @railway/cli version", () => {
     const wf = loadWorkflow("railway-apply.yml");
     const job = wf.jobs["apply-manual"];
