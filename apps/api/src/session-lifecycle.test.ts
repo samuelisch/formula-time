@@ -98,7 +98,7 @@ describe("createSessionLifecycle", () => {
       vi.useRealTimers();
     });
 
-    test("polls.start() runs with the three session fields before the projector's first push", async () => {
+    test("polls.start() runs with the four session fields before the projector's first push", async () => {
       vi.useFakeTimers();
       const calls: string[] = [];
       const polls = fakePollHooks({ calls });
@@ -126,7 +126,7 @@ describe("createSessionLifecycle", () => {
       await lifecycle.check();
       await vi.advanceTimersByTimeAsync(0); // first tick: fold + publish
 
-      expect(polls.start).toHaveBeenCalledWith({ sessionKey: 42n, totalLaps: 50, country: "Testland" });
+      expect(polls.start).toHaveBeenCalledWith({ sessionKey: 42n, totalLaps: 50, country: "Testland", meetingName: null });
       expect(calls.indexOf("start")).toBeLessThan(calls.indexOf("push"));
     });
 
@@ -410,7 +410,7 @@ describe("createSessionLifecycle", () => {
       await lifecycle.check(); // key changed: onSessionFinished (for 1) then start (for 2)
 
       expect(calls).toEqual(["start", "onSessionFinished", "start"]);
-      expect(polls.start).toHaveBeenLastCalledWith({ sessionKey: 2n, totalLaps: 50, country: "Testland" });
+      expect(polls.start).toHaveBeenLastCalledWith({ sessionKey: 2n, totalLaps: 50, country: "Testland", meetingName: null });
     });
 
     test("a check() that overlaps one still in flight returns without a second pickSession", async () => {
