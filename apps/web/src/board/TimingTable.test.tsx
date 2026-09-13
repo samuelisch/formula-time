@@ -56,6 +56,29 @@ describe("TimingTable ordering", () => {
   });
 });
 
+describe("TimingTable semantics", () => {
+  it("has a caption naming the table and the driver count", () => {
+    renderWith(makePush());
+    expect(screen.getByRole("table", { name: "Timing, 2 drivers" })).toBeInTheDocument();
+  });
+
+  it("gives every header a col scope", () => {
+    renderWith(makePush());
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers.length).toBeGreaterThan(0);
+    for (const header of headers) {
+      expect(header).toHaveAttribute("scope", "col");
+    }
+  });
+
+  it("exposes the position cell as a row header", () => {
+    renderWith(makePush());
+    const row = screen.getByText("VER").closest("tr")!;
+    const rowHeader = within(row).getByRole("rowheader");
+    expect(rowHeader).toHaveTextContent("1");
+  });
+});
+
 describe("TimingTable row formatting", () => {
   it("renders position, driver identity, team, gap, interval, tyre, and last pit", () => {
     renderWith(makePush());
