@@ -3,9 +3,10 @@
 // support for the old format ends 2026-12-01
 // (https://docs.railway.com/infrastructure-as-code). Confirmed against the
 // installed `railway` package's own `dist/iac/index.d.ts` (v3.11.0): the
-// `service()`, `postgres()`, `github()`, `preserve()` signatures and the
-// `build.buildCommand` / `build.watchPatterns` / `deploy.restartPolicyType`
-// fields used below all exist there, quoted in the deploy-track PR body.
+// `service()`, `postgres()`, `github()`, `preserve()`, `volume()`
+// signatures and the `build.buildCommand` / `build.watchPatterns` /
+// `deploy.restartPolicyType` / `volumeMounts` fields used below all exist
+// there, quoted in the relevant PR body.
 //
 // One file declares every service in the environment — omitting one here
 // means "delete it" — so all three of the owner's existing Railway services
@@ -19,11 +20,21 @@
 // locally and confirms it reads as *adopting* the three existing services
 // (Postgres included — check its image/version in the diff) rather than
 // deleting or recreating any of them, before anyone runs `apply`.
-import { defineRailway, github, postgres, preserve, project, service } from "railway/iac";
+import { defineRailway, github, postgres, preserve, project, service, volume } from "railway/iac";
 
 export default defineRailway(() => {
   const db = postgres("Postgres");
   const source = github("samuelisch/formula-time", { branch: "release" });
+
+  // The ingest jsonl recording (LIVE_LOG_DIR) lives on the container's disk
+  // today, which Railway discards on every deploy — the recording is the
+  // only copy of a live race in received order. `volume(name, config?):
+  // VolumeNode` (node_modules/railway/dist/iac/index.d.ts, v3.11.0) with no
+  // config needed here; a service attaches it by using the VolumeNode as a
+  // `volumeMounts` value keyed by mount path, per the same file's
+  // `service()` config: `volumeMounts?: Record<string, VolumeMount | null |
+  // VolumeNode>`.
+  const liveLogs = volume("ingest-live-logs");
 
   // Same four secrets on both services (platform fact: variables are on
   // `api` only today; `ingest` gets its own after this lands — declaring
@@ -82,17 +93,22 @@ export default defineRailway(() => {
     },
     start: "node apps/ingest/dist/main.js",
     deploy: { restartPolicyType: "ALWAYS" },
+    // The recording directory lives under the mounted volume, not the
+    // container's own (ephemeral) disk. If the volume is ever unmounted (a
+    // local run has none), config.ts's own default (`./live-logs`) applies
+    // instead and the recorder creates that directory as it does today.
+    volumeMounts: { "/data": liveLogs },
     // MQTT_ENABLED (issue #25 / ADR-0012): config.ts's default already
     // covers the free-tier (no OPENF1_LOGIN) case without this var set;
     // preserved here only so an operator override (e.g. MQTT_ENABLED=false
     // for an incident, with credentials still set — ADR-0012) has a slot in
     // the one committed IaC file instead of only in the dashboard.
-    env: { ...secrets, MQTT_ENABLED: preserve() },
+    env: { ...secrets, MQTT_ENABLED: preserve(), LIVE_LOG_DIR: "/data/live-logs" },
   });
 
   // The project name is the join key `railway config plan`/`apply` matches
   // against the live environment — it must equal the Railway dashboard's
   // actual project name, not the repo name. This project is
   // `soothing-compassion`.
-  return project("soothing-compassion", { resources: [db, api, ingest] });
+  return project("soothing-compassion", { resources: [db, api, ingest, liveLogs] });
 });
