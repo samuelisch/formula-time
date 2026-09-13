@@ -350,6 +350,74 @@ describe("createSessionLifecycle", () => {
       expect(polls.updateSession).toHaveBeenCalledWith({ totalLaps: 66, meetingName: null });
     });
 
+    test("a refresh that lands mid-push never mixes fields from two different session reads", async () => {
+      vi.useFakeTimers();
+      // manualOnState: the default fake resolves onState() on a microtask,
+      // which flushes before this test can land a refresh in between --
+      // AGENTS.md: "a fake that resolves synchronously cannot test
+      // ordering." Held open, tick 1's push stays pending while a same-key
+      // refresh runs and changes total_laps.
+      const polls = fakePollHooks({ manualOnState: true });
+      const pushed: unknown[] = [];
+      const pusher: Pusher = {
+        push: vi.fn(async (payload: object) => {
+          pushed.push(payload);
+        }),
+        size: () => 0,
+      };
+      const initial = fakeSession({ totalLaps: 50 });
+      const pickSession = vi.fn(async () => initial);
+
+      const lifecycle = createSessionLifecycle({
+        db: fakePrisma(),
+        source: fakeEventSource([driverRow(1, 1)]),
+        pusher,
+        pickSession,
+        polls,
+        log: noopLog,
+      });
+      projectors.push({ stop: () => lifecycle.stop() });
+
+      await lifecycle.check(); // starts the projector
+      await vi.advanceTimersByTimeAsync(0); // tick 1 folds; its onState() call is left pending
+
+      expect(polls.onState).toHaveBeenCalledTimes(1);
+      expect(pushed).toHaveLength(0);
+
+      // A same-key refresh lands while tick 1's push is still waiting on its
+      // own fold: updateSession() mutates the projector's session (and
+      // queues its own onState(), pending behind tick 1's) before tick 1's
+      // push is built.
+      const refreshed = fakeSession({ totalLaps: 66 });
+      pickSession.mockImplementation(async () => refreshed);
+      await lifecycle.check();
+
+      polls.resolveNext(); // tick 1's own fold lands first (FIFO)
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(pushed).toHaveLength(1);
+      const first = pushed[0] as {
+        total_laps: unknown;
+        state: { session: { total_laps: unknown } | null };
+      };
+      // Tick 1's frame must carry tick 1's own total_laps throughout --
+      // never a value read live from a session that changed after this
+      // frame's state was captured.
+      expect(first.total_laps).toBe(first.state.session?.total_laps);
+      expect(first.total_laps).toBe(50);
+
+      polls.resolveNext(); // the refresh's own fold lands next
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(pushed).toHaveLength(2);
+      const second = pushed[1] as {
+        total_laps: unknown;
+        state: { session: { total_laps: unknown } | null };
+      };
+      expect(second.total_laps).toBe(second.state.session?.total_laps);
+      expect(second.total_laps).toBe(66);
+    });
+
     test("a status flip to finished calls onSessionFinished exactly once", async () => {
       vi.useFakeTimers();
       const polls = fakePollHooks();
