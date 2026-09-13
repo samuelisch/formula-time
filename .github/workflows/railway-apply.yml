@@ -52,9 +52,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v6
+        # Version comes from "packageManager" in package.json.
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install repository dependencies
+        # The CLI evaluates .railway/railway.ts, which imports the
+        # "railway" SDK from this repo's devDependencies. Without this
+        # step the Plan step below fails with "The Railway TypeScript SDK
+        # is not installed."
+        run: pnpm install --frozen-lockfile
 
       - name: Install the Railway CLI
         run: npm install -g @railway/cli@5.54.0
