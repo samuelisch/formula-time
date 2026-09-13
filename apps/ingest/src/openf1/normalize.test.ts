@@ -104,6 +104,17 @@ describe("LiveNormalizer", () => {
     expect(afterResult.unjoined).toBe(0);
   });
 
+  test("a stints row missing driver_number or lap_start gets a null sourceTime but is not counted unjoined (malformed, not out-of-order)", () => {
+    const normalizer = new LiveNormalizer();
+    const missingLapStart = normalizer.normalize("stints", [{ driver_number: 44 }]);
+    expect(missingLapStart.rows[0]?.sourceTime).toBeNull();
+    expect(missingLapStart.unjoined).toBe(0);
+
+    const missingDriverNumber = normalizer.normalize("stints", [{ lap_start: 3 }]);
+    expect(missingDriverNumber.rows[0]?.sourceTime).toBeNull();
+    expect(missingDriverNumber.unjoined).toBe(0);
+  });
+
   test("an endpoint with no configured timestamp field gets a null sourceTime", () => {
     const normalizer = new LiveNormalizer();
     const { rows: [event] } = normalizer.normalize("drivers", [{ driver_number: 1 }]);

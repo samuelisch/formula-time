@@ -154,11 +154,16 @@ export class LiveNormalizer {
         if (endpoint === "stints") {
           const driverNumber = getNumber(payload, "driver_number");
           const lapStart = getNumber(payload, "lap_start");
-          sourceTime =
-            driverNumber !== null && lapStart !== null
-              ? (this.lapStartByDriverAndLap.get(`${driverNumber}:${lapStart}`) ?? null)
-              : null;
-          if (sourceTime === null) unjoined += 1;
+          if (driverNumber !== null && lapStart !== null) {
+            const lapDate = this.lapStartByDriverAndLap.get(`${driverNumber}:${lapStart}`);
+            sourceTime = lapDate ?? null;
+            // Only a well-formed stint (both fields present) whose lap
+            // genuinely hasn't been seen yet counts as out-of-order; a row
+            // missing either field is malformed, not unjoined.
+            if (lapDate === undefined) unjoined += 1;
+          } else {
+            sourceTime = null;
+          }
         }
 
         out.push({ eventId: id, endpoint, sourceTime, payload });
