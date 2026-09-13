@@ -33,3 +33,6 @@ startup naming the rejected value.
 - The free tier still stays under its request budget by default.
 - An operator can force a specific cadence for one deployment (testing,
   or a tier not yet modeled) via `REST_TICK_MS` without a code change.
+- The `ingest: last 60s` stats line (ADR-0029) also carries `rest_unjoined`
+  and `mqtt_unjoined`: `stints` rows each lane's normalizer resolved with a
+  null `sourceTime` because their lap hadn't been seen yet.

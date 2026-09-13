@@ -137,6 +137,8 @@ export interface MqttLaneStats {
   messages: number;
   rows: number;
   dropped: number;
+  /** `stints` rows normalized with a null `sourceTime` (their lap hadn't been seen yet) — an out-of-order stint. */
+  unjoined: number;
 }
 
 export interface MqttLaneOptions {
@@ -207,6 +209,7 @@ export class MqttLane {
   private messagesSinceLog = 0;
   private rowsSinceLog = 0;
   private droppedSinceLog = 0;
+  private unjoinedSinceLog = 0;
 
   public constructor(
     private readonly queue: EventQueue<QueueItem>,
@@ -233,10 +236,12 @@ export class MqttLane {
       messages: this.messagesSinceLog,
       rows: this.rowsSinceLog,
       dropped: this.droppedSinceLog,
+      unjoined: this.unjoinedSinceLog,
     };
     this.messagesSinceLog = 0;
     this.rowsSinceLog = 0;
     this.droppedSinceLog = 0;
+    this.unjoinedSinceLog = 0;
     return stats;
   }
 
@@ -424,6 +429,7 @@ export class MqttLane {
     const result = emitRows(this.getNormalizer(), this.queue, endpoint, sessionKey, [stripped]);
     this.droppedSinceLog += result.malformed;
     this.rowsSinceLog += result.newRows;
+    this.unjoinedSinceLog += result.unjoined;
   }
 }
 
