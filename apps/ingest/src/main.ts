@@ -121,7 +121,7 @@ restLane.start();
 mqttLane?.start();
 writer.run();
 logger.info(
-  `ingest: started (REST lane${mqttLane ? " + MQTT lane" : ""} + writer running; discovering a session)`,
+  `ingest: started (REST lane tick=${config.restTickMs}ms${mqttLane ? " + MQTT lane" : ""} + writer running; discovering a session)`,
 );
 
 // One line per minute across both lanes and the writer, replacing the MQTT
