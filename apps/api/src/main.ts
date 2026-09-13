@@ -1,5 +1,6 @@
 // API service — the "app service" of ADR-0001: projector (the authority), poll module,
 // serialize-once SSE fan-out, route handler, exporter — one process (ADR-0001 §1).
+import helmet from "@fastify/helmet";
 import Fastify from "fastify";
 
 import { createDb } from "@formula-time/db";
@@ -31,6 +32,19 @@ const app = Fastify({ logger: true, trustProxy: TRUST_PROXY });
 // The web bundle is hosted on its own origin (ADR-0008); allow it here,
 // before any route, so the preflight and the hijacked SSE route see it.
 await registerCors(app, parseAllowedOrigins(process.env.CORS_ORIGIN));
+
+// Standard security headers on every response. CSP is off: the api serves
+// only JSON and an event stream, no documents to constrain. CORP is
+// cross-origin so the bundle, hosted on its own origin (ADR-0008), can read
+// the response. HSTS runs one year, no subdomains (this container answers
+// for its own host only). Runs as an `onRequest` hook, so it decorates the
+// reply before the hijacked SSE route calls `hijack()` -- the headers
+// still ride along through `replyHeaders` (cors.ts).
+await app.register(helmet, {
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  hsts: { maxAge: 31536000, includeSubDomains: false },
+});
 
 const db = createDb();
 const source = prismaEventSource(db);
