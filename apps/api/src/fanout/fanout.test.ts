@@ -1,6 +1,6 @@
 import { constants as zlibConstants, inflateRawSync } from "node:zlib";
 
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { RaceState } from "@formula-time/domain";
 
@@ -34,6 +34,13 @@ const HEARTBEAT_MS = 5000;
  * successful write) re-enters `write()` with its own 3-arg `(chunk,
  * encoding, callback)` form to send its zero-length flush marker, not just
  * the 2-arg `(chunk, callback)` form used at a deflate call site. */
+/** Waits out the constructor's own heartbeat-frame deflate so a test's own
+ * `failNthDeflateWrite(fanout, 1)` targets that test's first real deflate
+ * write, not one of the two writes construction already made. */
+async function readyForTest(fanout: Fanout): Promise<void> {
+  await (fanout as unknown as { heartbeatGzPromise: Promise<Buffer> }).heartbeatGzPromise.catch(() => undefined);
+}
+
 function failNthDeflateWrite(fanout: Fanout, n: number): void {
   const deflater = (fanout as unknown as { deflater: { write: (...args: unknown[]) => boolean } }).deflater;
   const originalWrite = deflater.write.bind(deflater);
@@ -50,6 +57,14 @@ function failNthDeflateWrite(fanout: Fanout, n: number): void {
 }
 
 describe("Fanout", () => {
+  // A prototype-level spy (used below to observe the constructor's own
+  // heartbeat deflate) outlives the test that installs it unless
+  // restored -- it would otherwise leak into every Fanout constructed by
+  // a later test in this file.
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   test("two sockets receive byte-identical buffers from the same push", async () => {
     const fanout = new Fanout();
     const a = new FakeRes();
@@ -107,6 +122,7 @@ describe("Fanout", () => {
   test("a deflate write error on one frame is skipped for that tick; the next push is delivered normally", async () => {
     const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
     const fanout = new Fanout({ log: (msg, fields) => logs.push({ msg, fields }) });
+    await readyForTest(fanout);
     const res = new FakeRes();
     await fanout.join(res, "plain");
 
@@ -127,6 +143,7 @@ describe("Fanout", () => {
   test("a deflate error on the join snapshot frame is skipped; the socket still attaches and gets the next push", async () => {
     const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
     const fanout = new Fanout({ log: (msg, fields) => logs.push({ msg, fields }) });
+    await readyForTest(fanout);
 
     failNthDeflateWrite(fanout, 1); // the catching-up frame's deflate write, inside join()
 
@@ -144,24 +161,107 @@ describe("Fanout", () => {
     expect(decoded.toString("utf8")).toBe(`event: state\ndata: ${JSON.stringify({ n: 1 })}\n\n`);
   });
 
-  test("a deflate error on a heartbeat is skipped; it never raises an unhandled rejection", async () => {
-    vi.useFakeTimers();
+  test("a deflate error computing the heartbeat frame is skipped and re-armed; a later heartbeat recovers, and the recovered bytes are then cached again", async () => {
     const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+    // Fails only the very first deflate() call -- the one the constructor
+    // itself makes -- then falls back to the real implementation, so
+    // join()'s own catching-up-frame deflate below, and the re-arm this
+    // test drives, both still succeed.
+    const deflateSpy = vi
+      .spyOn(Fanout.prototype as unknown as { deflate(buf: Buffer): Promise<Buffer> }, "deflate")
+      .mockRejectedValueOnce(new Error("deflate write failed"));
+
     const fanout = new Fanout({ log: (msg, fields) => logs.push({ msg, fields }) });
     const res = new FakeRes();
-    await fanout.join(res, "gzip"); // real deflate for the catching-up frame, before the spy goes in
+    await fanout.join(res, "gzip"); // real deflate for the catching-up frame
+    const beforeHeartbeats = res.chunks.length;
+    const callsBeforeAnyHeartbeat = deflateSpy.mock.calls.length;
 
-    failNthDeflateWrite(fanout, 1); // the heartbeat frame's deflate write
+    // Drives maybeSendHeartbeat() directly rather than through heartbeat()'s
+    // setInterval -- see the earlier caching test's comment on why that
+    // races real zlib callbacks against fake-timer advances.
+    const sendHeartbeat = (
+      fanout as unknown as { maybeSendHeartbeat(): Promise<void> }
+    ).maybeSendHeartbeat.bind(fanout);
 
-    fanout.heartbeat();
-    // Vitest fails the whole run on an unhandled rejection by default, so
-    // this test passing at all -- not just the log assertion below -- is
-    // the proof the rejection was caught, not just observed.
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
-    fanout.stopHeartbeat();
-
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + HEARTBEAT_MS + 1);
+    await sendHeartbeat(); // 1st: the cached rejection -- logged, skipped, and re-armed
+    expect(res.chunks.length).toBe(beforeHeartbeats);
     expect(logs.some((l) => l.msg.includes("heartbeat"))).toBe(true);
+    expect(deflateSpy.mock.calls.length).toBe(callsBeforeAnyHeartbeat + 1); // the re-arm's own deflate call
+
+    const callsAfterRearm = deflateSpy.mock.calls.length;
+    vi.setSystemTime(Date.now() + HEARTBEAT_MS + 1);
+    await sendHeartbeat(); // 2nd: the re-armed deflate has resolved -- writes the frame
+    expect(res.chunks.length).toBe(beforeHeartbeats + 1);
+    expect(deflateSpy.mock.calls.length).toBe(callsAfterRearm); // no new deflate call, just the await
+
+    vi.setSystemTime(Date.now() + HEARTBEAT_MS + 1);
+    await sendHeartbeat(); // 3rd: the recovered bytes are cached -- writes the same bytes, no further deflate call
     vi.useRealTimers();
+
+    expect(deflateSpy.mock.calls.length).toBe(callsAfterRearm);
+    expect(res.chunks.length).toBe(beforeHeartbeats + 2);
+    const secondHeartbeat = res.chunks[res.chunks.length - 2] as Buffer;
+    const thirdHeartbeat = res.chunks[res.chunks.length - 1] as Buffer;
+    expect(thirdHeartbeat.equals(secondHeartbeat)).toBe(true);
+  });
+
+  test("computes and caches the heartbeat gzip block once, at construction", () => {
+    const deflateSpy = vi.spyOn(Fanout.prototype as unknown as { deflate(buf: Buffer): Promise<Buffer> }, "deflate");
+
+    new Fanout();
+
+    expect(deflateSpy).toHaveBeenCalledTimes(1);
+    expect(deflateSpy.mock.calls[0]?.[0]?.toString("utf8")).toBe(": heartbeat\n\n");
+  });
+
+  test("every heartbeat after construction reuses the cached bytes, identically on a legacy and a delta socket", async () => {
+    const fanout = new Fanout();
+    const legacy = new FakeRes();
+    const delta = new FakeRes();
+    // Push once first so both joins bootstrap from latestState instead of
+    // each taking their own catching-up-frame deflate path -- keeps the
+    // deflate count below scoped to what the heartbeats themselves do.
+    await fanout.push({ type: "state", seq: "1" });
+    await fanout.join(legacy, "gzip", "state");
+    await fanout.join(delta, "gzip", "delta");
+    const legacyBefore = legacy.chunks.length;
+    const deltaBefore = delta.chunks.length;
+
+    const deflateSpy = vi.spyOn(fanout as unknown as { deflate(buf: Buffer): Promise<Buffer> }, "deflate");
+    // Drives maybeSendHeartbeat() directly rather than through heartbeat()'s
+    // setInterval: real zlib callbacks land on the real event loop, not
+    // fake timers, so advancing the fake clock and letting the interval
+    // fire on its own can race a still-pending async step -- fully
+    // awaiting each call here before the next one starts is what makes
+    // this deterministic.
+    const sendHeartbeat = (
+      fanout as unknown as { maybeSendHeartbeat(): Promise<void> }
+    ).maybeSendHeartbeat.bind(fanout);
+
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + HEARTBEAT_MS + 1);
+    await sendHeartbeat();
+    vi.setSystemTime(Date.now() + HEARTBEAT_MS + 1);
+    await sendHeartbeat();
+    vi.setSystemTime(Date.now() + HEARTBEAT_MS + 1);
+    await sendHeartbeat();
+    vi.useRealTimers();
+
+    // The block was already cached at construction -- none of these three
+    // heartbeats should call deflate() again.
+    expect(deflateSpy).not.toHaveBeenCalled();
+
+    const legacyHeartbeats = legacy.chunks.slice(legacyBefore);
+    const deltaHeartbeats = delta.chunks.slice(deltaBefore);
+    expect(legacyHeartbeats).toHaveLength(3);
+    expect(deltaHeartbeats).toHaveLength(3);
+    const first = legacyHeartbeats[0] as Buffer;
+    for (const chunk of [...legacyHeartbeats, ...deltaHeartbeats]) {
+      expect(chunk.equals(first)).toBe(true);
+    }
   });
 
   test("a socket whose write throws is dropped, logged once, and the next socket still receives the frame", async () => {
