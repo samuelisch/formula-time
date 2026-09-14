@@ -29,12 +29,25 @@ export default defineRailway(() => {
   // The ingest jsonl recording (LIVE_LOG_DIR) lives on the container's disk
   // today, which Railway discards on every deploy — the recording is the
   // only copy of a live race in received order. `volume(name, config?):
-  // VolumeNode` (node_modules/railway/dist/iac/index.d.ts, v3.11.0) with no
-  // config needed here; a service attaches it by using the VolumeNode as a
-  // `volumeMounts` value keyed by mount path, per the same file's
-  // `service()` config: `volumeMounts?: Record<string, VolumeMount | null |
-  // VolumeNode>`.
-  const liveLogs = volume("ingest-live-logs");
+  // VolumeNode` (node_modules/railway/dist/iac/index.d.ts, v3.11.0); a
+  // service attaches it by using the VolumeNode as a `volumeMounts` value
+  // keyed by mount path, per the same file's `service()` config:
+  // `volumeMounts?: Record<string, VolumeMount | null | VolumeNode>`.
+  //
+  // config.region and config.sizeMB are declared, not left default: the
+  // first apply created this volume without either set here, and Railway
+  // assigned its own values on creation — region asia-southeast1-eqsg3a
+  // (matching the services' multiRegionConfig region) and sizeMB 5000 —
+  // then stored them. A volume declared without them plans as a change to
+  // null on every run, the same permanent drift as the api's restart
+  // policy, in the other direction: there the file declared a platform
+  // default, here the platform filled in what the file left unstated. This
+  // file now states what the platform holds. Change the size here, not in
+  // the dashboard, and let apply carry it.
+  const liveLogs = volume("ingest-live-logs", {
+    region: "asia-southeast1-eqsg3a",
+    sizeMB: 5000,
+  });
 
   // Same four secrets on both services (platform fact: variables are on
   // `api` only today; `ingest` gets its own after this lands — declaring
