@@ -121,7 +121,23 @@ export default defineRailway(() => {
     // preserved here only so an operator override (e.g. MQTT_ENABLED=false
     // for an incident, with credentials still set — ADR-0012) has a slot in
     // the one committed IaC file instead of only in the dashboard.
-    env: { ...secrets, MQTT_ENABLED: preserve(), LIVE_LOG_DIR: "/data/live-logs" },
+    //
+    // RAILWAY_RUN_UID: Railway's documented fix for a non-root image writing
+    // to a volume (docs.railway.com/reference/volumes, Caveats: "Docker
+    // images that run as a non-root UID by default will have permissions
+    // issues when performing operations within an attached volume. If you
+    // are affected by this, you can set `RAILWAY_RUN_UID=0` environment
+    // variable in your service."); `/data` is `root:root drwxr-xr-x` and the
+    // image runs as uid 1001, so without this the recorder's `mkdir` fails
+    // EACCES on every row. On `ingest` only, never on `api` — `api` serves
+    // public traffic, `ingest` binds no port. Not `preserve()`: this value
+    // is managed here, like `LIVE_LOG_DIR` (ADR-0036).
+    env: {
+      ...secrets,
+      MQTT_ENABLED: preserve(),
+      LIVE_LOG_DIR: "/data/live-logs",
+      RAILWAY_RUN_UID: "0",
+    },
   });
 
   // The project name is the join key `railway config plan`/`apply` matches

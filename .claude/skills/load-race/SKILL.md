@@ -179,6 +179,16 @@ railway logs -s ingest | grep "ingest: last 60s"
 
 At least one line should appear within a couple of minutes of the deploy, carrying `rest_polls`, `rest_rows`, `rest_errors`, `mqtt_messages`, `mqtt_rows`, `mqtt_dropped`, `writer_inserted`, `writer_skipped`, `writer_failures`, `queue_depth`, and `session_key`. No line at all means the process crashed before its first interval tick, or the interval itself broke — check `railway logs -s ingest | tail -50` for the actual fault.
 
+Also confirm the recording volume is actually writable (ADR-0036: the deployed `ingest` process runs as uid 0 via `RAILWAY_RUN_UID=0` because Railway mounts `/data` root:root):
+
+```
+railway ssh -s ingest -- cat /proc/1/status | grep '^Uid:'
+railway ssh -s ingest -- ls -la /data
+railway logs -s ingest | grep "recording root"
+```
+
+The `railway ssh` shell is itself root, so `id` over `railway ssh` says nothing about the service — `/proc/1/status` is the main process's real uid. Expect `Uid:` all zeros, a `live-logs` entry under `/data` owned by `root`, and the `is writable` line. A `NOT writable` line means `RAILWAY_RUN_UID=0` has not been applied to the service.
+
 ## Copy a recording out
 
 The ingest service's jsonl recordings live on a Railway volume mounted at

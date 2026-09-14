@@ -12,6 +12,7 @@ import { createFileFetcher } from "./openf1/file-fetcher.js";
 import { ENTRY_LIST_SEASON } from "./openf1/entry-list.js";
 import { MqttLane } from "./openf1/mqtt-lane.js";
 import { JsonlRecorder } from "./openf1/recorder.js";
+import { checkRecordingRoot, realRecordingRootFs } from "./openf1/recording-root.js";
 import { RestLane } from "./openf1/rest-lane.js";
 import type { Fetcher, QueueItem, RawRecord } from "./openf1/types.js";
 import { EventQueue } from "./writer/queue.js";
@@ -129,6 +130,40 @@ const mqttLane =
 if (config.mqttEnabled && !mqttLane) {
   logger.info("ingest: MQTT_ENABLED but no OpenF1 credentials/live source; MQTT lane not started.");
 }
+
+// The recording root probe reports, at boot, whether the jsonl recording
+// (the irreplaceable artefact, ADR-0034) will actually land — before the
+// lanes start, so a broken volume is visible from the first minute of a
+// race rather than discovered after it. Never exits and never throws out
+// of here: a disk problem must not take the live capture down.
+async function logRecordingRoot(): Promise<void> {
+  const uid = process.getuid?.() ?? -1;
+  try {
+    const result = await checkRecordingRoot({
+      dir: config.liveLogDir,
+      liveLogDirExplicit: config.liveLogDirExplicit,
+      fs: realRecordingRootFs,
+    });
+    if (result.ok) {
+      logger.info(`ingest: recording root ${config.liveLogDir} is writable (uid=${uid})`);
+    } else if (result.reason === "not-writable") {
+      logger.error(
+        `ingest: recording root ${config.liveLogDir} is NOT writable (uid=${uid}): ${result.message} — recordings will not be written`,
+      );
+    } else {
+      logger.error(
+        `ingest: recording root ${config.liveLogDir} is on the container's root filesystem, not a mounted volume — recordings will not survive a redeploy`,
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(
+      `ingest: recording root ${config.liveLogDir} is NOT writable (uid=${uid}): ${message} — recordings will not be written`,
+    );
+  }
+}
+
+await logRecordingRoot();
 
 restLane.start();
 mqttLane?.start();

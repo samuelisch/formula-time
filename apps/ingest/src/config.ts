@@ -13,6 +13,13 @@ export interface IngestConfig {
   /** Where the jsonl recording is written. Default `./live-logs`, gitignored. */
   liveLogDir: string;
   /**
+   * True only when LIVE_LOG_DIR was set explicitly in the environment — the
+   * startup recording-root probe (openf1/recording-root.ts) uses this,
+   * never `process.env` directly, to decide whether an operator named a
+   * specific location worth checking against the root filesystem's device.
+   */
+  liveLogDirExplicit: boolean;
+  /**
    * The MQTT lane: default `true` when `OPENF1_LOGIN` is set,
    * else `false` — the free tier has no MQTT (apps/ingest/AGENTS.md; POC
    * `CLAUDE.md`). `MQTT_ENABLED=true`/`false` overrides the default either way.
@@ -57,6 +64,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): IngestConfig {
     openf1Password: env["OPENF1_PASSWORD"],
     liveSource: env["LIVE_SOURCE"] ?? "api",
     liveLogDir: env["LIVE_LOG_DIR"] ?? "./live-logs",
+    liveLogDirExplicit: env["LIVE_LOG_DIR"] !== undefined,
     mqttEnabled,
     restTickMs,
     restTickMsInvalid,
