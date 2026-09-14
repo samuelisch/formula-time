@@ -78,26 +78,41 @@ export interface EmitRowsResult {
   malformed: number;
   /** `stints` rows normalized with a null `sourceTime` because their lap hadn't been seen yet — an out-of-order stint (`LiveNormalizer.normalize`'s `unjoined`). */
   unjoined: number;
-  /** The normalized (already-deduped-against-`normalizer`) payloads, for a caller that also records them (e.g. the jsonl recorder's `onNewRows`). */
+  /** The normalized (already-deduped-against-`normalizer`) payloads, same ones handed to `onRecorded`. */
   payloads: RawRecord[];
 }
 
 /**
- * The one normalize-and-enqueue path — so the ids match a live run —
- * pushed out of `RestLane` so the one-shot
- * recording loader (`load-recording.ts`) can drive the same normalizer +
- * queue a live session does, both for the static `ENTRY_LIST_2026`
- * `drivers` emission and for every `raw/*.jsonl` endpoint. `RestLane`
- * itself calls this too (see `emitAndRecord` below) — no second
- * normalize path.
+ * Called with exactly the rows a call to `emitRows`/`emitTaggedDriverRows`
+ * just queued (never with zero rows) — the one place both ingest lanes'
+ * newly-queued rows reach the jsonl recorder, so a row is never queued
+ * without an attempt to record it, and never recorded without having been
+ * queued first. A rejection must not be allowed to escape uncaught: the
+ * caller (a lane) is responsible for catching its own recorder failure,
+ * logging it, and continuing — the row already queued stays queued either
+ * way.
  */
-export function emitRows(
+export type OnRecorded = (sessionKey: number, endpoint: string, payloads: RawRecord[]) => Promise<void>;
+
+/**
+ * The one normalize-and-enqueue-and-record path — so the ids match a live
+ * run, and so a row is recorded at the moment it is queued, whichever lane
+ * queued it first. Pushed out of `RestLane` so the MQTT lane
+ * (`mqtt-lane.ts`'s `handleMessage`) and the one-shot recording loader
+ * (`load-recording.ts`) can drive the same normalizer + queue a live
+ * session does, both for the static `ENTRY_LIST_2026` `drivers` emission
+ * and for every `raw/*.jsonl` endpoint. `RestLane` itself calls this too
+ * (see `emitAndRecord` below) — no second normalize path, and (since
+ * `onRecorded` lives here) no second recording path either.
+ */
+export async function emitRows(
   normalizer: LiveNormalizer,
   queue: EventQueue<QueueItem>,
   endpoint: string,
   sessionKey: number,
   rows: RawRecord[],
-): EmitRowsResult {
+  onRecorded?: OnRecorded,
+): Promise<EmitRowsResult> {
   if (rows.length === 0) return { newRows: 0, malformed: 0, unjoined: 0, payloads: [] };
   const { rows: normalized, malformed, unjoined } = normalizer.normalize(endpoint, rows);
   if (normalized.length === 0) return { newRows: 0, malformed, unjoined, payloads: [] };
@@ -109,7 +124,9 @@ export function emitRows(
     payload: n.payload,
   }));
   queue.pushAll(items);
-  return { newRows: normalized.length, malformed, unjoined, payloads: normalized.map((n) => n.payload) };
+  const payloads = normalized.map((n) => n.payload);
+  if (onRecorded) await onRecorded(sessionKey, endpoint, payloads);
+  return { newRows: normalized.length, malformed, unjoined, payloads };
 }
 
 export interface EmitTaggedRowsResult {
@@ -143,13 +160,14 @@ export interface EmitTaggedRowsResult {
  * on `events.session_key` would fail the writer's whole batch, and the
  * writer requeues a failed batch at the front forever.
  */
-export function emitTaggedDriverRows(
+export async function emitTaggedDriverRows(
   normalizer: LiveNormalizer,
   queue: EventQueue<QueueItem>,
   rows: RawRecord[],
   expectedSessionKey: number | null,
   isKnownSession: (sessionKey: number) => boolean = () => true,
-): EmitTaggedRowsResult {
+  onRecorded?: OnRecorded,
+): Promise<EmitTaggedRowsResult> {
   const byKey = new Map<number, RawRecord[]>();
   let foreign = 0;
   let malformed = 0;
@@ -175,7 +193,7 @@ export function emitTaggedDriverRows(
   const payloads: RawRecord[] = [];
   const groups: EmitTaggedRowsResult["groups"] = [];
   for (const [key, groupRows] of byKey) {
-    const result = emitRows(normalizer, queue, "drivers", key, groupRows);
+    const result = await emitRows(normalizer, queue, "drivers", key, groupRows, onRecorded);
     newRows += result.newRows;
     malformed += result.malformed;
     unjoined += result.unjoined;
@@ -215,13 +233,16 @@ export interface RestLaneOptions {
    */
   onSessionSelected?: (session: RawRecord, nowMs: number) => void | Promise<void>;
   /**
-   * New (already-deduped) rows for one endpoint — feeds the jsonl
-   * recorder. Also fed the followed session's own `meetings` row, once,
-   * the first tick it is available (endpoint `"meetings"`) — so a later
-   * `pnpm ingest:load` of this session's recording can source
+   * The jsonl recorder callback, passed straight through to every
+   * `emitRows`/`emitTaggedDriverRows` call this lane makes, so a row is
+   * recorded at the moment it is queued. Also called directly, outside
+   * `emitRows`, for the followed session's own `meetings` row, once, the
+   * first tick it is available (endpoint `"meetings"`) — that row is never
+   * queued to `events` (`meetings` isn't a stored endpoint), only recorded,
+   * so a later `pnpm ingest:load` of this session's recording can source
    * `meeting_name` too (`meetingNamesFromRecording`, load-recording.ts).
    */
-  onNewRows?: (sessionKey: number, endpoint: string, rows: RawRecord[]) => void | Promise<void>;
+  onRecorded?: OnRecorded;
   onLog?: LaneLog;
 }
 
@@ -249,7 +270,7 @@ export class RestLane {
   private readonly discoveryIntervalMs: number;
   private readonly onSession: RestLaneOptions["onSession"];
   private readonly onSessionSelected: RestLaneOptions["onSessionSelected"];
-  private readonly onNewRows: RestLaneOptions["onNewRows"];
+  private readonly onRecordedCallback: RestLaneOptions["onRecorded"];
   private readonly liveLogDir: string;
   private readonly log: LaneLog;
   // Every OpenF1 REST call made (discovery, meetings, entry list, the
@@ -260,7 +281,7 @@ export class RestLane {
   private errorsSinceStats = 0;
   private unjoinedSinceStats = 0;
 
-  // Rows recorded (via onNewRows, i.e. written into the jsonl recording) for
+  // Rows recorded (via onRecorded, i.e. written into the jsonl recording) for
   // the currently followed session only — reset when a NEW session is
   // selected, reported once in the closed-recording log line at window
   // close.
@@ -299,7 +320,7 @@ export class RestLane {
   // transient error doesn't blank out every session's meeting_name on the
   // next upsert.
   private meetingNames: ReadonlyMap<number, string> = new Map();
-  // The followed session's own meetings row is recorded (via onNewRows,
+  // The followed session's own meetings row is recorded (via onRecorded,
   // endpoint "meetings") at most once per session_key — this Set is that
   // "already fired" marker, same pattern as preRaceRefreshDone above.
   private readonly meetingRowRecordedFor = new Set<number>();
@@ -340,7 +361,7 @@ export class RestLane {
     this.discoveryIntervalMs = opts.discoveryIntervalMs ?? 60_000;
     this.onSession = opts.onSession;
     this.onSessionSelected = opts.onSessionSelected;
-    this.onNewRows = opts.onNewRows;
+    this.onRecordedCallback = opts.onRecorded;
     this.liveLogDir = opts.liveLogDir ?? "./live-logs";
     this.log = opts.onLog ?? ((): void => {});
   }
@@ -508,7 +529,7 @@ export class RestLane {
 
   /**
    * Records the followed session's own meetings row, once, through
-   * `onNewRows` (endpoint `"meetings"`) — the same jsonl-recorder path
+   * `onRecorded` (endpoint `"meetings"`) — the same jsonl-recorder path
    * every other endpoint uses, so a later `pnpm ingest:load` of this
    * session's recording can source `meeting_name` too
    * (`meetingNamesFromRecording`, load-recording.ts). Matched by the row's
@@ -536,16 +557,30 @@ export class RestLane {
   }
 
   /**
-   * Every row fed to the jsonl recorder goes through here: forwards to
-   * `onNewRows` and, when it belongs to the currently followed session,
-   * counts it toward the closed-recording log line's `rows=<n>` — the
-   * recorder itself keeps no count (apps/ingest/src/openf1/recorder.ts), so
-   * the lane is the only place that knows how many rows it forwarded.
+   * The `onRecorded` callback handed to every `emitRows`/
+   * `emitTaggedDriverRows` call this lane makes, and also called directly
+   * for the followed session's own `meetings` row (never queued, so it
+   * never goes through `emitRows`). Counts a successfully recorded row
+   * toward the closed-recording log line's `rows=<n>` when it belongs to
+   * the currently followed session — the recorder itself keeps no count
+   * (apps/ingest/src/openf1/recorder.ts), so the lane is the only place
+   * that knows how many rows it forwarded. A rejected recording attempt is
+   * logged at error level with the endpoint as a field and swallowed here:
+   * the row is already queued (or, for `meetings`, was never meant to be)
+   * regardless of whether it was ever written to disk, and one failed
+   * write must not stop the lane.
    */
-  private async recordRows(sessionKey: number, endpoint: string, rows: RawRecord[]): Promise<void> {
-    await this.onNewRows?.(sessionKey, endpoint, rows);
-    if (sessionKey === this.sessionKey) this.followedRecordedRows += rows.length;
-  }
+  private readonly recordRows = async (sessionKey: number, endpoint: string, rows: RawRecord[]): Promise<void> => {
+    try {
+      await this.onRecordedCallback?.(sessionKey, endpoint, rows);
+      if (sessionKey === this.sessionKey) this.followedRecordedRows += rows.length;
+    } catch (error) {
+      this.log(`rest: recording failed: ${error instanceof Error ? error.message : String(error)}`, {
+        level: "error",
+        fields: { endpoint },
+      });
+    }
+  };
 
   /** Returns whether it made a drivers fetch this tick (the selection fetch). */
   private async ensureLiveSession(
@@ -863,34 +898,34 @@ export class RestLane {
     return { endpoint, rows: rawRows.length, newRows, malformed };
   }
 
-  /** Thin wrapper around the free `emitRows()` that also feeds the jsonl recorder's `onNewRows`, once per call, only when there's something new. */
+  /** Thin wrapper around the free `emitRows()`, which now records through `onRecorded` itself — once per call, only when there's something new. */
   private async emitAndRecord(
     endpoint: string,
     sessionKey: number,
     rows: RawRecord[],
   ): Promise<{ newRows: number; malformed: number }> {
-    const result = emitRows(this.normalizer, this.queue, endpoint, sessionKey, rows);
+    const result = await emitRows(this.normalizer, this.queue, endpoint, sessionKey, rows, this.recordRows);
     this.unjoinedSinceStats += result.unjoined;
-    if (result.payloads.length > 0) {
-      await this.recordRows(sessionKey, endpoint, result.payloads);
-    }
     return { newRows: result.newRows, malformed: result.malformed };
   }
 
   /**
-   * `emitTaggedDriverRows` plus the jsonl recorder: `onNewRows` once per
-   * session_key group that wrote something, so a real fetched entry list is
-   * recorded exactly like the static fallback and every rotation poll. Rows
-   * naming a session not yet upserted are dropped (see `knownSessionKeys`).
+   * `emitTaggedDriverRows`, which now records through `onRecorded` itself —
+   * once per session_key group that wrote something, so a real fetched
+   * entry list is recorded exactly like the static fallback and every
+   * rotation poll. Rows naming a session not yet upserted are dropped (see
+   * `knownSessionKeys`).
    */
   private async emitAndRecordDrivers(rows: RawRecord[], expectedSessionKey: number | null): Promise<EmitTaggedRowsResult> {
-    const result = emitTaggedDriverRows(this.normalizer, this.queue, rows, expectedSessionKey, (key) =>
-      this.knownSessionKeys.has(key),
+    const result = await emitTaggedDriverRows(
+      this.normalizer,
+      this.queue,
+      rows,
+      expectedSessionKey,
+      (key) => this.knownSessionKeys.has(key),
+      this.recordRows,
     );
     this.unjoinedSinceStats += result.unjoined;
-    for (const group of result.groups) {
-      await this.recordRows(group.sessionKey, "drivers", group.payloads);
-    }
     return result;
   }
 

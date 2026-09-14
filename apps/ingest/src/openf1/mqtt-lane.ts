@@ -28,6 +28,7 @@ import mqtt from "mqtt";
 
 import { backoffDelayMs } from "../writer/writer.js";
 import { emitRows } from "./rest-lane.js";
+import type { OnRecorded } from "./rest-lane.js";
 import type { LaneLog } from "../log.js";
 import type { LiveNormalizer } from "./normalize.js";
 import type { QueueItem, RawRecord } from "./types.js";
@@ -169,6 +170,8 @@ export interface MqttLaneOptions {
   getNormalizer: () => LiveNormalizer;
   /** Current live session key, or `null` when none is selected — the REST lane is the authority on which session is live. */
   getSessionKey: () => number | null;
+  /** The jsonl recorder callback, passed straight through to `emitRows` for every message this lane queues, so a row is recorded at the moment it is queued — the same callback `main.ts` also gives the REST lane. */
+  onRecorded?: OnRecorded;
   onLog?: LaneLog;
   brokerUrl?: string;
   topics?: readonly string[];
@@ -202,6 +205,7 @@ export class MqttLane {
   private readonly username: string;
   private readonly getNormalizer: () => LiveNormalizer;
   private readonly getSessionKey: () => number | null;
+  private readonly onRecordedCallback: MqttLaneOptions["onRecorded"];
   private readonly log: LaneLog;
   private readonly brokerUrl: string;
   private readonly topics: readonly string[];
@@ -231,6 +235,14 @@ export class MqttLane {
   private unjoinedSinceLog = 0;
   private foreignSinceLog = 0;
 
+  // Every `handleMessage()` call still running — `stop()` awaits these
+  // before resolving so a recording write already in flight lands before
+  // the process exits (main.ts's SIGTERM path drains the writer and calls
+  // `process.exit()` right after `stop()` resolves); without this, a row
+  // already queued but not yet written to the jsonl recording would be
+  // silently dropped from it.
+  private readonly inFlightMessages = new Set<Promise<void>>();
+
   public constructor(
     private readonly queue: EventQueue<QueueItem>,
     opts: MqttLaneOptions,
@@ -240,6 +252,7 @@ export class MqttLane {
     this.username = opts.username;
     this.getNormalizer = opts.getNormalizer;
     this.getSessionKey = opts.getSessionKey;
+    this.onRecordedCallback = opts.onRecorded;
     this.log = opts.onLog ?? ((): void => {});
     this.brokerUrl = opts.brokerUrl ?? MQTT_BROKER_URL;
     this.topics = opts.topics ?? MQTT_TOPICS;
@@ -277,7 +290,18 @@ export class MqttLane {
     }, this.refreshIntervalMs);
   }
 
-  /** SIGTERM path: stop scheduling reconnects/timers and await the client's `end()` before returning. */
+  /**
+   * SIGTERM path: stop scheduling reconnects/timers, await the client's
+   * `end()`, then await any `handleMessage()` call still in flight — the
+   * generation bump above stops a NEW message from starting one, but one
+   * already running (its own recording write pending) must still finish
+   * before this resolves, or main.ts's drain-then-exit path can beat that
+   * write to disk. `allSettled`, not `all`: one handler rejecting must not
+   * reject `stop()` itself and skip the writer's drain in main.ts — the
+   * message listener's own `.then` already logs a rejection when it
+   * happens (`inFlightMessages`'s doc comment), so this only needs to wait,
+   * never to inspect the outcome itself.
+   */
   public async stop(): Promise<void> {
     this.stopped = true;
     this.cancelScheduledReconnect();
@@ -287,6 +311,7 @@ export class MqttLane {
     const client = this.client;
     this.client = null;
     if (client) await this.endClient(client);
+    if (this.inFlightMessages.size > 0) await Promise.allSettled(this.inFlightMessages.keys());
   }
 
   private endClient(client: MqttClientLike): Promise<void> {
@@ -392,7 +417,35 @@ export class MqttLane {
 
     client.on("message", (topic, payload) => {
       if (generation !== this.generation) return;
-      this.handleMessage(topic, payload);
+      // Fire-and-forget from the event handler's point of view (its own
+      // recording attempt is caught and logged internally, see `recordRow`
+      // below, and `mqtt.js`'s EventEmitter does not await listener return
+      // values anyway; queuing itself still happens synchronously, before
+      // this call returns, since it happens before the recorder is ever
+      // awaited) — but still tracked in `inFlightMessages` so `stop()` can
+      // wait for one still running. A handler is expected never to reject
+      // (see `recordRow`'s own try/catch); if one somehow does, it is
+      // logged here, at the moment it happens, rather than saved up for
+      // `stop()` — a lane can run for hours between messages and a call to
+      // `stop()`, and a failure must not wait that long to surface. This
+      // also attaches a handler to the promise in the same synchronous turn
+      // it was created, so it is never "unhandled" from Node's point of
+      // view regardless of how long it then sits in `inFlightMessages`
+      // before settling.
+      const inFlight = this.handleMessage(topic, payload);
+      this.inFlightMessages.add(inFlight);
+      void inFlight.then(
+        () => {
+          this.inFlightMessages.delete(inFlight);
+        },
+        (error: unknown) => {
+          this.inFlightMessages.delete(inFlight);
+          this.log(`mqtt: message handler failed: ${error instanceof Error ? error.message : String(error)}`, {
+            level: "error",
+            fields: { endpoint: mqttTopicEndpoint(topic) ?? topic },
+          });
+        },
+      );
     });
 
     client.on("error", (error) => {
@@ -421,7 +474,26 @@ export class MqttLane {
     });
   }
 
-  private handleMessage(topic: string, payload: Buffer | Uint8Array): void {
+  /**
+   * The `onRecorded` callback handed to `emitRows`: forwards to whatever
+   * `onRecorded` this lane was constructed with, catching and logging a
+   * rejection at error level with the endpoint as a field instead of
+   * letting it escape — the row is already queued by the time this runs,
+   * and one failed recording attempt must not stop the lane.
+   */
+  private readonly recordRow: OnRecorded = async (sessionKey, endpoint, payloads): Promise<void> => {
+    if (!this.onRecordedCallback) return;
+    try {
+      await this.onRecordedCallback(sessionKey, endpoint, payloads);
+    } catch (error) {
+      this.log(`mqtt: recording failed: ${error instanceof Error ? error.message : String(error)}`, {
+        level: "error",
+        fields: { endpoint },
+      });
+    }
+  };
+
+  private async handleMessage(topic: string, payload: Buffer | Uint8Array): Promise<void> {
     this.messagesSinceLog += 1;
     const endpoint = mqttTopicEndpoint(topic);
     if (endpoint === null) {
@@ -462,7 +534,7 @@ export class MqttLane {
       return;
     }
 
-    const result = emitRows(this.getNormalizer(), this.queue, endpoint, sessionKey, [stripped]);
+    const result = await emitRows(this.getNormalizer(), this.queue, endpoint, sessionKey, [stripped], this.recordRow);
     this.droppedSinceLog += result.malformed;
     this.rowsSinceLog += result.newRows;
     this.unjoinedSinceLog += result.unjoined;
