@@ -20,6 +20,9 @@ RUN pnpm build
 # api and ingest packages plus their workspace dependencies — never
 # TypeScript sources, dev tooling, or apps/web's browser dependencies.
 # Runs as a non-root user; invariant: no source files, no devDependencies.
+# The `ingest` service overrides this at run time with `RAILWAY_RUN_UID=0`
+# (`.railway/railway.ts`) so it can write the recording volume mounted at
+# `/data`; `api` and any local `docker run` keep uid 1001. See ADR-0036.
 FROM node:24-slim
 RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
 RUN groupadd --system --gid 1001 app \

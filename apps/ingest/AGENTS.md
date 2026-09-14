@@ -80,7 +80,11 @@ else.
   container's own disk does not. If the volume is ever unmounted (a local
   run has none), `LIVE_LOG_DIR` still defaults to `./live-logs`
   (`config.ts`) and the recorder creates that directory as it does today;
-  nothing about the recorder changes, only where its writes land. The REST
+  nothing about the recorder changes, only where its writes land. `main.ts`
+  probes the recording root once at startup, before the lanes start, and
+  logs one of three lines: writable, not writable, or not a mounted volume
+  (`openf1/recording-root.ts`); a not-writable or not-a-mount result never
+  stops the process. The REST
   lane logs `recording closed <session_key> rows=<n> path=<dir>` once,
   when a followed session's live window closes, so the owner knows there
   is a completed recording worth copying off the volume — see the
@@ -178,7 +182,10 @@ happens only at emission time, not in the recording.
   package.
 - The root `Dockerfile`'s runtime stage ships this package's `dist` output
   and production `node_modules` only — no TypeScript sources, no
-  devDependencies — and runs as a non-root user.
+  devDependencies. The image runs as a non-root user (uid 1001), and the
+  deployed `ingest` service overrides that with `RAILWAY_RUN_UID=0` because
+  Railway mounts the volume `root:root` (ADR-0036); `api` and local runs are
+  unaffected.
 - Config is read from the platform secret store only, never from files in
   the image: `DATABASE_URL`, `OPENF1_LOGIN`, `OPENF1_PASSWORD`,
   `LIVE_SOURCE`, `LIVE_LOG_DIR` (the jsonl recording's directory, default
@@ -188,7 +195,8 @@ happens only at emission time, not in the recording.
   credentials, 1100ms when both `OPENF1_LOGIN` and `OPENF1_PASSWORD` are
   set; an invalid override falls back to the tier default and logs once),
   `LOG_LEVEL` (default `info`, read directly by the logger below rather
-  than through `config.ts`).
+  than through `config.ts`). `RAILWAY_RUN_UID` is a Railway platform
+  variable set in `.railway/railway.ts`, not read by `config.ts`.
 - Logging: `src/log.ts` exports a pino logger with base fields `service:
   "ingest"` and `build` (`RAILWAY_GIT_COMMIT_SHA`, else `"unknown"`), JSON
   only (no pretty printing — Railway shows JSON fine). The REST lane, the
