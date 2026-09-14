@@ -61,3 +61,17 @@ describe("loadConfig: restTickMs (ADR-0030)", () => {
     expect(loadConfig({}).restTickMsInvalid).toBeUndefined();
   });
 });
+
+describe("loadConfig: liveLogDirExplicit", () => {
+  test("LIVE_LOG_DIR unset -> false", () => {
+    expect(loadConfig({}).liveLogDirExplicit).toBe(false);
+  });
+
+  test("LIVE_LOG_DIR set -> true", () => {
+    expect(loadConfig({ LIVE_LOG_DIR: "/data/live-logs" }).liveLogDirExplicit).toBe(true);
+  });
+
+  test("LIVE_LOG_DIR set to the same value as the default -> still true", () => {
+    expect(loadConfig({ LIVE_LOG_DIR: "./live-logs" }).liveLogDirExplicit).toBe(true);
+  });
+});
