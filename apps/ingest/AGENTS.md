@@ -112,6 +112,15 @@ running this same loader inside the `ingest` container instead, over
 `railway ssh` — the procedure, prerequisites, and verification curls are
 in `.claude/skills/load-race/SKILL.md`.
 
+The loader's inverse, `DATABASE_URL=... pnpm ingest:dump -- <session_key>
+[--out <dir>] [--force]`, reads a session's `sessions` row and every
+`events` row back out of Postgres, paged by `seq` in batches of 5000, and
+writes them in this same recording layout — a captured race can always be
+turned back into something the loader or the drip simulator reads,
+whether or not its own jsonl recording survived. Refuses (one log line,
+nothing written) an unknown `session_key`, and an `--out` directory
+already carrying `polls.jsonl` unless `--force` is passed.
+
 `DATABASE_URL=... [OPENF1_LOGIN=... OPENF1_PASSWORD=...] pnpm
 ingest:fetch-race <session_key> [<session_key> ...]` pulls a finished
 historical session straight from OpenF1 instead of replaying a recording —

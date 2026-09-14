@@ -9,6 +9,7 @@
     "start": "node dist/main.js",
     "load": "node dist/load-recording.js",
     "fetch-race": "node dist/fetch-race.js",
+    "dump": "node dist/dump-recording.js",
     "sim": "tsx src/sim/main.ts"
   },
   "dependencies": {
