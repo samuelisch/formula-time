@@ -91,7 +91,12 @@ otherwise hide — a location that silently sits on the container's own
 ephemeral disk. The default relative `./live-logs` never triggers it.
 Neither branch of the probe exits the process or throws out of `main.ts`:
 a disk problem must not take the live capture down, the same stance
-ADR-0034 takes for a single rejected append.
+ADR-0034 takes for a single rejected append. Every injected fs call the
+probe makes is bounded by a timeout (default 5s): `ingest` declares no
+healthcheck (only `api` does), so nothing restarts it, and a wedged mount
+that never resolves a bare `await` would otherwise turn a disk problem
+into "the lanes never start" — a stricter failure than the "not writable"
+the probe means to report. A timed-out call is treated as `not-writable`.
 
 ## Consequences
 

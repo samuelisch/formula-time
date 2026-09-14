@@ -33,9 +33,34 @@ export interface RecordingRootCheck {
    * must never trigger the not-a-mount check. */
   liveLogDirExplicit: boolean;
   fs: RecordingRootFs;
+  /** Bounds every injected fs call (default 5000ms). A wedged mount hangs a
+   * bare `await` forever; nothing restarts `ingest` (only `api` declares a
+   * healthcheck), so a probe with no bound would turn a disk problem into
+   * "the lanes never start" instead of the "not writable" it means to
+   * report. */
+  timeoutMs?: number;
 }
 
 const WRITE_PROBE_NAME = ".write-probe";
+const DEFAULT_TIMEOUT_MS = 5000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`timed out after ${timeoutMs}ms waiting for ${label}`));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 /**
  * Checks that `dir` is writable, creating it if needed, and — only when an
@@ -49,11 +74,23 @@ export async function checkRecordingRoot({
   dir,
   liveLogDirExplicit,
   fs,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
 }: RecordingRootCheck): Promise<RecordingRootResult> {
   if (liveLogDirExplicit && path.isAbsolute(dir)) {
-    const [dirDevice, rootDevice] = await Promise.all([fs.deviceOf(dir), fs.deviceOf("/")]);
-    if (dirDevice === rootDevice) {
-      return { ok: false, reason: "not-a-mount" };
+    try {
+      const [dirDevice, rootDevice] = await Promise.all([
+        withTimeout(fs.deviceOf(dir), timeoutMs, `deviceOf(${dir})`),
+        withTimeout(fs.deviceOf("/"), timeoutMs, "deviceOf(/)"),
+      ]);
+      if (dirDevice === rootDevice) {
+        return { ok: false, reason: "not-a-mount" };
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "not-writable",
+        message: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -62,8 +99,8 @@ export async function checkRecordingRoot({
   // fails EACCES.
   let createdPath: string | undefined;
   try {
-    createdPath = await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(path.join(dir, WRITE_PROBE_NAME), "");
+    createdPath = await withTimeout(fs.mkdir(dir, { recursive: true }), timeoutMs, `mkdir(${dir})`);
+    await withTimeout(fs.writeFile(path.join(dir, WRITE_PROBE_NAME), ""), timeoutMs, "writeFile(write-probe)");
   } catch (error) {
     return {
       ok: false,
@@ -73,7 +110,7 @@ export async function checkRecordingRoot({
   }
 
   try {
-    await fs.rm(path.join(dir, WRITE_PROBE_NAME));
+    await withTimeout(fs.rm(path.join(dir, WRITE_PROBE_NAME)), timeoutMs, "rm(write-probe)");
   } catch {
     // Best-effort cleanup; a failed removal doesn't mean the directory
     // isn't writable.

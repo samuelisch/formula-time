@@ -81,4 +81,38 @@ describe("checkRecordingRoot", () => {
     const result = await checkRecordingRoot({ dir: "/data/live-logs", liveLogDirExplicit: false, fs });
     expect(result).toEqual({ ok: true, created: false });
   });
+
+  test("a mkdir that never resolves (a wedged mount) times out instead of hanging the probe forever", async () => {
+    const fs = fakeFs({ mkdir: vi.fn(() => new Promise<string | undefined>(() => {})) });
+    const result = await checkRecordingRoot({ dir: "/data/live-logs", liveLogDirExplicit: false, fs, timeoutMs: 20 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("not-writable");
+      expect(result.reason === "not-writable" && result.message).toMatch(/timed out/i);
+    }
+  });
+
+  test("a write probe that never resolves times out instead of hanging the probe forever", async () => {
+    const fs = fakeFs({ writeFile: vi.fn(() => new Promise<void>(() => {})) });
+    const result = await checkRecordingRoot({ dir: "/data/live-logs", liveLogDirExplicit: false, fs, timeoutMs: 20 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("not-writable");
+    }
+  });
+
+  test("the not-a-mount device check timing out is reported as not-writable rather than hanging forever", async () => {
+    const fs = fakeFs({ deviceOf: vi.fn(() => new Promise<number>(() => {})) });
+    const result = await checkRecordingRoot({ dir: "/data/live-logs", liveLogDirExplicit: true, fs, timeoutMs: 20 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("not-writable");
+    }
+  });
+
+  test("a write-probe removal that never resolves still lets a writable result return", async () => {
+    const fs = fakeFs({ rm: vi.fn(() => new Promise<void>(() => {})) });
+    const result = await checkRecordingRoot({ dir: "/data/live-logs", liveLogDirExplicit: false, fs, timeoutMs: 20 });
+    expect(result).toEqual({ ok: true, created: false });
+  });
 });
