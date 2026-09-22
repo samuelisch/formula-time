@@ -26,10 +26,19 @@ imports. Five tables, one writer each (`prisma/schema.prisma`):
 
 ## Key rule
 
-Every primary and foreign key here is a Postgres `bigint` (`session_key`,
-`seq`). `BigInt` does not survive `JSON.stringify`, so every service that
-puts one on the wire converts it to a string first — never a number
+Not every key here is the same Postgres type. `session_key` (`Session`'s
+primary key, and the foreign key in `events`, `polls` and `exports`) and
+`seq` (`events`' unique, autoincrementing cursor column) are `bigint`.
+`event_id` and `poll_id` are `String` primary keys — `event_id` a
+content-hash id, `poll_id` a composed string like `<session_key>:winner`.
+`votes`' primary key is the pair `(poll_id, viewer_id)`: `poll_id` a
+`String` foreign key, `viewer_id` a Postgres `uuid`.
+
+`BigInt` does not survive `JSON.stringify`, so every service that puts a
+`bigint` key on the wire converts it to a string first — never a number
 (`apps/api/src/projector/projector.ts`, `apps/api/src/export/exporter.ts`).
+`event_id`, `poll_id` and `viewer_id` are already strings and need no such
+conversion.
 
 ## Running a migration
 
