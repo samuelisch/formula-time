@@ -6,9 +6,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { numberField, stringField } from "../lib/format.ts";
+import { deriveTimelineAnchors } from "../live/anchors.ts";
 import type { StatePush } from "../live/types.ts";
 import { foldAt, type FoldedRace, type LapMarker } from "./foldRace.ts";
 import { createPlaybackClock, type PlaybackClock } from "./playbackClock.ts";
+import { replayStartMs } from "./replayStart.ts";
 
 export interface ReplayPlayback {
   push: StatePush | null;
@@ -21,6 +23,13 @@ export interface ReplayPlayback {
   pause(): void;
   seek(sourceMs: number): void;
   jumpToStart(): void;
+}
+
+/** A date string parsed to epoch ms, or null when absent or unparsable. */
+function parsedOrNull(dateString: string | null): number | null {
+  if (dateString === null) return null;
+  const parsed = Date.parse(dateString);
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 function pushFor(folded: FoldedRace, sourceMs: number): StatePush {
@@ -43,7 +52,19 @@ function pushFor(folded: FoldedRace, sourceMs: number): StatePush {
 export function useReplayPlayback(folded: FoldedRace | null): ReplayPlayback {
   const rafRef = useRef<number | null>(null);
 
-  const startSourceMs = folded?.firstSourceMs ?? 0;
+  // The cut: the formation lap, not the recording's first row.
+  // `deriveTimelineAnchors` is the same lap-1 anchor `anchors().lights_out`
+  // already uses (`transport/raceStart.ts`), so the notice and the seek
+  // clamp never disagree on where the race actually starts.
+  const dateStartMs = folded === null ? null : parsedOrNull(stringField(folded.session, "date_start"));
+  const lightsOutMs = folded === null ? null : parsedOrNull(deriveTimelineAnchors(folded).lights_out);
+  const startSourceMs =
+    replayStartMs({
+      firstSourceMs: folded?.firstSourceMs ?? null,
+      lastSourceMs: folded?.lastSourceMs ?? null,
+      dateStartMs,
+      lightsOutMs,
+    }) ?? 0;
   const endSourceMs = folded?.lastSourceMs ?? 0;
 
   const [sourceMs, setSourceMs] = useState(startSourceMs);

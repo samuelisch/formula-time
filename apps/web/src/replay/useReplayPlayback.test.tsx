@@ -72,6 +72,7 @@ describe("useReplayPlayback", () => {
 
     const start = result.current.sourceMs;
     expect(start).toBe(folded.firstSourceMs);
+    expect(start).toBe(result.current.startSourceMs);
 
     // Idle gap between mount and pressing play -- nothing ticks during it
     // (the rAF loop only runs while isPlaying), mirroring a viewer who loads
@@ -92,4 +93,31 @@ describe("useReplayPlayback", () => {
     // mount-to-play gap.
     expect(result.current.sourceMs).toBe(start + 100);
   });
+
+  it("starts at the formation-lap cut, not the recording's first row, and clamps a seek below it", async () => {
+    // The recording opens 54 minutes before date_start; lights-out lands
+    // 3.5 minutes after date_start (an on-time start), so the cut is
+    // date_start itself, well after firstSourceMs.
+    const sessionWithGap: RawRecord = { ...SESSION, date_start: "2026-09-06T13:00:00.000Z" };
+    const eventsWithGap: RaceEvent[] = [
+      event("g1", "position", -54 * 60, { driver_number: 1, position: 1 }),
+      event("g2", "laps", 3.5 * 60, { driver_number: 1, lap_number: 1 }),
+    ];
+    const folded = await foldRace(eventsWithGap, sessionWithGap);
+    const { result } = renderHook(() => useReplayPlayback(folded));
+
+    const cutMs = Date.parse("2026-09-06T13:00:00.000Z");
+    expect(folded.firstSourceMs).toBe(isoAtMs(-54 * 60));
+    expect(result.current.startSourceMs).toBe(cutMs);
+    expect(result.current.sourceMs).toBe(cutMs);
+
+    act(() => {
+      result.current.seek(folded.firstSourceMs!);
+    });
+    expect(result.current.sourceMs).toBe(cutMs);
+  });
 });
+
+function isoAtMs(offsetSeconds: number): number {
+  return Date.parse(isoAt(offsetSeconds));
+}
