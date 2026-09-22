@@ -9,10 +9,14 @@
 // (`appendEvents`'s own `event_id` dedupe absorbs the overlap between the
 // last backfilled page and the first buffered pushes -- both are
 // `seq`-ordered, so that overlap never produces a duplicate); then keeps
-// appending each subsequent push's `events` directly, no further reads. A
-// push with `rebuilt: true`, or the live connection leaving `"open"` (a
-// drop -- events between the drop and the reconnect may have been
-// missed), discards the timeline and backfills again.
+// appending each subsequent push's `events` directly, no further reads.
+//
+// A `rebuilt` push discards the timeline and backfills from seq 0 (a late
+// commit, a skipped frame, or a client-side gap means folded rows can no
+// longer be trusted); a plain reconnect instead resumes from the current
+// `headSeq` into the same timeline -- the log is append-only with one
+// writer per session, so those rows stay valid. Both gate on `status`: a
+// finished session ignores either.
 //
 // `status` gates whether a finished session still reacts to rebuilds/
 // reconnects: once finished the log is static and the timeline this hook
@@ -149,6 +153,11 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus, se
       const built = createTimeline(sessionRef.current);
       let pending: RaceEvent[] = [];
       let backfilling = true;
+      // Mirrors `snapshot.headSeq` synchronously: `resume()` below is
+      // triggered from the store subscriber, which fires outside React's
+      // render cycle, so it cannot wait on a `setSnapshot` commit to learn
+      // where to resume paging from.
+      let headSeqLocal = 0;
 
       function publish(seq: number | null): void {
         // One `setSnapshot` call: `timeline` (a shallow copy so React
@@ -156,6 +165,7 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus, se
         // in place, so the copy still shares -- and stays in sync with --
         // the timeline this closure keeps folding into) and `headSeq`
         // commit together, in the same render, always.
+        if (seq !== null) headSeqLocal = seq;
         setSnapshot((prev) => ({ timeline: { ...built }, headSeq: seq ?? prev.headSeq }));
       }
 
@@ -199,6 +209,18 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus, se
         });
       }
 
+      // Resumes paging into the same `built` timeline from `headSeqLocal`
+      // rather than rebuilding from zero -- no new subscription is
+      // registered, so (unlike `restart()`) this can run synchronously with
+      // no re-entrant-listener risk. `backfilling` itself is the dedupe
+      // guard: a resume already in flight (or the first join's own
+      // backfill, still running) means nothing more to do here.
+      function resume(): void {
+        if (!isCurrent() || backfilling) return;
+        backfilling = true;
+        void backfillFrom(headSeqLocal);
+      }
+
       let previousConnection = useLiveStore.getState().connection;
       // Reference-equality guard: the store's own 250ms `tick()`
       // (apps/web/src/live/store.ts, while a viewer has a delay) calls
@@ -219,7 +241,7 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus, se
         const wasOpen = previousConnection === "open";
         previousConnection = state.connection;
         if (wasOpen && state.connection !== "open" && statusRef.current !== "finished") {
-          restart();
+          resume();
           return;
         }
 
@@ -269,9 +291,14 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus, se
         }
       }
 
-      (async () => {
+      // Pages `sinceSeq` onward into `built` until a short page, then hands
+      // over to the stream: both the first join (`sinceSeq = 0`) and a
+      // resume (`sinceSeq = headSeqLocal`) share this one loop, so the
+      // handoff -- merging whatever the subscriber buffered into `pending`
+      // while this ran, then flipping `backfilling` off -- only exists once.
+      async function backfillFrom(sinceSeqStart: number): Promise<void> {
         try {
-          let sinceSeq = 0;
+          let sinceSeq = sinceSeqStart;
           for (;;) {
             const page = await fetchPageWithRetry(sinceSeq);
             if (!isCurrent()) return;
@@ -320,7 +347,9 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus, se
         if (!isCurrent()) return;
         publish(null);
         setLoading(false);
-      })();
+      }
+
+      void backfillFrom(0);
     }
 
     start();

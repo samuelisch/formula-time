@@ -145,7 +145,9 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   is still live). The live page mounts `src/live/LiveTimelineLoader.tsx` to
   hand that timeline to the live store, whose `reselect` (`src/live/store.ts`)
   folds from it once a viewer rewinds past the push ring buffer
-  (`mode: "timeline"`, `polls: []`).
+  (`mode: "timeline"`, `polls: []`). A reconnect resumes `useSessionTimeline`
+  from the head seq into the same timeline; only a `rebuilt` push re-backfills
+  it from zero.
 - Styling is CSS Modules (`*.module.css` next to the component); the dark
   palette lives as CSS variables in `src/index.css`.
 - Unit tests are `*.test.ts(x)` next to the source. The root

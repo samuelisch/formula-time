@@ -270,8 +270,91 @@ describe("useSessionTimeline", () => {
     expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual(["r1"]);
   });
 
-  it("discards the timeline and re-backfills when the live connection leaves open", async () => {
-    const fetchStub = queuedFetch([shortPage([event("e1")], 1), shortPage([event("r1")], 1)]);
+  it("resumes from the head seq on a reconnect: one page, appended without clearing the timeline", async () => {
+    const fetchStub = queuedFetch([
+      fullPage("p1", PAGE_LIMIT),
+      fullPage("p2", 2 * PAGE_LIMIT),
+      fullPage("p3", 3 * PAGE_LIMIT),
+      shortPage([event("head-1"), event("head-2")], 3 * PAGE_LIMIT + 2),
+      shortPage([event("r1")], 3 * PAGE_LIMIT + 3),
+    ]);
+    vi.stubGlobal("fetch", fetchStub);
+
+    useLiveStore.setState({ connection: "open" });
+    const { result } = renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
+    await waitFor(() => expect(result.current.loading).toBe(false), { timeout: 10_000 });
+    expect(fetchStub).toHaveBeenCalledTimes(4);
+    const idsBeforeResume = result.current.timeline!.events.map((e) => e.event_id);
+
+    act(() => {
+      useLiveStore.setState({ connection: "reconnecting" });
+    });
+    act(() => {
+      useLiveStore.setState({ connection: "open" });
+    });
+
+    // A resume never flips `loading` -- the timeline stays usable throughout.
+    expect(result.current.loading).toBe(false);
+
+    await waitFor(() => expect(fetchStub).toHaveBeenCalledTimes(5));
+    // One small request, starting at the head seq -- not a full re-backfill.
+    expect(fetchStub.mock.calls[4]![0]).toBe(
+      `/api/races/9999/events?since_seq=${3 * PAGE_LIMIT + 2}&limit=${PAGE_LIMIT}`,
+    );
+
+    await waitFor(() =>
+      expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual([...idsBeforeResume, "r1"]),
+    );
+    expect(result.current.loading).toBe(false);
+    expect(fetchStub).toHaveBeenCalledTimes(5);
+  }, 15_000);
+
+  it("retries a resume's page fetch at the retry backoff, same as the first join", async () => {
+    vi.useFakeTimers();
+    const fetchStub = queuedFetch([
+      shortPage([event("e1")], 1),
+      { error: 503, message: "down" },
+      shortPage([event("r1")], 2),
+    ]);
+    vi.stubGlobal("fetch", fetchStub);
+
+    useLiveStore.setState({ connection: "open" });
+    const { result } = renderHook(() => useSessionTimeline(9999, "live", SESSION_ROW));
+    await vi.waitFor(() => expect(result.current.loading).toBe(false));
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useLiveStore.setState({ connection: "reconnecting" });
+    });
+    act(() => {
+      useLiveStore.setState({ connection: "open" });
+    });
+
+    await vi.waitFor(() => expect(fetchStub).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.error?.message).toContain("503");
+    expect(result.current.loading).toBe(false); // still a resume, not a reload
+
+    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
+
+    await vi.waitFor(() => expect(fetchStub).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(result.current.error).toBeNull());
+    expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual(["e1", "r1"]);
+  });
+
+  it("appends pushes that arrive during a resume after the resumed pages, in order, with no duplicate event_id", async () => {
+    let call = 0;
+    const fetchStub = vi.fn(() => {
+      call += 1;
+      if (call === 1) return Promise.resolve(jsonResponse(shortPage([event("e1")], 1)));
+      // The resume's one page: a push lands (buffered into `pending`, since
+      // the resume has already flipped `backfilling` back to true) before
+      // this fetch's own promise resolves, and repeats "e2" -- the overlap
+      // `appendEvents`'s dedupe must absorb the same way the first join's
+      // does.
+      useLiveStore.setState({ live: streamPush("3", [event("e2"), event("e3")]) });
+      return Promise.resolve(jsonResponse(shortPage([event("e2")], 2)));
+    });
     vi.stubGlobal("fetch", fetchStub);
 
     useLiveStore.setState({ connection: "open" });
@@ -282,12 +365,16 @@ describe("useSessionTimeline", () => {
     act(() => {
       useLiveStore.setState({ connection: "reconnecting" });
     });
+    act(() => {
+      useLiveStore.setState({ connection: "open" });
+    });
+    expect(result.current.loading).toBe(false);
 
-    await waitFor(() => expect(fetchStub).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
+    await waitFor(() =>
+      expect(result.current.timeline?.events.map((e) => e.event_id)).toEqual(["e1", "e2", "e3"]),
+    );
+    // No further page: the resume's one request plus the first join's one.
     expect(fetchStub).toHaveBeenCalledTimes(2);
-    expect(result.current.timeline!.events.map((e) => e.event_id)).toEqual(["r1"]);
   });
 
   it("does not spuriously restart on a rebuilt push right after a flushed status flip to finished", async () => {
