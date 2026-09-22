@@ -252,6 +252,18 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
       checking = true;
       try {
         await runCheck();
+      } catch (err) {
+        // A rejected pickSession, or any other rejection this tick's await
+        // chain surfaces, must never reach an unhandled rejection: Node 24
+        // terminates the process on one. The previously served session,
+        // projector and polls are left exactly as they were; the next
+        // interval simply tries again.
+        const message = err instanceof Error ? err.message : String(err);
+        opts.log("session check failed", {
+          level: "error",
+          error: message,
+          session_key: session?.sessionKey?.toString() ?? null,
+        });
       } finally {
         checking = false;
       }
