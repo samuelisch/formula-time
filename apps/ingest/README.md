@@ -100,13 +100,23 @@ does, not a summary of intent.
 
 | Line | Level | Meaning | Fields |
 |---|---|---|---|
+| `ingest: fatal error` | error | An unhandled rejection or uncaught exception was caught at the top level before this existed and would otherwise have printed a bare stack trace | `kind`, `reason` |
+| `ingest: DATABASE_URL is not set; refusing to start ...` | error | Boot guard (ADR-0004): the process exits immediately | — |
+| `ingest: REST_TICK_MS=... is invalid; using the tier default ...` | info | The `REST_TICK_MS` override didn't parse as a positive integer; the tier default is used instead | — |
+| `ingest: OPENF1_LOGIN/OPENF1_PASSWORD not set; running unauthenticated ...` | info | No OpenF1 credentials; the process still starts, historical/unauthenticated use only | — |
+| `ingest: LIVE_SOURCE=... — replaying a recording instead of OpenF1.` | info | `LIVE_SOURCE` names a directory, not `api`; the file fetcher is used instead of the network | — |
+| `ingest: MQTT_ENABLED but no OpenF1 credentials/live source; MQTT lane not started.` | info | `MQTT_ENABLED` is true but there's nothing to authenticate or connect with | — |
 | `ingest: started ...` | info | Boot complete: REST lane tick, whether MQTT is running, writer running | — |
 | `ingest: last 60s` | info | One line per minute combining both lanes' and the writer's counters | `rest_polls`, `rest_rows`, `rest_errors`, `rest_unjoined`, `mqtt_messages`, `mqtt_rows`, `mqtt_dropped`, `mqtt_unjoined`, `mqtt_foreign`, `writer_inserted`, `writer_skipped`, `writer_failures`, `queue_depth`, `session_key` |
 | `ingest: recording root ... is writable (uid=...)` | info | Startup probe: the jsonl recording directory is writable | — |
 | `ingest: recording root ... is NOT writable ...` | error | Startup probe: recordings will not be written | — |
 | `ingest: recording root ... is on the container's root filesystem, not a mounted volume ...` | error | Startup probe: recordings will not survive a redeploy | — |
+| `ingest: SIGTERM received, draining queue` | info | Shutdown started: both lanes are told to stop, then the writer drains | — |
+| `ingest: drained (inserted=... skipped=...); exiting` | info | Shutdown finished: the writer's final drain totals, then the process exits | `inserted`, `skipped` |
+| `ingest: error while draining: ...` | error | The shutdown drain itself threw | — |
 | `recording closed <session_key> rows=<n> path=<dir>` | info | A followed session's live window closed; the recording under `<dir>` is complete | `rows` |
 | `rest: following session_key=... (...)` | info | REST lane selected a new session to follow | — |
+| `rest: session not selected: upsert failed` | info | The live session's `sessions` upsert failed this tick; selecting it would break every later event insert's FK, so it's left unselected until the next discovery tick retries the upsert | — |
 | `rest: poll endpoint=... rows=... new=... malformed=...` | info | One rotation tick's fetch result | `rows`, `new` |
 | `rest: poll ... failed: ...` | error | A rotation tick's fetch threw | — |
 | `rest: session discovery failed: ...` | error | The `sessions` discovery fetch threw | — |
@@ -118,19 +128,24 @@ does, not a summary of intent.
 | `entry list: fetched session_key=... rows=... new=... foreign=... unknown_session=...` | info | The selection fetch returned rows | `rows`, `new`, `foreign`, `unknown_session` |
 | `entry list: static fallback (...) session_key=...` | info | The selection fetch returned nothing; the static list was emitted once | — |
 | `entry list: pre-race refresh session_key=... rows=... new=... foreign=... unknown_session=...` | info | The pre-race refresh returned rows | `rows`, `new`, `foreign`, `unknown_session` |
-| `entry list: pre-race refresh failed for session_key=...` | error | The pre-race refresh fetch threw; retried next tick | — |
+| `entry list: pre-race refresh session_key=... returned 0 rows` | info | The pre-race refresh returned nothing; still counted as done (a zero-row response is not a failure) | — |
+| `entry list: pre-race refresh failed for session_key=...` | error | The pre-race refresh fetch itself threw; retried next tick | — |
 | `entry list: friday fetch meeting_key=... rows=... new=... foreign=... unknown_session=...` | info | The Friday meeting-wide fetch returned rows | `rows`, `new`, `foreign`, `unknown_session` |
 | `entry list: friday fetch meeting_key=... deferred (...); retrying in 30m` | info | The Friday fetch returned nothing or failed | — |
 | `entry list: static fallback is for <year>` | info | Logged once at startup: the season the static list covers | — |
 | `mqtt: connected` | info | The MQTT client's `connect` handler fired | — |
 | `mqtt: disconnected` | info | The MQTT client's `close` handler fired | — |
+| `mqtt: proactive 50-min token refresh, reconnecting` | info | The proactive reconnect timer fired; a fresh token will be fetched on the reconnect | — |
 | `mqtt: auth rejected: ...` | error | The broker rejected the connection at CONNACK | — |
+| `mqtt: error: ...` | error | The client's `error` handler fired for anything other than an auth rejection | — |
 | `mqtt: subscribe error: ...` | error | Subscribing to the topic list failed | — |
+| `mqtt: message handler failed: ...` | error | Handling one incoming message threw | `endpoint` |
 | `mqtt: token fetch failed, will retry: ...` | error | `auth.getToken()` threw before connecting | — |
-| `mqtt: recording failed: ...` | error | The recorder threw while appending MQTT rows | — |
+| `mqtt: recording failed: ...` | error | The recorder threw while appending MQTT rows | `endpoint` |
 | `writer: batch inserted=... skipped=...` | info | A batch committed | `inserted`, `skipped` |
 | `writer: batch of ... failed, requeued: ...` | error | A batch's insert threw; requeued at the front for retry | `failures` |
-| `writer: ... consecutive failures, queue depth=...` | error | The writer's own retry loop counted another failure in a row | — |
+| `writer: ... consecutive failures, queue depth=...` | error | The writer's own retry loop (`run()`) counted another failure in a row; backs off before the next attempt | — |
+| `writer: giving up after ... consecutive failures, dropped=...` | error | The shutdown drain (`drainAll()`) gave up on the same batch after `MAX_CONSECUTIVE_FAILURES` (3) retries | `dropped` |
 | `writer: queue at capacity, dropped ... rows since the last batch` | error | The queue hit its 200,000-row cap and dropped the newest rows | `dropped` |
 | `token: expires_in missing or invalid (...), assuming 3600 s` | error | The OpenF1 token response's `expires_in` wasn't the expected numeric string | — |
 
