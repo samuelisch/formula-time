@@ -48,11 +48,10 @@ rather than landing silently inside a feature PR.
 - Every PR that adds or amends an ADR must regenerate the index in the
   same commit, or CI blocks it — the same discipline `pnpm lint` already
   enforces for source files.
-- The generator's own parsing limitations (documented alongside it, e.g.
-  its first-paragraph heuristic can over-attribute an `Amends` mention
-  that is really about a different ADR pair) are a property of the
-  generator, not of this gate; a future PR that tightens the parser only
-  ever changes generated output, never this decision.
+- The generator's own parsing accuracy (front-matter shapes it recognises,
+  how it scopes an `Amends` mention found in prose rather than a field) is
+  a property of the generator, not of this gate; a future PR that changes
+  how it parses only ever changes generated output, never this decision.
 - A file whose name does not match `docs/decisions-adr/NNNN-*.md` — the
   generated `README.md` included — is never itself indexed, so the table
   never lists itself.
