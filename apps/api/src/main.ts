@@ -33,14 +33,12 @@ const app = Fastify({ logger: true, trustProxy: TRUST_PROXY });
 // before any route, so the preflight and the hijacked SSE route see it.
 await registerCors(app, parseAllowedOrigins(process.env.CORS_ORIGIN));
 
-// Standard security headers on every response. CSP is off: the api serves
-// only JSON and an event stream, no documents to constrain. CORP is
-// cross-origin so the bundle, hosted on its own origin (ADR-0008), can read
-// the response. HSTS runs one year, no subdomains (this container answers
-// for its own host only). Framing is denied outright: nothing legitimate
-// embeds this api in a frame. Runs as an `onRequest` hook, so it decorates
-// the reply before the hijacked SSE route calls `hijack()` -- the headers
-// still ride along through `replyHeaders` (http/cors.ts).
+// Standard security headers on every response. CSP is off (the api
+// serves only JSON and an event stream); CORP is cross-origin so the
+// bundle, on its own origin (ADR-0008), can read the response. HSTS runs
+// one year, no subdomains; framing is denied outright. Runs as an
+// `onRequest` hook, so its headers still reach the hijacked SSE route via
+// `replyHeaders` (http/cors.ts).
 await app.register(helmet, {
   contentSecurityPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -87,8 +85,8 @@ const lifecycle = createSessionLifecycle({
 // unhealthy, so it never flips `ok`.
 app.get("/health", async () => healthWithBuild(lifecycle.health(), dbProbe.status()));
 
-// Every client-facing route lives under /api (owner decision) -- the
-// public path is /api/live/events.
+// Every client-facing route lives under /api; the public path here is
+// /api/live/events.
 await app.register(liveRoutes, { prefix: "/api", fanout });
 await app.register(registerPolls(pollModule, db), { prefix: "/api" });
 
