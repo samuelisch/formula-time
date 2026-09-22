@@ -61,8 +61,8 @@ Read `docs/` before doing anything. What each part holds:
   resolves its fakes out of order on purpose. A test that reads
   `recordings/` (gitignored) is `test.skipIf(!existsSync(dir))`. `db:up`/`db:down`/`db:migrate:*`/
   `test:integration` derive a per-worktree compose project and Postgres port
-  from `scripts/db-env.sh` (README "Local Postgres"), so concurrent worktrees
-  never share a database.
+  from `scripts/db-env.sh` (`docs/operations.md` "Local ports"), so
+  concurrent worktrees never share a database.
 - `docs/` is gitignored on purpose (drafts), except `docs/decisions-adr/`,
   `docs/retros/`, `docs/architecture.md`, `docs/glossary.md` and
   `docs/operations.md`, which are tracked — do not change `.gitignore`
