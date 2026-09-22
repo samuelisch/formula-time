@@ -746,7 +746,7 @@ describe("createSessionLifecycle", () => {
       const lifecycle = createSessionLifecycle({
         db: fakePrisma(),
         source: fakeEventSource([]),
-        pusher: fakePusher(),
+        pusher: fakePushSink(),
         pickSession,
         polls: fakePollHooks(),
         log,
@@ -788,7 +788,7 @@ describe("createSessionLifecycle", () => {
       const lifecycle = createSessionLifecycle({
         db: fakePrisma(),
         source: fakeEventSource([]),
-        pusher: fakePusher(),
+        pusher: fakePushSink(),
         pickSession,
         polls: fakePollHooks(),
         log,
