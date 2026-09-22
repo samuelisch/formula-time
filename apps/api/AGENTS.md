@@ -1,106 +1,25 @@
 # apps/api — AGENTS.md
 
-Issue labels: `api` (this service, `packages/domain`, and root tooling:
-.railway, .github, scripts, docker-compose, .claude). An agent working
-here picks `ready` issues with that label and nothing else.
+Issue label: `api` (this service, `packages/domain`, and root tooling:
+`.railway`, `.github`, `scripts`, `docker-compose.yml`, `.claude`). An
+agent working here picks `ready` issues with that label and nothing else
+(`gh issue list --label ready --label api --search "sort:created-asc"`).
 
-`api` is the "app service" of ADR-0001, named by ADR-0003: one process, one
-deploy unit. This file adds local convention on top of the root
-`AGENTS.md`; it restates nothing there. Vocabulary used below: *fold*
-(reduce over the event log), *projector*/*authority* (the class / the role
-— exactly one), *push* (one serialized RaceState + tallies sent to every
-socket), *lock* (a poll's pre-resolve state, not "close").
+## Purpose
 
-## What this service owns
+`api` is the app service of ADR-0001, named by ADR-0003: one process, one
+deploy unit. It folds the served session's events into one state and
+pushes it to every browser over one shared SSE stream, and it is the sole
+writer of `polls`, `votes` and `exports`.
 
-One process holding:
-- **The projector** — folds the event log into one in-memory RaceState.
-  Polls Postgres with `WHERE seq > $cursor ORDER BY seq` every 250 ms;
-  restart runs the same query from cursor 0. A row below the
-  already-applied cursor forces a full rebuild — never an in-place apply.
-  The `sessions` row it carries is metadata, not part of the fold: the
-  session lifecycle's `runCheck` refreshes it on every check (`status`,
-  `total_laps`, `meeting_name`, `circuit_short_name`, `location`,
-  `date_start`, `date_end`), pushing the change to viewers within a tick
-  rather than waiting for a restart to re-pick the row.
-- **The poll module** — locks and resolves polls from the fold; holds
-  tallies in memory; reloads them from `votes` on start.
-- **The polls-by-race read route** — `GET /api/races/:session_key/polls`
-  (`polls/routes.ts`, querying `pollsBySession` in `polls/poll-read.ts`)
-  reads `polls`/`votes` straight from Postgres for any race, live or
-  historical; it never touches the poll module's in-memory state.
-- **The events-by-race read route** — `GET /api/races/:session_key/events`
-  (`http/routes/races.ts`) pages the `events` log by `seq` for any session, live
-  included, reusing the projector's own select (`projector/event-source.ts`).
-- **The fan-out** — one `JSON.stringify` + one gzip for the full `state`
-  push, unconditionally, every push (joins of either format and `GET
-  /api/live/snapshot` need it on demand regardless of legacy-socket
-  count); a delta socket (`?format=delta`, ADR-0013) additionally gets a
-  hand-written JSON Patch `delta` each tick — one more serialize+gzip pass,
-  built only while a delta socket is attached — keyframed back to `state`
-  every 200th push. Identical bytes to every socket of the same format. A
-  vote never triggers a push. Every push, `state` or `delta` alike, also
-  carries `events` (the `RaceEvent` rows the projector applied that tick,
-  `[]` on a catch-up or rebuild tick) and, on a rebuild's push or a push
-  rejected upstream of the fan-out, `rebuilt: true` (ADR-0014, ADR-0032) —
-  a client folds `events` into its own deep-rewind timeline. The fan-out
-  does not interpret `events`, but it does interpret `rebuilt`: a deflate
-  error skips a tick's frame entirely (that tick's `events` reach no
-  client), so the fan-out remembers the skip and forces the next frame it
-  actually delivers to be a full `state` push carrying `rebuilt: true`,
-  overriding whatever the caller set, on every socket format.
-- **The SSE route handler** — attaches the socket to the fan-out for
-  whichever session the projector currently folds (live, the next
-  upcoming, or, with neither, the most recent finished one, per
-  `pickSession`); it never touches state itself.
-- `Fastify({ trustProxy: TRUST_PROXY })` (`http/trust-proxy.ts`, ADR-0024):
-  Railway connects to this container over its own internal, private
-  network, so trusting the private address ranges (`loopback, linklocal,
-  uniquelocal`) resolves `request.ip` to the real client address from
-  `X-Forwarded-For` — required for `POST /api/vote`'s per-IP rate limit to
-  throttle clients individually. Plain `trustProxy: true` was rejected: a
-  client could prepend arbitrary extra hops onto its own header and get a
-  fresh resolved "IP" on every request.
-- **The exporter** — session finished, not yet exported, and holding at
-  least one event whose endpoint is not `drivers` (timing data to replay):
-  write the immutable file once. Idempotent; retried by the same check. A
-  finished session with only `drivers` events (or none) is skipped, logged
-  once per process, and re-checked on later ticks. An already-exported
-  session is stale, and re-exported the same way, once its events log holds
-  a row received after the export's timestamp — a reload is picked up on
-  the next tick rather than served stale forever.
-- The races index (`GET /api/races`), the export's `session` object, and
-  the live push's `state.session` all carry `meeting_name`,
-  `circuit_short_name` and `location` alongside the fields above — the
-  same three nullable `sessions` columns (ADR-0025), read straight
-  through and never guessed: a session row with none of them writes
-  `null` on all three surfaces, the same as any other unavailable field.
+## Where the facts are
 
-This service is the sole writer of `polls` and `votes`. It reads `sessions`
-and `events`; it never writes `events`. Vote acknowledgement: acknowledge
-to the browser only after the `votes` insert commits. Dedup is the primary
-key `(poll_id, viewer_id)`; a re-vote before lock is an upsert, not a new
-row.
-
-ADR-0009: `exports` is a fifth table, written only by the api (the
-exporter). It does not write `sessions` — `sessions.exported_at` was
-dropped in the same migration that added `exports`. ADR-0018: `exported_at`
-is the file's version, not a one-time stamp — it moves on a re-export, and
-the route's etag and the web's cache-busting `?v=` both key off it.
-
-`apps/api/src/export/prune-exports.ts` is a one-off maintenance command,
-not part of the running service: it removes `exports` rows (and their
-files) written before the exporter required a timing event, i.e. rows for
-finished sessions whose only ingest activity was the `drivers` endpoint.
-Run it inside the api container after a build, `node
-apps/api/dist/export/prune-exports.js`, which only logs what it would
-delete; add `--apply` to actually delete the file and the row for each
-affected session. It never touches a session that has any non-`drivers`
-event.
-
-Fastify handles routing, cookies, and validation. The SSE route is
-hand-written on the raw response — compression middleware would gzip per
-viewer, which the fan-out design forbids.
+- Which session is served, the tick, poll rules, routes, exports, tables,
+  configuration, and what the log lines mean: `apps/api/README.md`.
+- The data model, the two `events` indexes, and the connection pools:
+  `../../packages/db/README.md`.
+- The whole system and the vocabulary every guide uses:
+  `../../docs/architecture.md`, `../../docs/glossary.md`.
 
 ## The five invariants, as they bind here
 
@@ -113,6 +32,26 @@ viewer, which the fan-out design forbids.
 5. Anything with stakes settles server-side: a vote is real only once its
    insert commits, never on the client's say-so.
 
+## Rules that are not in the README
+
+- This service is the sole writer of `polls`, `votes` and `exports`; it
+  reads `sessions` and `events` and never writes either.
+- A wire shape (`StatePush`, `DeltaPush`, `StatusFrame`, `SessionStatus`,
+  the poll shapes, `RaceIndexEntry`, `RaceEventsPage`, `RaceFile`) is
+  always built typed against its `packages/domain/src/wire.ts` or
+  `polls.ts` export, never a local or untyped copy, so the web reading the
+  same shape fails typecheck the moment the two disagree.
+- The SSE route (`http/routes/live.ts`) is hand-written on the raw
+  response; it must never sit behind compression middleware, which would
+  gzip per viewer and defeat the fan-out's one-serialize-per-format design.
+- `Fastify({ trustProxy })` is always the private address ranges
+  (`http/trust-proxy.ts`'s `TRUST_PROXY`), never `true` — `true` would let
+  a client forge its own resolved IP and dodge the vote route's per-IP
+  rate limit.
+- The viewer cookie's attributes come from one helper,
+  `viewerCookieOptions()` (`polls/viewer-identity.ts`), so every place
+  that sets or reads the cookie agrees.
+
 ## Conventions
 
 - ESM everywhere: relative imports end in `.js` even from `.ts` (NodeNext).
@@ -124,49 +63,6 @@ viewer, which the fan-out design forbids.
 - `@formula-time/domain` is browser-safe: no `node:*` imports (its
   tsconfig enforces `types: []`, `lib: ["ES2022"]`). Types and the reducer
   live there; identity hashing does not.
-- Wire shapes live in `packages/domain/src/wire.ts` (`StatePush`,
-  `DeltaPush`, `StatusFrame`, `SessionStatus`, `RaceIndexEntry`,
-  `RaceEventsPage`, `RaceFile`), same as the poll shapes already do
-  (`polls.ts`): a builder here (`projector/serve-session.ts`, `fanout/fanout.ts`,
-  `http/routes/races.ts`, `export/exporter.ts`) is typed against the domain
-  export it produces, never a local or untyped copy, so the web reading
-  the same shape fails typecheck the moment the two disagree.
 - The root `Dockerfile`'s runtime stage ships this package's `dist` output
   and production `node_modules` only — no TypeScript sources, no
   devDependencies — and runs as a non-root user.
-- Config is read from the platform secret store, never from files in the
-  image: `DATABASE_URL`, `PORT`, `CORS_ORIGIN`, `NODE_ENV`, `EXPORT_DIR`
-  (default `./exports`, ADR-0009 §2). `OPENF1_LOGIN`/`OPENF1_PASSWORD`/
-  `LIVE_SOURCE` are ingest's config, not read here.
-- `GET /health` answers the session lifecycle's health plus `build`: the
-  running process's git SHA, read as `GIT_SHA ?? RAILWAY_GIT_COMMIT_SHA ??
-  "unknown"`. `GIT_SHA` is an explicit override for local runs and tests;
-  `RAILWAY_GIT_COMMIT_SHA` is a variable Railway already injects into the
-  running container at runtime, no Dockerfile plumbing needed.
-  `release.yml`'s smoke job polls this to prove a release actually
-  redeployed the new build, not the old one. It also carries `db`: `"ok"` or
-  `"unreachable"`, a cached `SELECT 1` result refreshed every 30 s
-  (`http/health.ts`'s `createDbProbe`), never run per request. `ok` is always
-  `true` while the process is serving; `db` is informational only — a dead
-  database degrades reads, it does not make the running process unhealthy,
-  so it never flips `ok`.
-- Every 60 s the api logs one structured line, `"api: last 60s"`, with
-  fields `viewers`, `delta_viewers`, `pushes`, `state_bytes_gz` (summed),
-  `delta_bytes_gz` (summed), `slow_drops`, `cursor`, `caught_up`,
-  `session_key`, `build` — same shape and cadence as ingest's `"mqtt: last
-  60s"` line, so one log query reads both services. The four counters
-  (`pushes`, `state_bytes_gz`, `delta_bytes_gz`, `slow_drops`) live in
-  `Fanout` and are read and reset in one step by `statsSnapshot()`; `viewers`,
-  `delta_viewers`, `cursor` and `caught_up` are live gauges read fresh each
-  time, from `Fanout.size()`/the delta-socket count and the session
-  lifecycle's `health()`.
-- The `viewer_id` cookie's attributes come from one helper,
-  `viewerCookieOptions(env)` (`polls/viewer-identity.ts`), so `routes.ts`
-  and the raw fallback string `resolveViewerId` builds can never drift
-  (ADR-0015). `env === "production"` gets `SameSite=None; Secure`, needed
-  for the cookie to travel between the split origins (ADR-0008); anything
-  else gets `SameSite=Lax`, not `Secure`, because dev runs over plain http
-  and a browser drops a `SameSite=None` cookie that is not `Secure`.
-  `POST /api/vote` also checks `Origin` against the same `CORS_ORIGIN`
-  allowlist the cors plugin uses (`originAllowed` in `http/cors.ts`) — the CSRF
-  guard `SameSite=Lax` used to give for free.
