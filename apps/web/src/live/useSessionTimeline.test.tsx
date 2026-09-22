@@ -13,7 +13,7 @@ import { emptyAnchors } from "./anchors.ts";
 import { emptyBuffer } from "./buffer.ts";
 import { sessionStatusOf } from "./selectors.ts";
 import { useLiveStore } from "./store.ts";
-import { PAGE_LIMIT, RETRY_BACKOFF_MS, useSessionTimeline } from "./timeline.ts";
+import { PAGE_LIMIT, RETRY_BACKOFF_MS, useSessionTimeline } from "./useSessionTimeline.ts";
 import type { LivePush } from "./types.ts";
 
 // Some regression tests need to observe (and, for one test, briefly

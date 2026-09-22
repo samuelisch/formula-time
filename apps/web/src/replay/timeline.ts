@@ -1,5 +1,5 @@
 // The incremental fold shared by the replay path (`foldRace.ts`) and the
-// live path (`apps/web/src/live/timeline.ts`): a `Timeline` is a running
+// live path (`apps/web/src/live/useSessionTimeline.ts`): a `Timeline` is a running
 // fold over an event log -- keyframes, lap markers, and the first/last
 // source times seen -- built either in one shot (`foldRace`: create then
 // `appendEvents` with the whole file) or across many `appendEvents` calls
@@ -41,7 +41,7 @@
 // Reconstructing the live fold position: `appendEvents` does not keep a
 // persistent `RaceStateReducer` across calls -- doing so would make
 // `Timeline` carry hidden, unclonable state, and the live path
-// (`live/timeline.ts`) hands a `Timeline` to React state after every page.
+// (`live/useSessionTimeline.ts`) hands a `Timeline` to React state after every page.
 // Instead each call rebuilds the reducer from the *last* keyframe already
 // recorded and replays the (bounded, at most one keyframe interval's
 // worth of) events since it -- exactly what `foldAt` already does for a
