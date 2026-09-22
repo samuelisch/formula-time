@@ -97,6 +97,29 @@ describe("parseAdrFile", () => {
   it("returns null for a filename that does not match the NNNN- pattern", () => {
     expect(parseAdrFile("README.md", "# Decisions")).toBeNull();
   });
+
+  it("does not attribute an amendment described about a different ADR pair to this file", () => {
+    // Reproduces docs/decisions-adr/0026-session-names-on-the-wire.md's Context
+    // paragraph: it reports that ADR-0025 amends ADR-0004, which is a fact
+    // about ADR-0025, not a statement that this file (ADR-0026) amends
+    // ADR-0004. Only the explicit Amends field names what this file amends.
+    const content = [
+      "# ADR-0026 — The export document and the races index carry the session's naming fields",
+      "",
+      "Status: Accepted",
+      "Date: 2026-09-12",
+      "Amends: ADR-0009 (§1 the export document's `session` object, §4 the `GET /api/races` entry shape)",
+      "",
+      "## Context",
+      "",
+      "ADR-0009 §1 and §4 name the export document's `session` object and the `/api/races` entry shape verbatim.",
+      "ADR-0025 added `meeting_name`, `circuit_short_name`, `location` to the stored `sessions` row so a race can be named by its Grand Prix and circuit, not just `country` and `circuit_key`.",
+      "ADR-0025 amends only ADR-0004 and HLD §4 (the stored columns); it does not touch ADR-0009's wire shapes, which this ADR does.",
+      "",
+    ].join("\n");
+    const parsed = parseAdrFile("0026-session-names-on-the-wire.md", content);
+    expect(parsed?.amends).toEqual(["0009"]);
+  });
 });
 
 describe("readAdrEntries", () => {

@@ -87,17 +87,31 @@ function firstParagraph(content) {
   return para.join(" ").trim();
 }
 
+const SENTENCE_SPLIT_RE = /(?<=[.!?])\s+/;
+// A trigger word whose subject is another, explicitly named ADR (e.g. "ADR-0025
+// amends only ADR-0004") describes that other ADR's amendment, not this file's;
+// such a sentence is skipped rather than misread as this file amending ADR-0004.
+const NAMED_SUBJECT_RE = /ADR-\d{4}\s*$/i;
+
 /**
- * Every ADR-NNNN mention that appears after the first occurrence of
- * "amends", "amending" or "supersedes" in the given text.
+ * Every ADR-NNNN mention that follows "amends", "amending" or "supersedes"
+ * within the sentence that contains the trigger word — never a later
+ * sentence — and only when that sentence's subject is this file, not
+ * another ADR named just before the trigger word.
  * @param {string} text
  * @returns {string[]} four-digit ADR numbers, in the order they appear
  */
-function adrMentionsAfterTrigger(text) {
-  const m = TRIGGER_RE.exec(text);
-  if (!m) return [];
-  const rest = text.slice(m.index + m[0].length);
-  return [...rest.matchAll(ADR_MENTION_RE)].map((mm) => mm[1]);
+function adrMentionsFromText(text) {
+  const mentions = [];
+  for (const sentence of text.split(SENTENCE_SPLIT_RE)) {
+    const m = TRIGGER_RE.exec(sentence);
+    if (!m) continue;
+    const before = sentence.slice(0, m.index);
+    if (NAMED_SUBJECT_RE.test(before.trim())) continue;
+    const after = sentence.slice(m.index + m[0].length);
+    for (const mm of after.matchAll(ADR_MENTION_RE)) mentions.push(mm[1]);
+  }
+  return mentions;
 }
 
 /**
@@ -122,8 +136,8 @@ export function parseAdrFile(filename, content) {
 
   const amends = new Set();
   for (const m of fieldValue(content, "Amends").matchAll(ADR_MENTION_RE)) amends.add(m[1]);
-  for (const n of adrMentionsAfterTrigger(firstLine)) amends.add(n);
-  for (const n of adrMentionsAfterTrigger(firstParagraph(content))) amends.add(n);
+  for (const n of adrMentionsFromText(firstLine)) amends.add(n);
+  for (const n of adrMentionsFromText(firstParagraph(content))) amends.add(n);
   amends.delete(number);
 
   return { number, filename, title, status, date, amends: [...amends] };
