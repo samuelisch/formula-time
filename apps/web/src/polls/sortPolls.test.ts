@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { makePoll } from "./pollFixtures.ts";
+import { makePoll } from "../test/pollFixtures.ts";
 import { sortPolls } from "./sortPolls.ts";
 
 describe("sortPolls", () => {

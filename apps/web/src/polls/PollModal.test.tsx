@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { BoardSourceProvider } from "../board/useBoardState.ts";
 import { makePush } from "../test/fixtures.ts";
-import { makePoll } from "./pollFixtures.ts";
+import { makePoll } from "../test/pollFixtures.ts";
 import { PollModal, type PollModalProps } from "./PollModal.tsx";
 import { usePollModalUiStore } from "./pollModalStore.ts";
 

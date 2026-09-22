@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
 import { useLiveStore } from "../live/store.ts";
-import { makePoll } from "../polls/pollFixtures.ts";
+import { makePoll } from "../test/pollFixtures.ts";
 import { usePollModalUiStore } from "../polls/pollModalStore.ts";
 import type { RaceFile, RaceIndexEntry } from "../races/api.ts";
 import { makePush } from "../test/fixtures.ts";

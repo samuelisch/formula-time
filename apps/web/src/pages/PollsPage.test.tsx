@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
-import { makePoll } from "../polls/pollFixtures.ts";
+import { makePoll } from "../test/pollFixtures.ts";
 import type { RaceIndexEntry } from "../races/api.ts";
 import { makePush } from "../test/fixtures.ts";
 import { NO_SESSION_TIMEOUT_MS, PollsPage } from "./PollsPage.tsx";

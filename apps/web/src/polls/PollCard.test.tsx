@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { makePoll } from "./pollFixtures.ts";
+import { makePoll } from "../test/pollFixtures.ts";
 import { PollCard } from "./PollCard.tsx";
 import { rememberVote } from "./votes.ts";
 
