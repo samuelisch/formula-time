@@ -15,7 +15,7 @@ import { TRUST_PROXY } from "./http/trust-proxy.js";
 import { PollModule } from "./polls/poll-module.js";
 import { registerPolls } from "./polls/routes.js";
 import { prismaEventSource } from "./projector/event-source.js";
-import { createSessionLifecycle } from "./projector/serve-session.js";
+import { createSessionLifecycle, type SessionLifecycle } from "./projector/serve-session.js";
 import { pickSession } from "./projector/session-picker.js";
 
 // PORT is the platform's own convention (Railway sets it); API_PORT is the
@@ -28,6 +28,37 @@ const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3000);
 // per-IP rate limit would throttle every client together instead of
 // individually.
 const app = Fastify({ logger: true, trustProxy: TRUST_PROXY });
+
+const log = (msg: string, fields?: Record<string, unknown>): void => {
+  app.log.info(fields ?? {}, msg);
+};
+
+// Assigned once the session lifecycle is built, below; read live (never
+// captured) so a crash handler registered this early still reports
+// whatever session_key/cursor exist at the moment it fires.
+let lifecycle: SessionLifecycle | null = null;
+
+// Registered before any plugin, await or timer starts (the ingest
+// pattern): a crash anywhere after this line -- bootstrap included --
+// would otherwise print a bare stack trace with no service, build or
+// session_key field, and a log query for an error would find nothing
+// while the "api: last 60s" line just stopped. Exit semantics are
+// unchanged (Railway restarts the service); only the evidence is new.
+function fatal(kind: string, reason: unknown): void {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  const health = lifecycle?.health();
+  log("api: fatal error", {
+    level: "error",
+    kind,
+    reason: { message: err.message, stack: err.stack ?? null },
+    session_key: health?.session_key ?? null,
+    cursor: health?.cursor ?? null,
+  });
+  process.nextTick(() => process.exit(1));
+}
+
+process.on("unhandledRejection", (reason) => fatal("unhandledRejection", reason));
+process.on("uncaughtException", (err) => fatal("uncaughtException", err));
 
 // The web bundle is hosted on its own origin (ADR-0008); allow it here,
 // before any route, so the preflight and the hijacked SSE route see it.
@@ -51,10 +82,6 @@ await app.register(helmet, {
 const db = createDb();
 const source = prismaEventSource(db);
 
-const log = (msg: string, fields?: Record<string, unknown>): void => {
-  app.log.info(fields ?? {}, msg);
-};
-
 // /health's `db` field: a cached SELECT 1 result refreshed every 30 s, never
 // per request, so the platform's healthcheck and a person can tell a dead
 // database from an idle session without adding a query to every probe.
@@ -71,7 +98,7 @@ fanout.heartbeat();
 const exportDir = process.env.EXPORT_DIR ?? "./exports";
 const exporter = createExporter({ db, dir: exportDir, log });
 
-const lifecycle = createSessionLifecycle({
+lifecycle = createSessionLifecycle({
   db,
   source,
   pusher: fanout,
@@ -80,33 +107,12 @@ const lifecycle = createSessionLifecycle({
   log,
 });
 
-// Registered here, before any route or timer starts: a crash before this
-// point (bootstrap) would otherwise print a bare stack trace with no
-// service, build or session_key field -- a log query for an error finds
-// nothing and the "api: last 60s" line just stops. Exit semantics are
-// unchanged (Railway restarts the service); only the evidence is new.
-function fatal(kind: string, reason: unknown): void {
-  const err = reason instanceof Error ? reason : new Error(String(reason));
-  const health = lifecycle.health();
-  log("api: fatal error", {
-    level: "error",
-    kind,
-    reason: { message: err.message, stack: err.stack ?? null },
-    session_key: health.session_key,
-    cursor: health.cursor,
-  });
-  process.nextTick(() => process.exit(1));
-}
-
-process.on("unhandledRejection", (reason) => fatal("unhandledRejection", reason));
-process.on("uncaughtException", (err) => fatal("uncaughtException", err));
-
 // /health stays at the root: it is the platform's probe (Railway
 // healthcheck, .railway/railway.ts), not a client route. `ok` is always
 // true while this process is serving; `db` is informational only -- a
 // dead database degrades reads, it does not make the running process
 // unhealthy, so it never flips `ok`.
-app.get("/health", async () => healthWithBuild(lifecycle.health(), dbProbe.status()));
+app.get("/health", async () => healthWithBuild(lifecycle!.health(), dbProbe.status()));
 
 // Every client-facing route lives under /api (owner decision) -- the
 // public path is /api/live/events.
@@ -128,7 +134,7 @@ process.on("SIGTERM", () => {
     clearInterval(statsTimer);
   }
   dbProbe.stop();
-  lifecycle.stop();
+  lifecycle!.stop();
   fanout.stopHeartbeat();
   exporter.stop();
   void db.$disconnect().then(() => process.exit(0));
@@ -151,9 +157,9 @@ dbProbe.start();
 // a new race gone live, or the next race appearing) stops the old
 // projector and starts a fresh fold from cursor 0 -- restart's rule
 // applies here too (HLD §7 "Cursor").
-void lifecycle.check();
+void lifecycle!.check();
 sessionWatcher = setInterval(() => {
-  void lifecycle.check();
+  void lifecycle!.check();
 }, 5000);
 sessionWatcher.unref?.();
 
@@ -163,7 +169,7 @@ sessionWatcher.unref?.();
 // statsSnapshot() resets for the next window.
 const build = resolveBuild(process.env);
 statsTimer = setInterval(() => {
-  const health = lifecycle.health();
+  const health = lifecycle!.health();
   const stats = fanout.statsSnapshot();
   log("api: last 60s", {
     viewers: health.viewers,
