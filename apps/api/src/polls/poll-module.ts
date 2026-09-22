@@ -1,14 +1,9 @@
-// PollModule is the only writer of `polls` and `votes` (apps/api/AGENTS.md,
-// ADR-0001 §2 invariant 5): "Anything with stakes (votes, settlement)
-// settles server-side, never in the browser. A vote is acknowledged only
-// after its insert commits."
-//
-// Lock / resolve / void all follow the same rule: the Postgres write lands
-// first, and only once it resolves does the in-memory status change. A vote
-// that commits before a lock write is valid and must be in the tally; a
-// vote that races the write and loses gets 0 rows from vote-path's
-// conditional upsert (see vote-path.ts for why that check lives inside the
-// write rather than before it).
+// PollModule is the only writer of `polls` and `votes` (ADR-0001 §2
+// invariant 5): a vote is acknowledged only after its insert commits.
+// Lock, resolve and void follow the same rule -- the Postgres write lands
+// first, and only once it resolves does the in-memory status change; a
+// vote that races a lock write and loses gets zero rows from vote-path's
+// conditional upsert. See README: Polls.
 import type { Prisma, PrismaClient } from "@formula-time/db";
 import { isChequered, leaderLap } from "@formula-time/domain";
 import type { RaceState } from "@formula-time/domain";
@@ -173,18 +168,12 @@ export class PollModule {
     this.session = { ...this.session, totalLaps: update.totalLaps, meetingName: update.meetingName };
   }
 
-  // Two concurrent votes from the same viewer race: Postgres decides which
-  // option is stored last by commit order, but without serialization here,
-  // poll.votes.set(viewerId, ...) below would run in whichever order the
-  // two promises happen to resolve in on this process — not necessarily
-  // the DB's commit order — so memory could end up disagreeing with the
-  // table (CI caught this as tally drift under a same-viewer burst).
-  //
-  // A vote for a viewer waits for that viewer's previous vote (upsert and
-  // memory update both) to finish before starting; votes from different
-  // viewers still run fully concurrently. One process holds all votes
-  // (ADR-0001 §1), so this per-viewer ordering is authoritative — nothing
-  // else writes `votes`.
+  // Two concurrent votes from the same viewer race in memory even though
+  // Postgres serializes them by commit order (vote-path.ts): without
+  // serialization here, `poll.votes.set` below could run in the wrong
+  // order and disagree with the table. A vote for a viewer waits for that
+  // viewer's previous vote to finish first; votes from different viewers
+  // still run fully concurrently. See README: Polls.
   public vote(pollId: string, viewerId: string, optionId: string): Promise<VoteResult> {
     const previous = this.voteChains.get(viewerId) ?? Promise.resolve();
     const chained: Promise<VoteResult> = previous.then(
@@ -214,13 +203,11 @@ export class PollModule {
       return { ok: false, status: 409, error: "poll is locked" };
     }
 
-    // Fast reject above is only a hint; the conditional upsert below is the
-    // truth (see vote-path.ts). A returned row means the vote counted, and
-    // memory is set from the option_id Postgres actually stored — never
-    // from this call's own `optionId` argument — because the per-viewer
-    // chain above only rules out this process racing itself; the value
-    // Postgres returns is still the one fact that matches the committed
-    // row. Only after it resolves is the vote acknowledged to the caller.
+    // Fast reject above is only a hint; the conditional upsert below is
+    // the truth (vote-path.ts). Memory is set from the option_id Postgres
+    // actually stored, never this call's own argument, because the
+    // per-viewer chain above only rules out this process racing itself.
+    // Acknowledged to the caller only once it resolves.
     const storedOptionId = await upsertVote(this.db, pollId, viewerId, optionId);
     if (storedOptionId === null) {
       return { ok: false, status: 409, error: "poll is locked" };
@@ -331,8 +318,8 @@ export class PollModule {
   private async resolvePolls(driverOrder: number[]): Promise<void> {
     const order = driverOrder.map(String);
     for (const poll of this.polls.values()) {
-      // void is terminal (owner ruling, 2026-09-08): a chequered tick after
-      // a poll has been voided must never resurrect it.
+      // void is terminal: a chequered tick after a poll has been voided
+      // must never resurrect it.
       if (poll.status === "resolved" || poll.status === "void") continue;
       const winningOptionIds = poll.kind === "winner" ? order.slice(0, 1) : order.slice(0, 3);
       const result = await this.db.poll.updateMany({
