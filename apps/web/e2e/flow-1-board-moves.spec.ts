@@ -18,7 +18,7 @@ async function gapColumnValues(page: Page): Promise<string[]> {
 }
 
 test("the board moves", async ({ page }) => {
-  test.skip(!RECORDING_PRESENT, "recordings/11361 fixture not present");
+  test.skip(!RECORDING_PRESENT, "apps/web/e2e/fixtures/11361-slice fixture not present");
 
   await page.goto("/live");
 

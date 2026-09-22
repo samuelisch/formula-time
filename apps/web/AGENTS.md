@@ -77,10 +77,14 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   apply here — this app has no database access. Playwright (chromium only,
   `apps/web/e2e/`, `apps/web/playwright.config.ts`) is e2e: `pnpm test:e2e`
   (root or this package) runs it against the rehearse-race stack, brought
-  up by `scripts/e2e-stack.sh` for Playwright's `webServer` option; each
-  spec skips when its `recordings/11361` fixture is absent. The `e2e` CI
-  job runs it too, only when a PR touches `apps/web/**` or
-  `packages/domain/**`, and is not yet required for merge.
+  up by `scripts/e2e-stack.sh` for Playwright's `webServer` option, which
+  defaults `RECORDING` to the committed fixture `apps/web/e2e/fixtures/11361-slice/`
+  (`fixtures.ts`) -- the Italian GP trimmed to lights out − 3 min through
+  lights out + 25 min, laps 1-4. `scripts/trim-recording.mjs` regenerates
+  it from a full local recording; each spec still skips when the fixture
+  is absent, as a guard against a broken checkout. The `e2e` CI job runs
+  it too, only when a PR touches `apps/web/**` or `packages/domain/**`,
+  and is not yet required for merge.
 - `pnpm lint` (ESLint, root `eslint.config.js`, ADR-0017) runs over this
   app too, zero warnings allowed, same gate as `pnpm typecheck` and
   `pnpm test:unit`.
