@@ -16,7 +16,7 @@ import type { RawRecord } from "@formula-time/domain";
 
 import type { SessionStatus } from "../races/api.ts";
 import { useLiveStore } from "./store.ts";
-import { useSessionTimeline } from "./timeline.ts";
+import { useSessionTimeline } from "./useSessionTimeline.ts";
 
 export interface LiveTimelineLoaderProps {
   sessionKey: number;

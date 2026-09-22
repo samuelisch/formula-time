@@ -26,7 +26,7 @@ import { BoardPage } from "./pages/BoardPage.tsx";
 import { PollsPage } from "./pages/PollsPage.tsx";
 import { RacesPage } from "./pages/RacesPage.tsx";
 import { ReplayPage } from "./pages/ReplayPage.tsx";
-import { makePoll } from "./polls/pollFixtures.ts";
+import { makePoll } from "./test/pollFixtures.ts";
 import { PollModal } from "./polls/PollModal.tsx";
 import { usePollModalUiStore } from "./polls/pollModalStore.ts";
 import type { RaceFile, RaceIndexEntry } from "./races/api.ts";

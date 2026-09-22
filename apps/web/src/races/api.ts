@@ -5,7 +5,7 @@
 // builds them (`apps/api/src/routes/races.ts`, `export/exporter.ts`) --
 // never copy them, import from there. `fetchRaceEventsPage` is the paged
 // event-log route, used by both a finished session's replay and a live
-// session's browser-side timeline (`apps/web/src/live/timeline.ts`).
+// session's browser-side timeline (`apps/web/src/live/useSessionTimeline.ts`).
 export type { RaceEventsPage, RaceFile, RaceIndexEntry, SessionStatus } from "@formula-time/domain";
 import type { RaceEventsPage, RaceFile, RaceIndexEntry } from "@formula-time/domain";
 

@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 import { BoardSourceProvider } from "../board/useBoardState.ts";
 import { useLiveStore } from "../live/store.ts";
 import { makePush } from "../test/fixtures.ts";
-import { makePoll } from "./pollFixtures.ts";
+import { makePoll } from "../test/pollFixtures.ts";
 import { usePolls } from "./usePolls.ts";
 
 const LIVE_POLL = makePoll({ poll_id: "9999:winner", status: "open" });

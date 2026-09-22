@@ -177,7 +177,7 @@ describe("live store", () => {
     });
 
     // Regression: the timeline used to be built with only a session_key
-    // (`live/timeline.ts` before the fix), so a rewound viewer's displayed
+    // (`live/useSessionTimeline.ts` before the fix), so a rewound viewer's displayed
     // push carried a `session` with no status/country/name -- the transport
     // and the finished banner both gate on that field. Pinning this here
     // against the full `TIMELINE_SESSION` row (the shape the fixed
