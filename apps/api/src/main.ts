@@ -101,13 +101,6 @@ function fatal(kind: string, reason: unknown): void {
 process.on("unhandledRejection", (reason) => fatal("unhandledRejection", reason));
 process.on("uncaughtException", (err) => fatal("uncaughtException", err));
 
-// TEMPORARY, for this PR's crash-handler Verified check only -- removed in
-// the next commit. SIGUSR1 throws synchronously so fatal() above can be
-// proven to log and exit without editing any test file.
-process.on("SIGUSR1", () => {
-  throw new Error("manual crash trigger");
-});
-
 // /health stays at the root: it is the platform's probe (Railway
 // healthcheck, .railway/railway.ts), not a client route. `ok` is always
 // true while this process is serving; `db` is informational only -- a
