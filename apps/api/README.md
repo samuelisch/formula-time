@@ -80,6 +80,23 @@ frame at all: `runDetector()` publishes the rebuilt fold itself, with
 `events: []` and `rebuilt: true`, in the tick that ran the detector
 (`projector/projector.ts`).
 
+## Fan-out
+
+Each `deflate()` call writes to the shared deflate stream and flushes with
+`Z_FULL_FLUSH`, so its result is one independently decodable raw-deflate
+block with no dependency on any later write to that stream. The heartbeat
+frame is a constant, so its gzip block is the same bytes every time;
+`Fanout` compresses it once at construction and replays that cached block
+on every heartbeat rather than deflating it fresh, which is exactly as
+valid since the block is independently decodable. A forced rebuild
+(ADR-0032) always delivers a full `state` push rather than a delta:
+`diffState` computes a full structural diff between the previous and
+current state, so a patch would in fact already span the skipped tick's
+changes correctly, but it cannot carry back that tick's own `events` rows
+(ADR-0014's deep-rewind log) — which is why the push must instead be
+`rebuilt: true`. This reuses the same fallback path a keyframe tick
+already takes.
+
 ## Polls
 
 Open: the first fold that has both drivers and a lap total opens two
