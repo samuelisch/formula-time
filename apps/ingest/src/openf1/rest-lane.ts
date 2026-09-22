@@ -9,9 +9,9 @@
 
 import path from "node:path";
 
-import { LIVE_WINDOW_MS, OPENF1_BASE, SessionDiscovery, pickLiveSession, sessionExpired } from "./discovery.js";
+import { OPENF1_BASE, SessionDiscovery, pickLiveSession, sessionExpired } from "./discovery.js";
 import type { CountStat } from "./discovery.js";
-import { ENTRY_LIST_2026 } from "./entry-list.js";
+import { EntryListFetches } from "./entry-list-fetches.js";
 import { enqueueDriverRows, enqueueRows } from "./enqueue.js";
 import type { EnqueueDriverRowsResult, RecordRows } from "./enqueue.js";
 import { LiveNormalizer, endpointConfigs } from "./normalize.js";
@@ -124,6 +124,7 @@ export class RestLane {
   private readonly liveLogDir: string;
   private readonly log: LaneLog;
   private readonly discovery: SessionDiscovery;
+  private readonly entryList: EntryListFetches;
   // Every OpenF1 REST call made (discovery, meetings, entry list, the
   // rotation poll), and the new rows / errors it produced, since the last
   // takeStats() call — feeds main.ts's per-minute composed line. Discovery
@@ -141,23 +142,6 @@ export class RestLane {
   private session: RawRecord | null = null;
   private sessionKey: number | null = null;
   private rotationIndex = 0;
-
-  // Entry list. All state below is reset in ensureLiveSession()
-  // when a NEW session is selected (`this.sessionKey` changes) — never on
-  // every discovery tick, same reasoning as onSessionSelected.
-  //
-  // Session selection: retried from the poll loop every 5
-  // minutes until the fetch returns >= 1 row.
-  private entryListSessionKey: number | null = null;
-  private entryListSatisfied = false;
-  private entryListFallbackEmitted = false;
-  private entryListNextRetryAt = 0;
-  // Pre-race refresh: a one-shot per session_key; a throw
-  // leaves it unmarked so the very next tick retries it.
-  private readonly preRaceRefreshDone = new Set<number>();
-  // Friday, per meeting_key: retried every 30 minutes while it
-  // returns zero rows or fails.
-  private readonly fridayMeetings = new Map<number, { satisfied: boolean; nextRetryAt: number }>();
 
   private running = false;
   private timer: NodeJS.Timeout | null = null;
@@ -185,6 +169,14 @@ export class RestLane {
       intervalMs: this.discoveryIntervalMs,
       onSession: opts.onSession,
       onRecorded: this.recordRows,
+      countStat: this.countStat,
+      log: this.log,
+    });
+    this.entryList = new EntryListFetches({
+      fetcher: this.fetcher,
+      enqueueDrivers: (rows, expectedSessionKey) => this.enqueueAndRecordDrivers(rows, expectedSessionKey),
+      enqueueRows: (endpoint, sessionKey, rows) => this.enqueueAndRecord(endpoint, sessionKey, rows),
+      isKnownSession: (key) => this.discovery.isKnownSession(key),
       countStat: this.countStat,
       log: this.log,
     });
@@ -237,7 +229,7 @@ export class RestLane {
     // Friday: checked on every discovery tick — this is the idle (60s)
     // loop's own extra fetch, not competing with the rotation budget (there
     // is no rotation while idle).
-    if (!selectionFetched) await this.checkFridayFetch(this.discovery.sessions(), nowMs);
+    if (!selectionFetched) await this.entryList.checkFridayFetch(this.discovery.sessions(), nowMs);
 
     // After ensureLiveSession, so a session selected THIS tick is already
     // this.session/this.sessionKey — see SessionDiscovery's
@@ -313,222 +305,11 @@ export class RestLane {
       // nothing is live.
       await this.onSessionSelected?.(live, nowMs);
 
-      // Fetch `drivers?session_key=<selected>` for
-      // the newly-selected session. `entryListNextRetryAt = nowMs` makes the
-      // first attempt immediate; tryEntryListSelectionFetch() falls back to
-      // the static ENTRY_LIST_2026 and schedules a 5-minute retry if the
-      // fetch fails or returns zero rows (a restart re-running this is
-      // harmless: the payload's own `session_key`
-      // makes the event id unique per session, and event.createMany's
-      // skipDuplicates drops the repeat).
-      this.entryListSessionKey = key;
-      this.entryListSatisfied = false;
-      this.entryListFallbackEmitted = false;
-      this.entryListNextRetryAt = nowMs;
-      return this.tryEntryListSelectionFetch(nowMs);
+      // The entry list's selection fetch belongs to this new session: the
+      // fetches reset their retry state and attempt it immediately. Returns
+      // whether it fetched, charging the tick's one-drivers-fetch budget.
+      return this.entryList.onSessionSelected(key, nowMs);
     }
-    return false;
-  }
-
-  /**
-   * Fetches `drivers?session_key=<selected>`, tags each row by its
-   * own `session_key` (enqueueDriverRows), asserting it equals the
-   * selected key (a mismatch is still written, tagged to the session it
-   * names, and counted `foreign` — never dropped). Zero rows or a failure:
-   * emit the static ENTRY_LIST_2026 fallback once ("entry list: static
-   * fallback (<reason>)"), then keep retrying every 5 minutes — from the
-   * poll loop (pollOnce -> runDueDriversFetch), not only at selection —
-   * until the fetch returns >= 1 row, at which point those rows are emitted
-   * too (the writer's dedup makes the overlap with the fallback harmless).
-   * Returns `true` whenever it made an attempt this tick (used by pollOnce
-   * to charge the tick's one-drivers-fetch budget), `false` when nothing was
-   * due.
-   */
-  private async tryEntryListSelectionFetch(nowMs: number): Promise<boolean> {
-    if (this.entryListSessionKey === null || this.entryListSatisfied) return false;
-    if (nowMs < this.entryListNextRetryAt) return false;
-    const key = this.entryListSessionKey;
-
-    let rows: RawRecord[] = [];
-    let reason = "";
-    this.countStat("polls");
-    try {
-      const raw = await this.fetcher(`${OPENF1_BASE}/drivers?session_key=${key}`);
-      rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
-      if (rows.length === 0) reason = "no rows";
-    } catch (error) {
-      this.countStat("errors");
-      reason = error instanceof Error ? error.message : String(error);
-    }
-
-    if (rows.length > 0) {
-      const result = await this.enqueueAndRecordDrivers(rows, key);
-      this.countStat("rows", result.newRows);
-      this.entryListSatisfied = true;
-      this.log(
-        `entry list: fetched session_key=${key} rows=${rows.length} new=${result.newRows} foreign=${result.foreign} unknown_session=${result.unknownSession}`,
-      );
-      return true;
-    }
-
-    if (!this.entryListFallbackEmitted) {
-      const driverRows: RawRecord[] = ENTRY_LIST_2026.map((driver) => ({
-        session_key: key,
-        driver_number: driver.driver_number,
-        full_name: driver.full_name,
-        name_acronym: driver.name_acronym,
-        team_name: driver.team_name,
-        team_colour: driver.team_colour,
-      }));
-      const result = await this.enqueueAndRecord("drivers", key, driverRows);
-      this.countStat("rows", result.newRows);
-      this.entryListFallbackEmitted = true;
-      this.log(`entry list: static fallback (${reason}) session_key=${key}`);
-    }
-    this.entryListNextRetryAt = nowMs + 5 * 60_000;
-    return true;
-  }
-
-  /**
-   * 5 minutes before `date_start`, the same `session_key` fetch
-   * as the selection fetch, once — retried next tick (not the 5-minute
-   * selection cadence) only when the fetch itself throws. A zero-row
-   * response still counts as done (nothing to add, but the attempt
-   * succeeded).
-   */
-  private async tryPreRaceRefresh(session: RawRecord, nowMs: number): Promise<boolean> {
-    const key = Number(session["session_key"]);
-    if (!Number.isFinite(key) || this.preRaceRefreshDone.has(key)) return false;
-    const start = Date.parse(String(session["date_start"] ?? ""));
-    if (Number.isNaN(start)) return false;
-    if (nowMs < start - 5 * 60_000 || nowMs >= start) return false;
-
-    let rows: RawRecord[];
-    this.countStat("polls");
-    try {
-      const raw = await this.fetcher(`${OPENF1_BASE}/drivers?session_key=${key}`);
-      rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
-    } catch (error) {
-      this.countStat("errors");
-      this.log(
-        `entry list: pre-race refresh failed for session_key=${key}: ${error instanceof Error ? error.message : String(error)}`,
-        { level: "error" },
-      );
-      return true; // not marked done: the next tick retries it
-    }
-
-    if (rows.length > 0) {
-      const result = await this.enqueueAndRecordDrivers(rows, key);
-      this.countStat("rows", result.newRows);
-      this.log(
-        `entry list: pre-race refresh session_key=${key} rows=${rows.length} new=${result.newRows} foreign=${result.foreign} unknown_session=${result.unknownSession}`,
-      );
-    } else {
-      this.log(`entry list: pre-race refresh session_key=${key} returned 0 rows`);
-    }
-    this.preRaceRefreshDone.add(key);
-    return true;
-  }
-
-  /**
-   * On discovery of a meeting whose first session's
-   * `date_start` has passed and whose race session is already in the
-   * `sessions` table, fetch `drivers?meeting_key=<meeting>` once per
-   * meeting, retried every 30 minutes while it returns zero rows or fails.
-   * Checks every known meeting but performs at most one fetch per call (the
-   * budget rule) — the first meeting found due wins; the rest wait for a
-   * later tick.
-   */
-  private async checkFridayFetch(sessions: RawRecord[], nowMs: number): Promise<boolean> {
-    const byMeeting = new Map<number, RawRecord[]>();
-    for (const s of sessions) {
-      const meetingKey = Number(s["meeting_key"]);
-      if (!Number.isFinite(meetingKey)) continue;
-      const group = byMeeting.get(meetingKey);
-      if (group) group.push(s);
-      else byMeeting.set(meetingKey, [s]);
-    }
-
-    for (const [meetingKey, meetingSessions] of byMeeting) {
-      const state = this.fridayMeetings.get(meetingKey);
-      if (state?.satisfied) continue;
-      if (state && nowMs < state.nextRetryAt) continue;
-
-      // isRaceSession, not a raw session_type check: a sprint session
-      // carries session_type "Race" too (session_name "Sprint"), and would
-      // otherwise be picked here instead of the meeting's actual race.
-      const raceSession = meetingSessions.find((s) => isRaceSession(s));
-      if (!raceSession) continue;
-
-      // The race session's own `sessions` upsert must already have landed
-      // (discovery's `isKnownSession`) — the snapshot holds every fetched
-      // row regardless of upsert outcome, so this is the guard that
-      // keeps a not-yet-written race session from triggering a meeting-wide
-      // drivers fetch whose rows would just be dropped downstream as
-      // unknownSession (events.session_key is a FK).
-      const raceKey = Number(raceSession["session_key"]);
-      if (!Number.isFinite(raceKey) || !this.discovery.isKnownSession(raceKey)) continue;
-
-      // Friday's meeting-wide fetch applies only to a meeting whose race
-      // session's window has not closed: `date_end` of the meeting's race
-      // session + 30 minutes is still in the future. A meeting whose race is
-      // over is never fetched; its entry list came in with the live sessions
-      // or is already in the log.
-      const raceEnd = Date.parse(String(raceSession["date_end"] ?? ""));
-      if (Number.isNaN(raceEnd) || nowMs > raceEnd + LIVE_WINDOW_MS) continue;
-
-      const starts = meetingSessions
-        .map((s) => Date.parse(String(s["date_start"] ?? "")))
-        .filter((n) => !Number.isNaN(n));
-      if (starts.length === 0) continue;
-      const firstStart = Math.min(...starts);
-      if (nowMs < firstStart) continue;
-
-      await this.runFridayFetch(meetingKey, nowMs);
-      return true;
-    }
-    return false;
-  }
-
-  private async runFridayFetch(meetingKey: number, nowMs: number): Promise<void> {
-    let rows: RawRecord[] = [];
-    let reason = "";
-    this.countStat("polls");
-    try {
-      const raw = await this.fetcher(`${OPENF1_BASE}/drivers?meeting_key=${meetingKey}`);
-      rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
-      if (rows.length === 0) reason = "no rows";
-    } catch (error) {
-      this.countStat("errors");
-      reason = error instanceof Error ? error.message : String(error);
-    }
-
-    if (rows.length > 0) {
-      const result = await this.enqueueAndRecordDrivers(rows, null);
-      this.countStat("rows", result.newRows);
-      this.fridayMeetings.set(meetingKey, { satisfied: true, nextRetryAt: nowMs });
-      this.log(
-        `entry list: friday fetch meeting_key=${meetingKey} rows=${rows.length} new=${result.newRows} foreign=${result.foreign} unknown_session=${result.unknownSession}`,
-      );
-    } else {
-      this.fridayMeetings.set(meetingKey, { satisfied: false, nextRetryAt: nowMs + 30 * 60_000 });
-      this.log(`entry list: friday fetch meeting_key=${meetingKey} deferred (${reason}); retrying in 30m`);
-    }
-  }
-
-  /**
-   * Runs at most one due drivers-type fetch (selection retry, then pre-race
-   * refresh, then Friday) for the poll loop (pollOnce) to call BEFORE it
-   * spends the tick's one request on the rotation: never more than one
-   * drivers fetch per tick, and never inside the same tick as a rotation
-   * poll that already used the budget (schedule them as rotation slots, not
-   * extra requests). Returns whether it made
-   * a request this tick.
-   */
-  private async runDueDriversFetch(nowMs: number): Promise<boolean> {
-    if (await this.tryEntryListSelectionFetch(nowMs)) return true;
-    if (this.session && (await this.tryPreRaceRefresh(this.session, nowMs))) return true;
-    if (await this.checkFridayFetch(this.discovery.sessions(), nowMs)) return true;
     return false;
   }
 
@@ -551,7 +332,7 @@ export class RestLane {
     // request instead of the rotation poll — `rotationIndex` is left
     // untouched so the rotation resumes at the same endpoint next tick,
     // nothing is skipped.
-    if (await this.runDueDriversFetch(nowMs)) {
+    if (await this.entryList.runDue(this.session, this.discovery.sessions(), nowMs)) {
       return { endpoint: "drivers", rows: 0, newRows: 0, malformed: 0 };
     }
 
