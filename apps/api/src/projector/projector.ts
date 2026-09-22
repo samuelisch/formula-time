@@ -1,13 +1,9 @@
-// The authority (ADR-0001 §1, HLD §7): folds `events` for one live session
-// into one RaceState. Exactly one instance runs per process.
-//
-// Why the late-commit detector exists: `seq` is assigned at insert but a row
-// is visible only at commit, so with two writer connections seq 101 can be
-// visible before seq 100; a cursor that has passed 101 never reads 100.
-// Ingest uses one connection (`createDb(url, { max: 1 })`, ADR-0005) so seq
-// order equals commit order; the detector is an alarm that should never
-// fire. When it does, the fold is thrown away and rebuilt from cursor 0 --
-// never patched in place (HLD §7 "Fold").
+// The authority (ADR-0001 §2, HLD §7): folds `events` for one live
+// session into one RaceState. Exactly one instance runs per process. The
+// late-commit detector exists because `seq` is assigned at insert but a
+// row is visible only at commit, so two writer connections can make a
+// later seq visible before an earlier one; ingest uses one connection
+// (ADR-0005), so this should never actually fire. See README: One tick.
 import type { Session } from "@formula-time/db";
 import {
   createInitialState,
@@ -35,17 +31,10 @@ export interface ProjectorOptions {
   log: ProjectorLog;
 }
 
-// `events` is the `RaceEvent` rows this tick applied, in seq order. `[]` on
-// a tick that applied nothing new, AND on any tick that first reaches
-// caught-up (a brand new projector, or a restart's re-fold from cursor 0):
-// that tick's "applied rows" are a historical backlog, not new events for a
-// client's timeline -- a client already gets that history from its own paged
-// backfill, so empty events preserves the wire contract on the join snapshot.
-// `rebuilt` is true only on the tick where the late-commit detector's rebuild
-// lands (runDetector's success path): structurally the same situation as the
-// catch-up tick -- a correct re-fold whose rows are not new events -- so it
-// too publishes `events: []`, plus `rebuilt: true` so a client that already
-// has a timeline knows to discard it and backfill again.
+// `events`: the RaceEvent rows this tick applied, in seq order; `[]` on a
+// tick that applied nothing new, and on any catch-up or rebuild tick
+// (ADR-0014). `rebuilt` is true only on the tick where the late-commit
+// detector's rebuild lands. See README: One tick.
 export type ProjectorSubscriber = (
   state: RaceState,
   cursor: bigint,
@@ -103,7 +92,7 @@ export class RaceStateProjector {
   // start(), so that stale tick would resume, see itself as "running"
   // again, and call scheduleTick(), leaving two independent timer chains
   // ticking in parallel. Each scheduled tick captures the generation it
-  // was scheduled under and bails if it no longer matches the current one.
+  // was scheduled under and bails if it does not match the current one.
   private generation = 0;
 
   public constructor(opts: ProjectorOptions) {
@@ -193,13 +182,11 @@ export class RaceStateProjector {
       this.foldStartedAt = Date.now();
     }
 
-    // A rejected read (Postgres restart, network blip) must not stall the
-    // tick chain forever or crash the process: scheduleTick chains ticks
-    // with `.then()` and no `.catch()`, so an uncaught rejection here would
-    // leave every future tick unscheduled. Catch, log, and retry on the
-    // normal schedule instead -- cursor and state are left exactly as they
-    // were before this tick (readAfter/readWindow reject before any row of
-    // that call is applied).
+    // A rejected read must not stall the tick chain forever or crash the
+    // process: scheduleTick chains with `.then()` and no `.catch()`, so an
+    // uncaught rejection here would leave every future tick unscheduled.
+    // Catch, log, retry on schedule -- cursor and state are left exactly
+    // as they were (a rejected read applies no row).
     try {
       if (this.tickCount % this.detectorEveryTicks === 0) {
         await this.runDetector();
@@ -234,15 +221,11 @@ export class RaceStateProjector {
       }
 
       if (totalApplied > 0 || justCaughtUp) {
-        // The tick that first reaches caught-up (a brand new projector, or a
-        // restart's re-fold from cursor 0) read the entire historical backlog
-        // in `appliedThisTick`, not rows a client should see as newly arrived
-        // -- a client already gets
-        // that history from its own paged backfill (the wire contract's
-        // "the join snapshot: the state is the fold, the events are
-        // already in the log the client backfills"). Structurally the same
-        // situation as the rebuild path below: a full re-fold publishes
-        // `events: []`, never the backlog it re-folded.
+        // The tick that first reaches caught-up read the historical
+        // backlog into `appliedThisTick`, not new rows for a client's
+        // timeline -- a client already gets that history from its own
+        // paged backfill. Same as the rebuild path below: publish
+        // `events: []`, never the re-folded backlog.
         this.publish(justCaughtUp ? [] : appliedThisTick.map(toRaceEvent));
       }
     } catch (err) {
@@ -285,15 +268,11 @@ export class RaceStateProjector {
     });
 
     // Never patch in place (HLD §7 "Fold"): re-fold into locals and swap
-    // them into `this.*` only once the rebuild is fully caught up.
-    // Resetting `this.*` up front (the old approach) meant a rejected read
-    // on the very next line left snapshot()/status() serving an empty
-    // state at cursor 0 until a later tick finished the fold -- every live
-    // join in between would get that empty state rather than the
-    // last-known-good one. Keep serving the old state until the rebuild
-    // proves it can finish; a failed rebuild just retries on the next
-    // detector pass, since `appliedIds`/`cursor` are left untouched and the
-    // same late row is found again.
+    // them into `this.*` only once the rebuild is fully caught up, so a
+    // live join in between still gets the last-known-good state, not an
+    // empty one. A failed rebuild retries on the next detector pass,
+    // since `appliedIds`/`cursor` are left untouched and the same late
+    // row is found again.
     const localReducer = this.freshReducer();
     let localCursor = 0n;
     const localAppliedIds = new Set<string>();

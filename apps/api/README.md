@@ -27,7 +27,12 @@ flowchart LR
 `PG`: the projector reads `events` where `seq > cursor`, at most 5,000
 rows a read, every 250 ms; every 40th tick it also re-reads a 2,000-row
 window behind the cursor, and a row it had not already applied throws the
-fold away and rebuilds it from zero (`projector/projector.ts`). `R`: each
+fold away and rebuilds it from zero (`projector/projector.ts`). This late-
+commit detector exists because `seq` is assigned at insert but a row
+becomes visible only at commit, so with two writer connections a later
+`seq` can become visible before an earlier one; ingest uses one
+connection (ADR-0005), so `seq` order equals commit order and the
+detector should never actually fire. `R`: each
 row is applied to one `RaceState` via the reducer. `P`: the poll module
 folds from that same state, before the push, so a viewer never sees a
 state whose polls have not been judged against it. `F`: the fan-out
@@ -47,6 +52,13 @@ or the late-commit detector's own rebuild — forces the next frame this
 class actually delivers to be a full `state` push carrying `rebuilt: true`,
 on every socket format, regardless of what the caller set, so no
 connected client keeps a permanent hole in its timeline (ADR-0032).
+
+This guarantee is bounded, not immediate: ticks run on a fixed interval
+regardless of whether the previous push settled, so if a push is still in
+flight when the next tick's payload is built, that payload goes out
+without `rebuilt` and the earlier rejection is only observed afterward —
+the next payload built once it is observed carries `rebuilt: true`, since
+the tick interval vastly exceeds a promise settling.
 
 ## Fan-out
 
