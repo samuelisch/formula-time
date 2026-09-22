@@ -55,10 +55,12 @@ case "$cmd" in
     ;;
 esac
 
-# The fixture recording. RECORDING overrides the default; a relative value
-# is resolved against the repo root (not cwd) since `pnpm sim` runs with
-# apps/ingest as its own working directory.
-RECORDING="${RECORDING:-recordings/11361}"
+# The fixture recording: the committed, trimmed slice by default, so a
+# fresh checkout needs nothing else on disk. RECORDING overrides the
+# default (e.g. a full local recording under recordings/, gitignored); a
+# relative value is resolved against the repo root (not cwd) since `pnpm
+# sim` runs with apps/ingest as its own working directory.
+RECORDING="${RECORDING:-apps/web/e2e/fixtures/11361-slice}"
 case "$RECORDING" in
   /*) ;;
   *) RECORDING="$REPO_ROOT/$RECORDING" ;;
