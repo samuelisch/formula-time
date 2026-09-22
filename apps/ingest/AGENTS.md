@@ -6,8 +6,9 @@ Issue label: `ingest`. An agent working here picks `ready` issues labelled
 ## Purpose
 
 The only process that talks to OpenF1. Sole writer of the `sessions` and
-`events` tables (and the entry list, via the writer). See `README.md` for
-how: the pipeline, the rules, the entry list, config, commands, log lines.
+`events` tables (and the entry list, via the writer); writes nothing else.
+See `README.md` for how: the pipeline, the rules, the entry list, config,
+commands, log lines.
 
 ## Where the facts are
 
@@ -38,6 +39,10 @@ how: the pipeline, the rules, the entry list, config, commands, log lines.
   and its entry list to `openf1/entry-list.ts`, before that season's first
   race — a missing entry means `total_laps` stays null (no polls open for
   that race) and the drivers fetch has no fallback to fall back to.
+- `ingest:load`/`ingest:fetch-race` flip a loaded session to `finished`
+  only after every one of its events has landed, never before: the
+  exporter publishes the moment a session turns `finished` (ADR-0009 §2),
+  so flipping it earlier would export an empty race.
 
 ## Conventions
 
