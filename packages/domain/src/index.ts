@@ -5,12 +5,12 @@
 export const DOMAIN_PACKAGE = "@formula-time/domain";
 
 export type { RawRecord, TimestampField, RaceEvent } from "./types.js";
-export type { DriverState, RaceState, Gap } from "./race_state.js";
-export { createInitialState, RaceStateReducer } from "./race_state.js";
-export type { PollKind } from "./race_clock.js";
-export { isChequered, leaderLap, locksAtLap } from "./race_clock.js";
-export type { RunStatus } from "./run_status.js";
-export { runStatus } from "./run_status.js";
+export type { DriverState, RaceState, Gap } from "./race-state.js";
+export { createInitialState, RaceStateReducer } from "./race-state.js";
+export type { PollKind } from "./race-clock.js";
+export { isChequered, leaderLap, locksAtLap } from "./race-clock.js";
+export type { RunStatus } from "./run-status.js";
+export { runStatus } from "./run-status.js";
 export type { JsonPatchOp } from "./patch.js";
 export { diffState, applyPatch } from "./patch.js";
 export type { PollTemplateKind, PollLifecycleStatus, PollOptionPublic, PollPublic } from "./polls.js";

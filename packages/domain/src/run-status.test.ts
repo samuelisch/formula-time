@@ -4,10 +4,10 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { createInitialState, RaceStateReducer } from "./race_state.js";
-import type { DriverState, RaceState } from "./race_state.js";
+import { createInitialState, RaceStateReducer } from "./race-state.js";
+import type { DriverState, RaceState } from "./race-state.js";
 import type { RawRecord } from "./types.js";
-import { runStatus } from "./run_status.js";
+import { runStatus } from "./run-status.js";
 
 function driver(overrides: Partial<DriverState> & { driver_number: number }): DriverState {
   return {

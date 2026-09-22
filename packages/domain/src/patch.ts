@@ -1,5 +1,5 @@
 // Hand-written RFC 6902 JSON Patch for exactly one shape -- RaceState
-// (./race_state.ts) -- per ADR-0013 ("Wire" point 1). Never a generic
+// (./race-state.ts) -- per ADR-0013 ("Wire" point 1). Never a generic
 // json-patch library: top-level scalars get whole-value replace, `drivers`
 // is keyed by number with per-field replace (a changed field's whole value
 // is the patch, not a further nested diff), `driver_order` / `race_control`
@@ -8,7 +8,7 @@
 // server's round-trip test, and the browser client that applies patches
 // from the delta stream, can both call it safely against a state they
 // still hold elsewhere.
-import type { DriverState, RaceState } from "./race_state.js";
+import type { DriverState, RaceState } from "./race-state.js";
 
 // `structuredClone` is a runtime global in both Node and every current
 // browser; the `types: []` / `lib: ["ES2022"]` restriction on this package

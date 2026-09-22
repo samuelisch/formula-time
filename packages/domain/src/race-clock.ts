@@ -1,4 +1,4 @@
-import type { RaceState } from "./race_state.js";
+import type { RaceState } from "./race-state.js";
 
 // The leader's lap is the race clock for poll lock. Fall back to the furthest
 // lap any driver has reached while driver_order is still empty.

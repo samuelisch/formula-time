@@ -1,5 +1,5 @@
-import { leaderLap } from "./race_clock.js";
-import type { DriverState, RaceState } from "./race_state.js";
+import { leaderLap } from "./race-clock.js";
+import type { DriverState, RaceState } from "./race-state.js";
 
 // Owner ruling 2026-09-10: OpenF1 has no retirement flag, so run status is
 // derived from staleness against the leader's lap, not any field OpenF1
