@@ -75,14 +75,14 @@ function sessionKeyOf(session: RawRecord): string | number | null {
   return typeof value === "number" || typeof value === "string" ? value : null;
 }
 
-// The one recorder wiring both lanes share: `emitRows` (rest-lane.ts) calls
-// this with exactly the rows it just queued, whichever lane queued them, so
-// the jsonl recording holds every row the session produced instead of only
-// the REST lane's (the MQTT lane used to feed the queue without ever
+// The one recorder wiring both lanes share: `enqueueRows` (openf1/enqueue.ts)
+// calls this with exactly the rows it just queued, whichever lane queued
+// them, so the jsonl recording holds every row the session produced instead
+// of only the REST lane's (the MQTT lane used to feed the queue without ever
 // reaching the recorder — a row MQTT saw first was already in the shared
 // normalizer's seen set by the time REST polled it, so REST reported
 // `new=0` and the recorder never saw it either).
-const onRecorded = async (sessionKey: number, endpoint: string, payloads: RawRecord[]): Promise<void> => {
+const recordRows = async (sessionKey: number, endpoint: string, payloads: RawRecord[]): Promise<void> => {
   await recorder.appendRows(sessionKey, endpoint, payloads);
 };
 
@@ -102,7 +102,7 @@ const restLane = new RestLane(queue, {
     const key = sessionKeyOf(session);
     if (key !== null) await recorder.writeSession(session, key);
   },
-  onRecorded,
+  onRecorded: recordRows,
   liveLogDir: config.liveLogDir,
   tickMs: config.restTickMs,
   onLog: laneLog("rest"),
@@ -123,7 +123,7 @@ const mqttLane =
         // live.
         getNormalizer: () => restLane.getNormalizer(),
         getSessionKey: () => restLane.status().sessionKey,
-        onRecorded,
+        onRecorded: recordRows,
         onLog: laneLog("mqtt"),
       })
     : null;

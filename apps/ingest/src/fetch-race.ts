@@ -188,7 +188,7 @@ export function orderForEmission(
 
 /**
  * Pushes already-normalized rows straight onto the queue — the second half
- * of `emitRows` (rest-lane.ts), without its normalize call, since every row
+ * of `enqueueRows` (openf1/enqueue.ts), without its normalize call, since every row
  * here was normalized once already, up front, in fetch order (see the
  * module comment on `orderForEmission`). Calling `LiveNormalizer.normalize`
  * a second time on the same rows would find them all already `seen` and

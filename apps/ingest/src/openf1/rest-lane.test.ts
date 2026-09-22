@@ -5,11 +5,9 @@ import {
   POLL_ROTATION,
   RestLane,
   buildPollUrl,
-  emitTaggedDriverRows,
   pickLiveSession,
   sessionExpired,
 } from "./rest-lane.js";
-import { LiveNormalizer } from "./normalize.js";
 import { EventQueue } from "../writer/queue.js";
 
 const START = Date.parse("2026-09-06T13:00:00Z");
@@ -634,89 +632,6 @@ describe("RestLane.stop() and an in-flight tick (SIGTERM race)", () => {
 // (recordings/11361/raw/drivers.jsonl) — so a row is tagged by the
 // `session_key` in ITS OWN payload, never by the session/meeting the fetch
 // was made for.
-describe("emitTaggedDriverRows", () => {
-  test("tags each row by its own session_key; a row naming a different session is still written and counted foreign", async () => {
-    const normalizer = new LiveNormalizer();
-    const queue = new EventQueue<QueueItem>();
-    const rows: RawRecord[] = [
-      { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" },
-      { session_key: 11362, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" },
-    ];
-
-    const result = await emitTaggedDriverRows(normalizer, queue, rows, 11361);
-
-    expect(result.newRows).toBe(2);
-    expect(result.foreign).toBe(1); // the 11362 row named a different session than expected
-    const items = queue.drain(10);
-    expect(new Set(items.map((i) => i.sessionKey))).toEqual(new Set([11361n, 11362n]));
-    expect(items.every((i) => i.endpoint === "drivers")).toBe(true);
-  });
-
-  test("a row with no numeric session_key of its own can't be tagged or written; counted malformed", async () => {
-    const normalizer = new LiveNormalizer();
-    const queue = new EventQueue<QueueItem>();
-    const rows: RawRecord[] = [{ driver_number: 1, full_name: "No Session" }];
-
-    const result = await emitTaggedDriverRows(normalizer, queue, rows, 11361);
-
-    expect(result.malformed).toBe(1);
-    expect(result.newRows).toBe(0);
-    expect(queue.size).toBe(0);
-  });
-
-  test("a row naming a session isKnownSession rejects is dropped and counted unknownSession; groups carry the written payloads per session", async () => {
-    const queue = new EventQueue<QueueItem>();
-    const result = await emitTaggedDriverRows(
-      new LiveNormalizer(),
-      queue,
-      [
-        { session_key: 1, driver_number: 1 },
-        { session_key: 2, driver_number: 2 },
-      ],
-      1,
-      (key) => key === 1,
-    );
-    expect(result.unknownSession).toBe(1);
-    expect(result.foreign).toBe(0);
-    expect(result.newRows).toBe(1);
-    expect(result.groups.map((g) => g.sessionKey)).toEqual([1]);
-    expect(queue.drain(10).map((i) => i.sessionKey)).toEqual([1n]);
-  });
-
-  test("expectedSessionKey null (the Friday meeting-wide fetch) counts nothing as foreign", async () => {
-    const normalizer = new LiveNormalizer();
-    const queue = new EventQueue<QueueItem>();
-    const rows: RawRecord[] = [
-      { session_key: 11360, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" },
-      { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" },
-    ];
-
-    const result = await emitTaggedDriverRows(normalizer, queue, rows, null);
-
-    expect(result.foreign).toBe(0);
-    expect(result.newRows).toBe(2);
-  });
-
-  test("onRecorded is called once per session_key group with that group's payloads", async () => {
-    const normalizer = new LiveNormalizer();
-    const queue = new EventQueue<QueueItem>();
-    const rows: RawRecord[] = [
-      { session_key: 11361, meeting_key: 1293, driver_number: 1, full_name: "Lando NORRIS" },
-      { session_key: 11362, meeting_key: 1293, driver_number: 2, full_name: "Foreign Row" },
-    ];
-    const recorded: Array<[number, string, RawRecord[]]> = [];
-    const onRecorded = async (sessionKey: number, endpoint: string, payloads: RawRecord[]): Promise<void> => {
-      recorded.push([sessionKey, endpoint, payloads]);
-    };
-
-    await emitTaggedDriverRows(normalizer, queue, rows, 11361, () => true, onRecorded);
-
-    expect(recorded).toHaveLength(2);
-    expect(new Set(recorded.map((c) => c[0]))).toEqual(new Set([11361, 11362]));
-    expect(recorded.every((c) => c[1] === "drivers")).toBe(true);
-  });
-});
-
 describe("RestLane: a rejected recording attempt does not stop the lane", () => {
   test("logged at error level with the endpoint, row stays queued, later polls still run", async () => {
     const positionRow = { session_key: 11361, driver_number: 1, date: "2026-09-06T13:00:01Z" };

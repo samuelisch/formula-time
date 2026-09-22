@@ -8,8 +8,8 @@
 //
 // Lifts the in-process path `replay.integration.test.ts` already exercises
 // (file fetcher -> normalizer -> queue -> writer) into a command. Reuses
-// `createFileFetcher`, `LiveNormalizer` (via the shared `emitRows` pulled
-// out of `rest-lane.ts`), `EventQueue`, `EventWriter`, `upsertSession`, and
+// `createFileFetcher`, `LiveNormalizer` (via the shared `enqueueRows` in
+// `openf1/enqueue.ts`), `EventQueue`, `EventWriter`, `upsertSession`, and
 // the static `ENTRY_LIST_2026` emission — no second writer, no second
 // normalizer, one `createDb(url, { max: 1 })` (ADR-0007 §1: "Ingest never
 // updates an `events` row."; apps/ingest/AGENTS.md: "Sole writer of the
@@ -32,11 +32,12 @@ import { createDb } from "@formula-time/db";
 
 import { ENTRY_LIST_2026 } from "./openf1/entry-list.js";
 import { OpenF1Auth, createOpenF1Fetcher, credentialsFromEnv } from "./openf1/auth.js";
+import { enqueueRows } from "./openf1/enqueue.js";
 import { createFileFetcher, readRecordingEndpoint } from "./openf1/file-fetcher.js";
 import type { RecordedRow } from "./openf1/file-fetcher.js";
 import { LiveNormalizer } from "./openf1/normalize.js";
 import { FETCH_SPACING_MS, withRetry, withSpacing } from "./openf1/rate-limit.js";
-import { OPENF1_BASE, POLL_ROTATION, emitRows } from "./openf1/rest-lane.js";
+import { OPENF1_BASE, POLL_ROTATION } from "./openf1/rest-lane.js";
 import type { Fetcher, QueueItem, RawRecord } from "./openf1/types.js";
 import { EventQueue } from "./writer/queue.js";
 import type { DrainResult, EventWriterDb } from "./writer/writer.js";
@@ -594,7 +595,7 @@ async function loadOneSession(
         : new Map<number, string>(),
     async (normalizer, sessionKey) => {
       // The static entry list, "exactly as session selection does" (same
-      // `emitRows` path rest-lane.ts's `ensureLiveSession` uses) — so the
+      // `enqueueRows` path rest-lane.ts's `ensureLiveSession` uses) — so the
       // `drivers` event ids match a live run of the same session.
       const driverRows: RawRecord[] = ENTRY_LIST_2026.map((driver) => ({
         session_key: sessionKey,
@@ -604,7 +605,7 @@ async function loadOneSession(
         team_name: driver.team_name,
         team_colour: driver.team_colour,
       }));
-      const entryResult = await emitRows(normalizer, queue, "drivers", sessionKey, driverRows);
+      const entryResult = await enqueueRows(normalizer, queue, "drivers", sessionKey, driverRows);
       log(
         `load: session=${sessionKey} endpoint=drivers(entry-list) rows=${driverRows.length} new=${entryResult.newRows}`,
       );
@@ -612,7 +613,7 @@ async function loadOneSession(
       // Emit in `received_at` order across every endpoint, not one
       // endpoint's rows fully before the next — see
       // `readSessionRowsInTimeOrder` above. Consecutive rows that share an
-      // endpoint are still batched into one `emitRows` call each (same
+      // endpoint are still batched into one `enqueueRows` call each (same
       // identity/dedup path, fewer/larger writer batches and log lines than
       // one row at a time); only the batch boundaries move, not the per-row
       // order within/across batches.
@@ -625,7 +626,7 @@ async function loadOneSession(
           rows.push(merged[mergedIndex]!.payload);
           mergedIndex += 1;
         }
-        const result = await emitRows(normalizer, queue, endpoint, sessionKey, rows);
+        const result = await enqueueRows(normalizer, queue, endpoint, sessionKey, rows);
         log(`load: session=${sessionKey} endpoint=${endpoint} rows=${rows.length} new=${result.newRows}`);
       }
     },
