@@ -1,4 +1,4 @@
-// The authority (ADR-0001 §2, HLD §7): folds `events` for one live
+// The authority (ADR-0001 §1, HLD §7): folds `events` for one live
 // session into one RaceState. Exactly one instance runs per process. The
 // late-commit detector exists because `seq` is assigned at insert but a
 // row is visible only at commit, so two writer connections can make a
