@@ -80,6 +80,9 @@ Read `docs/` before doing anything. What each part holds:
   blame and the PR hold that history. A comment is at most six lines;
   anything longer is a paragraph in that app's README, and the comment
   names the section.
+- Every `dependencies` and `devDependencies` specifier is an exact version,
+  never a caret, tilde, or other range (`.npmrc` sets `save-exact=true`);
+  `scripts/check-exact-pins.mjs` enforces it in the hook and in CI.
 
 ## Context by function
 
