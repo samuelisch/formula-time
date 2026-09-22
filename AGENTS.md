@@ -74,7 +74,9 @@ Read `docs/` before doing anything. What each part holds:
   "authority" is the role. "Lock" is the poll state, not "close".
 - Comments state what the code is for and any invariant it relies on. Never
   an issue number, a PR number, a review round, or who asked for it; git
-  blame and the PR hold that history.
+  blame and the PR hold that history. A comment is at most six lines;
+  anything longer is a paragraph in that app's README, and the comment
+  names the section.
 
 ## Context by function
 
