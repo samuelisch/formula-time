@@ -50,7 +50,7 @@ flowchart LR
 | Queue cap | 200,000 rows; beyond it, `push`/`pushAll` drop the newest row and count it | `writer/queue.ts`: `DEFAULT_MAX_QUEUED = 200_000` |
 | Writer batch | 100 rows every 250 ms; retry backoff 250 ms doubling to 30 s; on shutdown, give up after 3 consecutive failures of the same batch | `writer/writer.ts`: `DEFAULT_BATCH_SIZE = 100`, `run(intervalMs = 250)`, `BACKOFF_BASE_MS = 250`, `BACKOFF_MAX_MS = 30_000`, `MAX_CONSECUTIVE_FAILURES = 3` |
 | Token refresh | 2 min before expiry | `openf1/auth.ts`: `REFRESH_MARGIN_MS = 2 * 60 * 1000` |
-| MQTT | 8 topics; proactive reconnect every 50 min; reconnect backoff capped at 60 s; auth-rejection retry after 30 s; a payload whose own `session_key` disagrees with the selected session is dropped as foreign | `openf1/mqtt-lane.ts`: `MQTT_ENDPOINTS` (8 entries), `DEFAULT_REFRESH_INTERVAL_MS = 50 * 60_000`, `DEFAULT_MAX_BACKOFF_MS = 60_000`, `DEFAULT_AUTH_RETRY_DELAY_MS = 30_000`, `foreignSinceLog` |
+| MQTT | ADR-0001 §2: "named timing topics only, never `v1/#`; exactly one connection; re-subscribe on every `connect`". 8 topics; proactive reconnect every 50 min; reconnect backoff capped at 60 s; auth-rejection retry after 30 s; a payload whose own `session_key` disagrees with the selected session is dropped as foreign | `openf1/mqtt-lane.ts`, ADR-0001 §2: `MQTT_ENDPOINTS` (8 entries), `DEFAULT_REFRESH_INTERVAL_MS = 50 * 60_000`, `DEFAULT_MAX_BACKOFF_MS = 60_000`, `DEFAULT_AUTH_RETRY_DELAY_MS = 30_000`, `foreignSinceLog` |
 
 The rotation counted from `POLL_ROTATION` on the branch matches the issue's
 "hot endpoints appear most often" description; no row above was copied from
