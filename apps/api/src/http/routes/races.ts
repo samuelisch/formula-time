@@ -19,8 +19,8 @@ import type { FastifyInstance, FastifyPluginCallback } from "fastify";
 import type { PrismaClient } from "@formula-time/db";
 import type { RaceEventsPage, RaceIndexEntry } from "@formula-time/domain";
 
-import type { Exporter } from "../export/exporter.js";
-import { prismaEventSource, toRaceEvent } from "../projector/event-source.js";
+import type { Exporter } from "../../export/exporter.js";
+import { prismaEventSource, toRaceEvent } from "../../projector/event-source.js";
 
 export interface RacesRoutesOptions {
   db: PrismaClient;

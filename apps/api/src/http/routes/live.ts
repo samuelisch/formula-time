@@ -17,7 +17,7 @@
 import type { FastifyInstance, FastifyPluginCallback, FastifyReply, FastifyRequest } from "fastify";
 
 import { replyHeaders } from "../cors.js";
-import type { Encoding, FanoutSink, Format } from "../fanout/fanout.js";
+import type { Encoding, FanoutSink, Format } from "../../fanout/fanout.js";
 
 /** The slice of `FastifyRequest` `liveEventsHandler` actually reads. */
 export interface LiveEventsRequest {

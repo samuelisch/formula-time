@@ -17,7 +17,7 @@
 // the historical-race route calls it again, later, with the row's stored
 // timestamp, and never touches the row itself.
 //
-// Own 5s timer, independent of `session-lifecycle.ts`: `start()`/`stop()`
+// Own 5s timer, independent of `projector/serve-session.ts`: `start()`/`stop()`
 // manage a `setInterval`, `unref`'d so it never keeps the process alive.
 // Ticks never overlap -- a tick that starts while a previous `runOnce` is
 // still awaiting returns immediately, the same "never more than one pass of
