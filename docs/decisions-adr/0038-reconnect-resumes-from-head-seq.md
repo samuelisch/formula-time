@@ -6,6 +6,12 @@
 - **Amends:** ADR-0014 (Decision point 3: "A client backfills
   `GET /api/races/:key/events` pages from 0 until a short page"; the
   starting seq now depends on why the backfill runs).
+  ADR-0032 (its context sentence "a reconnecting client (which always
+  re-backfills) was unaffected": a reconnecting client now resumes from
+  its head seq and still receives a skipped frame's rows through the
+  paged route, which reads the append-only table independently of the
+  projector's cursor; the claim that such a client is unaffected stands,
+  the mechanism changed).
 
 ## Context
 
@@ -45,3 +51,6 @@ means those rows can no longer be trusted.
   without a `rebuilt` push breaks this and must supersede this ADR.
 - ADR-0014's point 3 reads as the first-join and `rebuilt` case; the
   reconnect case is this ADR.
+- ADR-0032's reasoning that a reconnecting client is unaffected by a
+  skipped frame holds because the paged route reads the whole append-only
+  table, not because the client re-backfills from zero.
