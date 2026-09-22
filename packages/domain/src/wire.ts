@@ -26,10 +26,11 @@ export interface StatePush {
    * parses. */
   events?: RaceEvent[];
   /** Set when the server rebuilt `RaceState` after a late-commit alarm,
-   * or the fan-out skipped or rejected a frame (ADR-0032), or the
-   * client's own gap detection marks the push that resolves it -- all
-   * mean the same thing to a client's deep-rewind timeline: discard it
-   * and re-backfill. See apps/api/README.md: One tick. */
+   * or the fan-out skipped a frame, or a push was rejected upstream of
+   * the fan-out (ADR-0032's third and fourth causes), or the client's
+   * own gap detection marks the push that resolves it -- all mean the
+   * same thing to a client's deep-rewind timeline: discard it and
+   * re-backfill. See apps/api/README.md: One tick. */
   rebuilt?: boolean;
 }
 
