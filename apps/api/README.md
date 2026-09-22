@@ -87,6 +87,15 @@ production (needed for the cookie to cross the split origins) and
 and is rate-limited to 60 votes a minute per IP (`polls/viewer-identity.ts`,
 `polls/routes.ts`).
 
+Fastify's `trustProxy` is always the private address ranges
+(`http/trust-proxy.ts`'s `TRUST_PROXY`), never `true`. Railway terminates
+TLS at its own edge and reaches this container only over its internal
+network, so the raw TCP peer is always a private address; trusting
+exactly those ranges stops address resolution at the first hop that is
+not itself private, so a client cannot fabricate extra `X-Forwarded-For`
+hops to dodge the per-IP rate limit the way `trustProxy: true` would
+allow.
+
 ## Routes
 
 | Route | Returns | Cache |

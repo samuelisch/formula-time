@@ -1,19 +1,9 @@
-// GET /api/live/events -- the thin SSE route (ADR-0001 §1 "thin router").
-// Hand-written on the raw response: compression middleware would gzip per
-// viewer, which the fan-out's one-serialize-once-per-push design forbids
-// (apps/api/AGENTS.md). This handler never touches the projector: it only
-// ever talks to the Fanout, which already holds the newest frame.
-//
-// Registered as a plugin under the `/api` prefix (owner decision: every
-// client-facing route lives under `/api`) -- the route itself stays
-// relative (`/live/events`), so the public path becomes
-// `/api/live/events`. `/health` is the platform's probe (Railway
-// healthcheck, `.railway/railway.ts`), not a client route, and stays at
-// the root, registered separately in main.ts.
-//
-// `?format=delta` (ADR point 2): opt-in, default unchanged.
-// `GET /api/live/snapshot` is the gap-recovery route (ADR point 3): the
-// newest `state` push's bytes, verbatim; 503 before the first push.
+// GET /api/live/events: the thin SSE route (ADR-0001 §2 invariant 1),
+// hand-written on the raw response so compression middleware never gzips
+// it per viewer. This handler never touches the projector, only the
+// Fanout, which already holds the newest frame. `?format=delta`
+// (ADR-0013 point 2) is opt-in. `GET /api/live/snapshot` is the
+// gap-recovery route (ADR-0013 point 3): the newest `state` push's bytes.
 import type { FastifyInstance, FastifyPluginCallback, FastifyReply, FastifyRequest } from "fastify";
 
 import { replyHeaders } from "../cors.js";
@@ -103,7 +93,7 @@ export function liveEventsHandler(fanout: Pick<LiveFanout, "join" | "remove">) {
 /** `GET /api/live/snapshot`: the newest `state` push, verbatim (plain JSON,
  * `cache-control: no-store` -- this is a point-in-time read, never cached).
  * 503 with `{ error }` before the first push, same shape a client's gap
- * recovery (ADR point 3) gets on any other failure. */
+ * recovery (ADR-0013 point 3) gets on any other failure. */
 export function liveSnapshotHandler(fanout: Pick<LiveFanout, "snapshotJson">) {
   return (_request: unknown, reply: LiveSnapshotReply): unknown => {
     const json = fanout.snapshotJson();

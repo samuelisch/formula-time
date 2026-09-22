@@ -1,15 +1,8 @@
-// GET /api/races, GET /api/races/:session_key -- the historical-race routes
-// (ADR-0009 §4). "Serving reads the file, not Postgres.": the index route is
-// the one query per request this plugin makes against `exports`/`sessions`;
-// the per-race route reads Postgres only to find the `exports` row (never to
-// fold events), then streams the pre-gzipped file straight through -- "never
-// gunzip on the server."
-//
-// "Disk is a cache, the database is the record." (ADR-0009 §3): when the
-// row exists but the file is missing (Railway's disk is ephemeral), this
-// route regenerates it once via the same `exportSession` the exporter's
-// own tick uses, with the row's stored `exportedAt` so the embedded
-// timestamp, the row, and the etag can never diverge.
+// GET /api/races, GET /api/races/:session_key: the historical-race routes
+// (ADR-0009 §4). The index route is the one query per request against
+// `exports`/`sessions`; the per-race route finds the `exports` row, then
+// streams the pre-gzipped file straight through, never gunzipping on the
+// server. See README: Exports.
 import { createReadStream } from "node:fs";
 import { access } from "node:fs/promises";
 import { join } from "node:path";
