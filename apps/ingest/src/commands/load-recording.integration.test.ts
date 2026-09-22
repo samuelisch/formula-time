@@ -16,7 +16,7 @@ import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
 import { createDb } from "@formula-time/db";
 
 import { loadRecordings } from "./load-recording.js";
-import type { RawRecord } from "./openf1/types.js";
+import type { RawRecord } from "../openf1/types.js";
 
 const db = createDb(undefined, { max: 1 });
 
@@ -194,7 +194,7 @@ test("without --replace, a stale row untouched by skip-duplicates stays alongsid
 // different layout.
 const RECORDING_11361_DIR =
   process.env["RECORDING_11361_DIR"] ??
-  path.resolve(fileURLToPath(import.meta.url), "../../../../recordings/11361");
+  path.resolve(fileURLToPath(import.meta.url), "../../../../../recordings/11361");
 const RECORDING_SESSION_KEY = 11361n;
 
 async function wipeRecording11361(): Promise<void> {

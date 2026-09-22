@@ -15,8 +15,8 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { ENTRY_LIST_2026 } from "./openf1/entry-list.js";
-import type { RawRecord } from "./openf1/types.js";
+import { ENTRY_LIST_2026 } from "../openf1/entry-list.js";
+import type { RawRecord } from "../openf1/types.js";
 import { loadRecordings, verifyCounts } from "./load-recording.js";
 import type { LoaderDb } from "./load-recording.js";
 
