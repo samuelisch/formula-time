@@ -1,16 +1,12 @@
-// Owns the mutable session/projector state for main.ts so the HTTP server
-// can listen (and answer /health) before a session has ever been found --
-// Railway's healthcheck is /health (.railway/railway.ts), and it must
-// succeed on a fresh, session-less database rather than wait behind the
-// pickSession retry loop. `pickSession` is injected so `check()` and
-// `health()` are unit-testable with a fake that returns null, without a
-// real Postgres or projector.
+// Picks the session to serve, starts its projector, wires it to the poll
+// module and the fan-out, and refreshes the session row on every check.
+// ADR-0033 has the reasoning.
 import type { Session } from "@formula-time/db";
 import type { PollPublic, RaceState, RawRecord, StatePush } from "@formula-time/domain";
 
-import type { EventSource } from "./projector/event-source.js";
-import { RaceStateProjector, type ProjectorLog } from "./projector/projector.js";
-import type { SessionsDb } from "./projector/session-picker.js";
+import type { EventSource } from "./event-source.js";
+import { RaceStateProjector, type ProjectorLog } from "./projector.js";
+import type { SessionsDb } from "./session-picker.js";
 
 export interface HealthResponse {
   ok: true;
@@ -25,7 +21,7 @@ export interface Pusher {
   size(): number;
 }
 
-// The poll module's lifecycle hooks, as seen from session-lifecycle: it
+// The poll module's lifecycle hooks, as seen from serve-session: it
 // folds from the same authority state as the projector (apps/api/AGENTS.md
 // "The poll module"), so start/onSessionFinished are sequenced around the
 // projector here rather than left for PollModule to discover on its own.

@@ -1,4 +1,4 @@
-// Typed fake for the poll module's lifecycle hooks (session-lifecycle.ts's
+// Typed fake for the poll module's lifecycle hooks (projector/serve-session.ts's
 // PollHooks). `onState()` resolves one microtask later by default -- never
 // synchronously -- per the AGENTS.md test rule: a fake that resolves
 // synchronously cannot test ordering. A test that needs to hold more than
@@ -8,7 +8,7 @@
 // resolution itself with `resolveNext()`, FIFO, one call per pending fold.
 import { vi } from "vitest";
 
-import type { PollHooks } from "../session-lifecycle.js";
+import type { PollHooks } from "../projector/serve-session.js";
 
 export interface FakePollHooks extends PollHooks {
   calls: string[];

@@ -25,7 +25,7 @@ import type { FastifyError, FastifyInstance, FastifyPluginAsync } from "fastify"
 
 import type { PrismaClient } from "@formula-time/db";
 
-import { originAllowed, parseAllowedOrigins } from "../cors.js";
+import { originAllowed, parseAllowedOrigins } from "../http/cors.js";
 import type { PollModule } from "./poll-module.js";
 import { pollsBySession } from "./poll-read.js";
 import { resolveViewerId, viewerCookieOptions } from "./viewer-identity.js";

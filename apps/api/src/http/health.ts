@@ -1,7 +1,7 @@
 // Wraps the session lifecycle's health with the running build's identity
-// and the database's reachability, kept separate from session-lifecycle.ts
+// and the database's reachability, kept separate from projector/serve-session.ts
 // so its own HealthResponse shape and tests stay untouched.
-import type { HealthResponse } from "./session-lifecycle.js";
+import type { HealthResponse } from "../projector/serve-session.js";
 
 export type DbStatus = "ok" | "unreachable";
 

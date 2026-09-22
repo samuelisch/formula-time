@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { fakeEventSource } from "./test/fake-event-source.js";
-import { fakePollHooks } from "./test/fake-poll-hooks.js";
-import { fakePrisma } from "./test/fake-prisma.js";
-import { fakePusher } from "./test/fake-pusher.js";
-import { fakeSession } from "./test/fixtures.js";
-import type { EventRow } from "./projector/event-source.js";
-import { createSessionLifecycle, type Pusher } from "./session-lifecycle.js";
+import { fakeEventSource } from "../test/fake-event-source.js";
+import { fakePollHooks } from "../test/fake-poll-hooks.js";
+import { fakePrisma } from "../test/fake-prisma.js";
+import { fakePusher } from "../test/fake-pusher.js";
+import { fakeSession } from "../test/fixtures.js";
+import type { EventRow } from "./event-source.js";
+import { createSessionLifecycle, type Pusher } from "./serve-session.js";
 
 function driverRow(seq: number, driverNumber: number): EventRow {
   return {

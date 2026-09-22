@@ -30,7 +30,7 @@ One process holding:
   reads `polls`/`votes` straight from Postgres for any race, live or
   historical; it never touches the poll module's in-memory state.
 - **The events-by-race read route** — `GET /api/races/:session_key/events`
-  (`routes/races.ts`) pages the `events` log by `seq` for any session, live
+  (`http/routes/races.ts`) pages the `events` log by `seq` for any session, live
   included, reusing the projector's own select (`projector/event-source.ts`).
 - **The fan-out** — one `JSON.stringify` + one gzip for the full `state`
   push, unconditionally, every push (joins of either format and `GET
@@ -53,7 +53,7 @@ One process holding:
   whichever session the projector currently folds (live, the next
   upcoming, or, with neither, the most recent finished one, per
   `pickSession`); it never touches state itself.
-- `Fastify({ trustProxy: TRUST_PROXY })` (`trust-proxy.ts`, ADR-0024):
+- `Fastify({ trustProxy: TRUST_PROXY })` (`http/trust-proxy.ts`, ADR-0024):
   Railway connects to this container over its own internal, private
   network, so trusting the private address ranges (`loopback, linklocal,
   uniquelocal`) resolves `request.ip` to the real client address from
@@ -127,8 +127,8 @@ viewer, which the fan-out design forbids.
 - Wire shapes live in `packages/domain/src/wire.ts` (`StatePush`,
   `DeltaPush`, `StatusFrame`, `SessionStatus`, `RaceIndexEntry`,
   `RaceEventsPage`, `RaceFile`), same as the poll shapes already do
-  (`polls.ts`): a builder here (`session-lifecycle.ts`, `fanout/fanout.ts`,
-  `routes/races.ts`, `export/exporter.ts`) is typed against the domain
+  (`polls.ts`): a builder here (`projector/serve-session.ts`, `fanout/fanout.ts`,
+  `http/routes/races.ts`, `export/exporter.ts`) is typed against the domain
   export it produces, never a local or untyped copy, so the web reading
   the same shape fails typecheck the moment the two disagree.
 - The root `Dockerfile`'s runtime stage ships this package's `dist` output
@@ -146,7 +146,7 @@ viewer, which the fan-out design forbids.
   `release.yml`'s smoke job polls this to prove a release actually
   redeployed the new build, not the old one. It also carries `db`: `"ok"` or
   `"unreachable"`, a cached `SELECT 1` result refreshed every 30 s
-  (`health.ts`'s `createDbProbe`), never run per request. `ok` is always
+  (`http/health.ts`'s `createDbProbe`), never run per request. `ok` is always
   `true` while the process is serving; `db` is informational only — a dead
   database degrades reads, it does not make the running process unhealthy,
   so it never flips `ok`.
@@ -168,5 +168,5 @@ viewer, which the fan-out design forbids.
   else gets `SameSite=Lax`, not `Secure`, because dev runs over plain http
   and a browser drops a `SameSite=None` cookie that is not `Secure`.
   `POST /api/vote` also checks `Origin` against the same `CORS_ORIGIN`
-  allowlist the cors plugin uses (`originAllowed` in `cors.ts`) — the CSRF
+  allowlist the cors plugin uses (`originAllowed` in `http/cors.ts`) — the CSRF
   guard `SameSite=Lax` used to give for free.

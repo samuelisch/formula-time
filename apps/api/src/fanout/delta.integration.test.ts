@@ -5,7 +5,7 @@
 //
 // Tests delta push behavior: "three events -> one `state`, then a delta whose
 // patch touches only the changed driver." Wires a real RaceStateProjector
-// (real Postgres fold) to a real Fanout, exactly as session-lifecycle.ts
+// (real Postgres fold) to a real Fanout, exactly as projector/serve-session.ts
 // does, and drives a delta-format socket through both a first-ever push
 // (no baseline yet: a `state` push, per the ADR's join contract) and a
 // second push after one more event lands for one driver (a `delta` whose

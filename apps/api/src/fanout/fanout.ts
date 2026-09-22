@@ -26,7 +26,7 @@ export type Format = "state" | "delta";
 export type FanoutLog = (msg: string, fields?: Record<string, unknown>) => void;
 
 /** The shape `push()` needs to build a delta -- a structural subset of the
- * real `{ type: "state", ... }` payload session-lifecycle.ts sends. `push`
+ * real `{ type: "state", ... }` payload projector/serve-session.ts sends. `push`
  * itself stays typed as `object` (existing callers, and tests, push
  * arbitrary shapes when they only exercise state-format delivery).
  *

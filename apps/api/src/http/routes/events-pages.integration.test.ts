@@ -11,7 +11,7 @@ import Fastify from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createDb, type PrismaClient } from "@formula-time/db";
 
-import type { Exporter } from "../export/exporter.js";
+import type { Exporter } from "../../export/exporter.js";
 import { racesRoutes } from "./races.js";
 
 const db: PrismaClient = createDb();

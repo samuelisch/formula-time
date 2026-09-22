@@ -5,24 +5,24 @@ import Fastify from "fastify";
 
 import { createDb } from "@formula-time/db";
 
-import { parseAllowedOrigins, registerCors } from "./cors.js";
 import { createExporter } from "./export/exporter.js";
 import { Fanout } from "./fanout/fanout.js";
-import { createDbProbe, healthWithBuild, resolveBuild } from "./health.js";
+import { parseAllowedOrigins, registerCors } from "./http/cors.js";
+import { createDbProbe, healthWithBuild, resolveBuild } from "./http/health.js";
+import { liveRoutes } from "./http/routes/live.js";
+import { racesRoutes } from "./http/routes/races.js";
+import { TRUST_PROXY } from "./http/trust-proxy.js";
 import { PollModule } from "./polls/poll-module.js";
 import { registerPolls } from "./polls/routes.js";
 import { prismaEventSource } from "./projector/event-source.js";
+import { createSessionLifecycle } from "./projector/serve-session.js";
 import { pickSession } from "./projector/session-picker.js";
-import { liveRoutes } from "./routes/live.js";
-import { racesRoutes } from "./routes/races.js";
-import { createSessionLifecycle } from "./session-lifecycle.js";
-import { TRUST_PROXY } from "./trust-proxy.js";
 
 // PORT is the platform's own convention (Railway sets it); API_PORT is the
 // worktree-specific dev port from scripts/db-env.sh, read only when PORT is
 // absent so a deployed service (which always sets PORT) is unaffected.
 const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3000);
-// trustProxy (see trust-proxy.ts): Railway terminates TLS at its own proxy
+// trustProxy (see http/trust-proxy.ts): Railway terminates TLS at its own proxy
 // and forwards the client address in X-Forwarded-For. Without this every
 // request would share the proxy's own address, and the vote route's
 // per-IP rate limit would throttle every client together instead of
@@ -40,7 +40,7 @@ await registerCors(app, parseAllowedOrigins(process.env.CORS_ORIGIN));
 // for its own host only). Framing is denied outright: nothing legitimate
 // embeds this api in a frame. Runs as an `onRequest` hook, so it decorates
 // the reply before the hijacked SSE route calls `hijack()` -- the headers
-// still ride along through `replyHeaders` (cors.ts).
+// still ride along through `replyHeaders` (http/cors.ts).
 await app.register(helmet, {
   contentSecurityPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -120,10 +120,10 @@ process.on("SIGTERM", () => {
 // `catching_up` status frame the brief already specifies.
 await app.listen({ port, host: "0.0.0.0" });
 
-// The exporter owns its own 5s tick; it does not touch session-lifecycle.ts.
+// The exporter owns its own 5s tick; it does not touch projector/serve-session.ts.
 exporter.start();
 
-// Runs the first SELECT 1 immediately, then every 30 s (health.ts).
+// Runs the first SELECT 1 immediately, then every 30 s (http/health.ts).
 dbProbe.start();
 
 // Run pickSession now and every 5s after; a changed key (first discovery,

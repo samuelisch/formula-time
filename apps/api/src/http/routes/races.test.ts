@@ -12,7 +12,7 @@ import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { PrismaClient } from "@formula-time/db";
 
-import type { Exporter } from "../export/exporter.js";
+import type { Exporter } from "../../export/exporter.js";
 import { racesRoutes } from "./races.js";
 
 const gunzipAsync = promisify(gunzip);
