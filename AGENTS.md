@@ -48,7 +48,8 @@ Read `docs/` before doing anything. What each part holds:
   starts. A PR that adds a precondition, a config name, or a wire format,
   or changes a behaviour an accepted ADR documents (a `/health` field, a
   stats line, a workflow's trigger), writes the amending ADR before asking
-  for review, and the brief names that ADR.
+  for review, and the brief names that ADR. After adding or amending an
+  ADR, run `node scripts/adr-index.mjs`; CI rejects a stale index.
 - Tests (ADR-0002): vitest for unit (in-memory fakes) and integration
   (real Postgres in Docker — dedup + vote upsert); Playwright for e2e.
   `typecheck` + unit + the ADR check before a commit (the hook), plus

@@ -26,7 +26,8 @@
     "db:down": "scripts/with-db-env.sh docker compose down",
     "db:generate": "pnpm --filter @formula-time/db db:generate",
     "db:migrate:dev": "scripts/with-db-env.sh pnpm --filter @formula-time/db db:migrate:dev",
-    "db:migrate:deploy": "scripts/with-db-env.sh pnpm --filter @formula-time/db db:migrate:deploy"
+    "db:migrate:deploy": "scripts/with-db-env.sh pnpm --filter @formula-time/db db:migrate:deploy",
+    "docs:adr-index": "node scripts/adr-index.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

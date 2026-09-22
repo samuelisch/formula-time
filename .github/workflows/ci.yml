@@ -89,6 +89,9 @@ jobs:
           ADR_CHECK_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: scripts/check-adr-immutable.sh
 
+      - name: ADR index is current
+        run: node scripts/adr-index.mjs --check
+
   # Whether this run touches the two e2e test flows themselves: apps/web
   # (the specs and the app they drive) or packages/domain (the reducer and
   # wire types the web app imports). A separate job so `e2e` below can skip
