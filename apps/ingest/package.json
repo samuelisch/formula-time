@@ -7,9 +7,9 @@
     "build": "tsc -b",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
-    "load": "node dist/load-recording.js",
-    "fetch-race": "node dist/fetch-race.js",
-    "dump": "node dist/dump-recording.js",
+    "load": "node dist/commands/load-recording.js",
+    "fetch-race": "node dist/commands/fetch-race.js",
+    "dump": "node dist/commands/dump-recording.js",
     "sim": "tsx src/sim/main.ts"
   },
   "dependencies": {

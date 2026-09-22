@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 import { eventId, LiveNormalizer } from "./normalize.js";
 import { MQTT_TOPICS, MqttLane, mqttBackoffDelayMs, mqttTopicEndpoint } from "./mqtt-lane.js";
 import type { MqttClientLike, MqttConnect, MqttLaneAuth } from "./mqtt-lane.js";
-import { emitRows } from "./rest-lane.js";
+import { enqueueRows } from "./enqueue.js";
 import type { QueueItem, RawRecord } from "./types.js";
 import { EventQueue } from "../writer/queue.js";
 
@@ -400,12 +400,12 @@ describe("MqttLane: message handling", () => {
 // The bug this fixes: both lanes dedup through one shared LiveNormalizer
 // (getNormalizer/getSessionKey mirror how main.ts wires RestLane's own
 // normalizer into MqttLane), but only the REST lane's private wrapper
-// around `emitRows` ever fed the jsonl recorder — `emitRows` itself did
-// not, so a row MQTT delivered first was recorded nowhere: REST's later
-// fetch of the same row found it already `seen` and reported `new=0`, and
-// the recorder never saw it either. `emitRows`'s new `onRecorded` parameter
-// closes that gap: it is called with exactly the rows it queues, whichever
-// caller (lane) reaches it first.
+// around `enqueueRows` ever fed the jsonl recorder — `enqueueRows` itself
+// did not, so a row MQTT delivered first was recorded nowhere: REST's
+// later fetch of the same row found it already `seen` and reported
+// `new=0`, and the recorder never saw it either. `enqueueRows`'s
+// `onRecorded` parameter closes that gap: it is called with exactly the
+// rows it queues, whichever caller (lane) reaches it first.
 describe("MqttLane: recording (a row is recorded by whichever lane sees it first)", () => {
   test("a row first seen by MQTT is recorded once; the same row fetched by REST afterwards is neither queued nor recorded", async () => {
     const { connectImpl, clients } = fakeConnect();
@@ -441,10 +441,10 @@ describe("MqttLane: recording (a row is recorded by whichever lane sees it first
 
     // REST fetches the same row afterward, sharing the same normalizer and
     // queue (as it would in production, via RestLane#getNormalizer) — the
-    // row is already `seen`, so emitRows queues and records nothing.
+    // row is already `seen`, so enqueueRows queues and records nothing.
     queue.drain(10);
     recorded.length = 0;
-    const restResult = await emitRows(normalizer, queue, "position", 11361, [row], onRecorded);
+    const restResult = await enqueueRows(normalizer, queue, "position", 11361, [row], onRecorded);
 
     expect(restResult.newRows).toBe(0);
     expect(queue.size).toBe(0);
@@ -474,7 +474,7 @@ describe("MqttLane: recording (a row is recorded by whichever lane sees it first
 
     // REST sees the row first.
     const row = { session_key: 11361, driver_number: 1, date: "2026-09-06T13:00:00Z" };
-    const restResult = await emitRows(normalizer, queue, "position", 11361, [row], onRecorded);
+    const restResult = await enqueueRows(normalizer, queue, "position", 11361, [row], onRecorded);
     expect(restResult.newRows).toBe(1);
     expect(recorded.filter((r) => r.endpoint === "position")).toHaveLength(1);
     queue.drain(10);

@@ -21,8 +21,8 @@ import path from "node:path";
 
 import { createDb } from "@formula-time/db";
 
-import { loadConfig } from "./config.js";
-import type { RawRecord } from "./openf1/types.js";
+import { loadConfig } from "../config.js";
+import type { RawRecord } from "../openf1/types.js";
 
 // Same page size as the api's exporter (`readAllEvents`, ADR-0009 §2): pages
 // by `seq` so a whole race is never held in memory at once.
@@ -223,7 +223,7 @@ export async function dumpRecording(
   return { found: true, events, endpoints };
 }
 
-// CLI entry: `node dist/dump-recording.js [--force] <session_key> [--out
+// CLI entry: `node dist/commands/dump-recording.js [--force] <session_key> [--out
 // <dir>]` (package.json script "dump"; root script "ingest:dump"). Guarded
 // so this module can be imported by the unit test without running the CLI.
 const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;

@@ -36,20 +36,20 @@
 
 import { createDb } from "@formula-time/db";
 
-import { loadConfig } from "./config.js";
+import { loadConfig } from "../config.js";
 import { RECORDING_ENDPOINT_ORDER, writeSessionThroughLoader } from "./load-recording.js";
 import type { LoaderDb } from "./load-recording.js";
-import { OpenF1Auth, createOpenF1Fetcher, credentialsFromEnv } from "./openf1/auth.js";
-import { LiveNormalizer, eventId, timestampMillis, timestampValue } from "./openf1/normalize.js";
-import type { NormalizedRow } from "./openf1/normalize.js";
-import { FETCH_SPACING_MS, MAX_RETRIES, RETRY_DELAY_MS, withRetry, withSpacing } from "./openf1/rate-limit.js";
-import type { RetryOptions, Sleep } from "./openf1/rate-limit.js";
-import { JsonlRecorder } from "./openf1/recorder.js";
-import { OPENF1_BASE } from "./openf1/rest-lane.js";
-import type { Fetcher, QueueItem, RawRecord } from "./openf1/types.js";
-import { EventQueue } from "./writer/queue.js";
-import type { DrainResult } from "./writer/writer.js";
-import { EventWriter } from "./writer/writer.js";
+import { OpenF1Auth, createOpenF1Fetcher, credentialsFromEnv } from "../openf1/auth.js";
+import { LiveNormalizer, eventId, timestampMillis, timestampValue } from "../openf1/normalize.js";
+import type { NormalizedRow } from "../openf1/normalize.js";
+import { FETCH_SPACING_MS, MAX_RETRIES, RETRY_DELAY_MS, withRetry, withSpacing } from "../openf1/rate-limit.js";
+import type { RetryOptions, Sleep } from "../openf1/rate-limit.js";
+import { JsonlRecorder } from "../openf1/recorder.js";
+import { OPENF1_BASE } from "../openf1/rest-lane.js";
+import type { Fetcher, QueueItem, RawRecord } from "../openf1/types.js";
+import { EventQueue } from "../writer/queue.js";
+import type { DrainResult } from "../writer/writer.js";
+import { EventWriter } from "../writer/writer.js";
 
 // The spacing/retry wrapper lives in `openf1/rate-limit.ts` — shared with
 // `load-recording.ts`'s network fallback for a meetings lookup — so both
@@ -188,7 +188,7 @@ export function orderForEmission(
 
 /**
  * Pushes already-normalized rows straight onto the queue — the second half
- * of `emitRows` (rest-lane.ts), without its normalize call, since every row
+ * of `enqueueRows` (openf1/enqueue.ts), without its normalize call, since every row
  * here was normalized once already, up front, in fetch order (see the
  * module comment on `orderForEmission`). Calling `LiveNormalizer.normalize`
  * a second time on the same rows would find them all already `seen` and
@@ -416,7 +416,7 @@ export async function fetchRaces(
   return { ...totals, sessionsAttempted, sessionsSkipped, sessionsNotFound };
 }
 
-// CLI entry: `node dist/fetch-race.js [--replace] <session_key>
+// CLI entry: `node dist/commands/fetch-race.js [--replace] <session_key>
 // [<session_key> ...]` (package.json script "fetch-race"; root script
 // "ingest:fetch-race"). Guarded so this module can be imported by the unit
 // test without running the CLI.

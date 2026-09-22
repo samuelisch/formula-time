@@ -8,8 +8,8 @@ import { describe, expect, test } from "vitest";
 import { RaceStateReducer, createInitialState } from "@formula-time/domain";
 import type { RaceEvent } from "@formula-time/domain";
 
-import type { NormalizedRow } from "./openf1/normalize.js";
-import type { Fetcher, RawRecord } from "./openf1/types.js";
+import type { NormalizedRow } from "../openf1/normalize.js";
+import type { Fetcher, RawRecord } from "../openf1/types.js";
 import {
   fetchRaces,
   lapsEffectiveSourceTimeIso,

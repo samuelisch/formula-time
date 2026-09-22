@@ -10,6 +10,8 @@
 import path from "node:path";
 
 import { ENTRY_LIST_2026 } from "./entry-list.js";
+import { enqueueDriverRows, enqueueRows } from "./enqueue.js";
+import type { EnqueueDriverRowsResult, RecordRows } from "./enqueue.js";
 import { LiveNormalizer, endpointConfigs } from "./normalize.js";
 import type { Fetcher, QueueItem, RawRecord } from "./types.js";
 import type { LaneLog } from "../log.js";
@@ -73,136 +75,6 @@ const defaultFetcher: Fetcher = async (url) => {
   return response.json();
 };
 
-export interface EmitRowsResult {
-  newRows: number;
-  malformed: number;
-  /** `stints` rows normalized with a null `sourceTime` because their lap hadn't been seen yet — an out-of-order stint (`LiveNormalizer.normalize`'s `unjoined`). */
-  unjoined: number;
-  /** The normalized (already-deduped-against-`normalizer`) payloads, same ones handed to `onRecorded`. */
-  payloads: RawRecord[];
-}
-
-/**
- * Called with exactly the rows a call to `emitRows`/`emitTaggedDriverRows`
- * just queued (never with zero rows) — the one place both ingest lanes'
- * newly-queued rows reach the jsonl recorder, so a row is never queued
- * without an attempt to record it, and never recorded without having been
- * queued first. A rejection must not be allowed to escape uncaught: the
- * caller (a lane) is responsible for catching its own recorder failure,
- * logging it, and continuing — the row already queued stays queued either
- * way.
- */
-export type OnRecorded = (sessionKey: number, endpoint: string, payloads: RawRecord[]) => Promise<void>;
-
-/**
- * The one normalize-and-enqueue-and-record path — so the ids match a live
- * run, and so a row is recorded at the moment it is queued, whichever lane
- * queued it first. Pushed out of `RestLane` so the MQTT lane
- * (`mqtt-lane.ts`'s `handleMessage`) and the one-shot recording loader
- * (`load-recording.ts`) can drive the same normalizer + queue a live
- * session does, both for the static `ENTRY_LIST_2026` `drivers` emission
- * and for every `raw/*.jsonl` endpoint. `RestLane` itself calls this too
- * (see `emitAndRecord` below) — no second normalize path, and (since
- * `onRecorded` lives here) no second recording path either.
- */
-export async function emitRows(
-  normalizer: LiveNormalizer,
-  queue: EventQueue<QueueItem>,
-  endpoint: string,
-  sessionKey: number,
-  rows: RawRecord[],
-  onRecorded?: OnRecorded,
-): Promise<EmitRowsResult> {
-  if (rows.length === 0) return { newRows: 0, malformed: 0, unjoined: 0, payloads: [] };
-  const { rows: normalized, malformed, unjoined } = normalizer.normalize(endpoint, rows);
-  if (normalized.length === 0) return { newRows: 0, malformed, unjoined, payloads: [] };
-  const items: QueueItem[] = normalized.map((n) => ({
-    eventId: n.eventId,
-    sessionKey: BigInt(sessionKey),
-    endpoint,
-    sourceTime: n.sourceTime ? new Date(n.sourceTime) : null,
-    payload: n.payload,
-  }));
-  queue.pushAll(items);
-  const payloads = normalized.map((n) => n.payload);
-  if (onRecorded) await onRecorded(sessionKey, endpoint, payloads);
-  return { newRows: normalized.length, malformed, unjoined, payloads };
-}
-
-export interface EmitTaggedRowsResult {
-  newRows: number;
-  malformed: number;
-  /** See `EmitRowsResult.unjoined` — always 0 here, `drivers` rows never carry a `stints` timestamp, kept for shape consistency with `emitRows`. */
-  unjoined: number;
-  /** Rows whose OWN `session_key` differs from `expectedSessionKey` — still written, tagged to the session they name, and counted as `foreign`. `null` `expectedSessionKey` (the Friday meeting-wide fetch has no single session to compare against) counts nothing as foreign. */
-  foreign: number;
-  /** Rows naming a `session_key` that is not in the `sessions` table (per `isKnownSession`): dropped, never queued. `events.session_key` is a real FK, and one such row would fail the writer's whole batch and requeue it forever. */
-  unknownSession: number;
-  payloads: RawRecord[];
-  /** The written payloads per session_key, so a caller can feed the jsonl recorder once per session. */
-  groups: Array<{ sessionKey: number; payloads: RawRecord[] }>;
-}
-
-/**
- * Tags each `drivers` row to the `session_key` IN ITS OWN PAYLOAD, never to
- * the session or meeting the fetch was made for. Verified from
- * `recordings/11361/raw/drivers.jsonl`: every OpenF1 `drivers`
- * row carries its own `session_key` and `meeting_key` fields, e.g.
- * `{"meeting_key":1293,"session_key":11361,"driver_number":1,...}` — so the
- * tagging rule is: a drivers row is tagged to the `session_key` in its own
- * payload. Rows are grouped by that own key and each group runs through the
- * normal `emitRows` path (endpoint `drivers`), so dedup/malformed handling
- * stay identical to every other endpoint. A row with no numeric
- * `session_key` of its own can't be tagged or written; it's counted as
- * malformed, same meaning `emitRows`/`LiveNormalizer.normalize` give that
- * word elsewhere. A row naming a session that `isKnownSession` rejects (not
- * in the `sessions` table) is dropped and counted `unknownSession`: the FK
- * on `events.session_key` would fail the writer's whole batch, and the
- * writer requeues a failed batch at the front forever.
- */
-export async function emitTaggedDriverRows(
-  normalizer: LiveNormalizer,
-  queue: EventQueue<QueueItem>,
-  rows: RawRecord[],
-  expectedSessionKey: number | null,
-  isKnownSession: (sessionKey: number) => boolean = () => true,
-  onRecorded?: OnRecorded,
-): Promise<EmitTaggedRowsResult> {
-  const byKey = new Map<number, RawRecord[]>();
-  let foreign = 0;
-  let malformed = 0;
-  let unknownSession = 0;
-  for (const row of rows) {
-    const key = Number(row["session_key"]);
-    if (!Number.isFinite(key)) {
-      malformed += 1;
-      continue;
-    }
-    if (!isKnownSession(key)) {
-      unknownSession += 1;
-      continue;
-    }
-    if (expectedSessionKey !== null && key !== expectedSessionKey) foreign += 1;
-    const group = byKey.get(key);
-    if (group) group.push(row);
-    else byKey.set(key, [row]);
-  }
-
-  let newRows = 0;
-  let unjoined = 0;
-  const payloads: RawRecord[] = [];
-  const groups: EmitTaggedRowsResult["groups"] = [];
-  for (const [key, groupRows] of byKey) {
-    const result = await emitRows(normalizer, queue, "drivers", key, groupRows, onRecorded);
-    newRows += result.newRows;
-    malformed += result.malformed;
-    unjoined += result.unjoined;
-    payloads.push(...result.payloads);
-    if (result.payloads.length > 0) groups.push({ sessionKey: key, payloads: result.payloads });
-  }
-  return { newRows, malformed, unjoined, foreign, unknownSession, payloads, groups };
-}
-
 export interface RestLaneOptions {
   fetcher?: Fetcher;
   year?: number;
@@ -234,15 +106,15 @@ export interface RestLaneOptions {
   onSessionSelected?: (session: RawRecord, nowMs: number) => void | Promise<void>;
   /**
    * The jsonl recorder callback, passed straight through to every
-   * `emitRows`/`emitTaggedDriverRows` call this lane makes, so a row is
+   * `enqueueRows`/`enqueueDriverRows` call this lane makes, so a row is
    * recorded at the moment it is queued. Also called directly, outside
-   * `emitRows`, for the followed session's own `meetings` row, once, the
+   * `enqueueRows`, for the followed session's own `meetings` row, once, the
    * first tick it is available (endpoint `"meetings"`) — that row is never
    * queued to `events` (`meetings` isn't a stored endpoint), only recorded,
    * so a later `pnpm ingest:load` of this session's recording can source
    * `meeting_name` too (`meetingNamesFromRecording`, load-recording.ts).
    */
-  onRecorded?: OnRecorded;
+  onRecorded?: RecordRows;
   onLog?: LaneLog;
 }
 
@@ -557,10 +429,10 @@ export class RestLane {
   }
 
   /**
-   * The `onRecorded` callback handed to every `emitRows`/
-   * `emitTaggedDriverRows` call this lane makes, and also called directly
+   * The `onRecorded` callback handed to every `enqueueRows`/
+   * `enqueueDriverRows` call this lane makes, and also called directly
    * for the followed session's own `meetings` row (never queued, so it
-   * never goes through `emitRows`). Counts a successfully recorded row
+   * never goes through `enqueueRows`). Counts a successfully recorded row
    * toward the closed-recording log line's `rows=<n>` when it belongs to
    * the currently followed session — the recorder itself keeps no count
    * (apps/ingest/src/openf1/recorder.ts), so the lane is the only place
@@ -641,7 +513,7 @@ export class RestLane {
 
   /**
    * Fetches `drivers?session_key=<selected>`, tags each row by its
-   * own `session_key` (emitTaggedDriverRows), asserting it equals the
+   * own `session_key` (enqueueDriverRows), asserting it equals the
    * selected key (a mismatch is still written, tagged to the session it
    * names, and counted `foreign` — never dropped). Zero rows or a failure:
    * emit the static ENTRY_LIST_2026 fallback once ("entry list: static
@@ -671,7 +543,7 @@ export class RestLane {
     }
 
     if (rows.length > 0) {
-      const result = await this.emitAndRecordDrivers(rows, key);
+      const result = await this.enqueueAndRecordDrivers(rows, key);
       this.rowsSinceStats += result.newRows;
       this.entryListSatisfied = true;
       this.log(
@@ -689,7 +561,7 @@ export class RestLane {
         team_name: driver.team_name,
         team_colour: driver.team_colour,
       }));
-      const result = await this.emitAndRecord("drivers", key, driverRows);
+      const result = await this.enqueueAndRecord("drivers", key, driverRows);
       this.rowsSinceStats += result.newRows;
       this.entryListFallbackEmitted = true;
       this.log(`entry list: static fallback (${reason}) session_key=${key}`);
@@ -727,7 +599,7 @@ export class RestLane {
     }
 
     if (rows.length > 0) {
-      const result = await this.emitAndRecordDrivers(rows, key);
+      const result = await this.enqueueAndRecordDrivers(rows, key);
       this.rowsSinceStats += result.newRows;
       this.log(
         `entry list: pre-race refresh session_key=${key} rows=${rows.length} new=${result.newRows} foreign=${result.foreign} unknown_session=${result.unknownSession}`,
@@ -813,7 +685,7 @@ export class RestLane {
     }
 
     if (rows.length > 0) {
-      const result = await this.emitAndRecordDrivers(rows, null);
+      const result = await this.enqueueAndRecordDrivers(rows, null);
       this.rowsSinceStats += result.newRows;
       this.fridayMeetings.set(meetingKey, { satisfied: true, nextRetryAt: nowMs });
       this.log(
@@ -892,32 +764,32 @@ export class RestLane {
       return { endpoint, rows: 0, newRows: 0, malformed: 0 };
     }
     const rawRows = Array.isArray(rows) ? (rows as RawRecord[]) : [];
-    const { newRows, malformed } = await this.emitAndRecord(endpoint, this.sessionKey, rawRows);
+    const { newRows, malformed } = await this.enqueueAndRecord(endpoint, this.sessionKey, rawRows);
     this.rowsSinceStats += newRows;
     this.log(`rest: poll endpoint=${endpoint} rows=${rawRows.length} new=${newRows} malformed=${malformed}`);
     return { endpoint, rows: rawRows.length, newRows, malformed };
   }
 
-  /** Thin wrapper around the free `emitRows()`, which now records through `onRecorded` itself — once per call, only when there's something new. */
-  private async emitAndRecord(
+  /** Thin wrapper around the free `enqueueRows()`, which now records through `onRecorded` itself — once per call, only when there's something new. */
+  private async enqueueAndRecord(
     endpoint: string,
     sessionKey: number,
     rows: RawRecord[],
   ): Promise<{ newRows: number; malformed: number }> {
-    const result = await emitRows(this.normalizer, this.queue, endpoint, sessionKey, rows, this.recordRows);
+    const result = await enqueueRows(this.normalizer, this.queue, endpoint, sessionKey, rows, this.recordRows);
     this.unjoinedSinceStats += result.unjoined;
     return { newRows: result.newRows, malformed: result.malformed };
   }
 
   /**
-   * `emitTaggedDriverRows`, which now records through `onRecorded` itself —
+   * `enqueueDriverRows`, which now records through `onRecorded` itself —
    * once per session_key group that wrote something, so a real fetched
    * entry list is recorded exactly like the static fallback and every
    * rotation poll. Rows naming a session not yet upserted are dropped (see
    * `knownSessionKeys`).
    */
-  private async emitAndRecordDrivers(rows: RawRecord[], expectedSessionKey: number | null): Promise<EmitTaggedRowsResult> {
-    const result = await emitTaggedDriverRows(
+  private async enqueueAndRecordDrivers(rows: RawRecord[], expectedSessionKey: number | null): Promise<EnqueueDriverRowsResult> {
+    const result = await enqueueDriverRows(
       this.normalizer,
       this.queue,
       rows,

@@ -27,8 +27,8 @@
 import mqtt from "mqtt";
 
 import { backoffDelayMs } from "../writer/writer.js";
-import { emitRows } from "./rest-lane.js";
-import type { OnRecorded } from "./rest-lane.js";
+import { enqueueRows } from "./enqueue.js";
+import type { RecordRows } from "./enqueue.js";
 import type { LaneLog } from "../log.js";
 import type { LiveNormalizer } from "./normalize.js";
 import type { QueueItem, RawRecord } from "./types.js";
@@ -170,8 +170,8 @@ export interface MqttLaneOptions {
   getNormalizer: () => LiveNormalizer;
   /** Current live session key, or `null` when none is selected — the REST lane is the authority on which session is live. */
   getSessionKey: () => number | null;
-  /** The jsonl recorder callback, passed straight through to `emitRows` for every message this lane queues, so a row is recorded at the moment it is queued — the same callback `main.ts` also gives the REST lane. */
-  onRecorded?: OnRecorded;
+  /** The jsonl recorder callback, passed straight through to `enqueueRows` for every message this lane queues, so a row is recorded at the moment it is queued — the same callback `main.ts` also gives the REST lane. */
+  onRecorded?: RecordRows;
   onLog?: LaneLog;
   brokerUrl?: string;
   topics?: readonly string[];
@@ -475,13 +475,13 @@ export class MqttLane {
   }
 
   /**
-   * The `onRecorded` callback handed to `emitRows`: forwards to whatever
+   * The `onRecorded` callback handed to `enqueueRows`: forwards to whatever
    * `onRecorded` this lane was constructed with, catching and logging a
    * rejection at error level with the endpoint as a field instead of
    * letting it escape — the row is already queued by the time this runs,
    * and one failed recording attempt must not stop the lane.
    */
-  private readonly recordRow: OnRecorded = async (sessionKey, endpoint, payloads): Promise<void> => {
+  private readonly recordRow: RecordRows = async (sessionKey, endpoint, payloads): Promise<void> => {
     if (!this.onRecordedCallback) return;
     try {
       await this.onRecordedCallback(sessionKey, endpoint, payloads);
@@ -534,7 +534,7 @@ export class MqttLane {
       return;
     }
 
-    const result = await emitRows(this.getNormalizer(), this.queue, endpoint, sessionKey, [stripped], this.recordRow);
+    const result = await enqueueRows(this.getNormalizer(), this.queue, endpoint, sessionKey, [stripped], this.recordRow);
     this.droppedSinceLog += result.malformed;
     this.rowsSinceLog += result.newRows;
     this.unjoinedSinceLog += result.unjoined;

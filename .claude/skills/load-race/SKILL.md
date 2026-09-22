@@ -8,7 +8,7 @@ description: Load a past recording into the deployed (Railway) database by runni
 ## Overview
 
 Railway's Postgres has no public TCP proxy, so the loader
-(`apps/ingest/src/load-recording.ts`, `pnpm ingest:load` locally) cannot be
+(`apps/ingest/src/commands/load-recording.ts`, `pnpm ingest:load` locally) cannot be
 pointed at the deployed `DATABASE_URL` from a laptop. It has to run inside
 the `ingest` container instead, over `railway ssh`: stream a tarball of the
 recording in, run the already-built loader there, then verify through the
@@ -22,7 +22,7 @@ only way to get a race into the deployed database.
 
 ## Prerequisites
 
-- The loader's build (`apps/ingest/dist/load-recording.js`) must be on
+- The loader's build (`apps/ingest/dist/commands/load-recording.js`) must be on
   `main` and already deployed to the `ingest` service — this procedure
   runs the code that is already in the container image, it does not ship
   new code.
@@ -64,7 +64,7 @@ only way to get a race into the deployed database.
    config:
 
    ```
-   ssh railway-ingest 'mkdir -p /tmp/recordings && tar -xzf - -C /tmp/recordings && node apps/ingest/dist/load-recording.js /tmp/recordings/<key>' < /tmp/recordings.tgz
+   ssh railway-ingest 'mkdir -p /tmp/recordings && tar -xzf - -C /tmp/recordings && node apps/ingest/dist/commands/load-recording.js /tmp/recordings/<key>' < /tmp/recordings.tgz
    ```
 
    Add `-o StrictHostKeyChecking=accept-new` before `railway-ingest` if
@@ -117,7 +117,7 @@ recording must already be on the container (steps 1-2 above); add the
 flag before the recording paths:
 
 ```
-ssh railway-ingest 'node apps/ingest/dist/load-recording.js --replace /tmp/recordings/<key>'
+ssh railway-ingest 'node apps/ingest/dist/commands/load-recording.js --replace /tmp/recordings/<key>'
 ```
 
 The loader logs one verify line per session after every load, replaced or
@@ -145,7 +145,7 @@ runs the actual production reload of an affected race, not an agent.
 ## Common mistakes
 
 - Running this before the loader build has actually been deployed to
-  `ingest`: it runs whatever `apps/ingest/dist/load-recording.js` already
+  `ingest`: it runs whatever `apps/ingest/dist/commands/load-recording.js` already
   is in the running container image, not the code on disk locally.
 - Checking `/api/races/:key` immediately after the loader exits, before
   the exporter's next 5 s tick — the entry (or its events) may not be
@@ -220,7 +220,7 @@ The jsonl recording on the volume is one source of a recording; the
 database is another, and always has every row a finished session ever
 wrote, even when the volume's own copy is gone or was never captured (a
 redeploy between sessions, a disk that was unmounted, or the gap #289
-describes). `apps/ingest/src/dump-recording.ts` (`pnpm ingest:dump`
+describes). `apps/ingest/src/commands/dump-recording.ts` (`pnpm ingest:dump`
 locally) reads a session's `sessions` row and every `events` row back out
 of Postgres and writes them in the same recording layout the loader and
 the drip simulator both read. Same reason as the loader: Railway's
@@ -229,7 +229,7 @@ too, over `railway ssh`, then streams the directory back as a tarball
 instead of a `railway ssh` file copy:
 
 ```
-railway ssh -s ingest -- node apps/ingest/dist/dump-recording.js 11369 --out /tmp/rec
+railway ssh -s ingest -- node apps/ingest/dist/commands/dump-recording.js 11369 --out /tmp/rec
 ```
 
 ```
