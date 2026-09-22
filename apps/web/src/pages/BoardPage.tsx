@@ -7,7 +7,7 @@ import { DriverPanel } from "../board/DriverPanel.tsx";
 import { isRacingPush, useBoardIsRacing, useBoardSessionMeta, useBoardSessionStatus } from "../board/useBoardState.ts";
 import { ConnectionPill } from "../live/ConnectionPill.tsx";
 import { LiveTimelineLoader } from "../live/LiveTimelineLoader.tsx";
-import { useLivePush, useLiveSessionKey, useLiveSessionStatus } from "../live/selectors.ts";
+import { useLiveSessionKey, useLiveSessionStatus, useStatePush } from "../live/selectors.ts";
 import { date, stringField } from "../lib/format.ts";
 import { PollModal } from "../polls/PollModal.tsx";
 import { PollsButton } from "../polls/PollsButton.tsx";
@@ -99,8 +99,8 @@ export function BoardPage() {
 
   const liveSessionKey = useLiveSessionKey();
   const liveSessionStatus = useLiveSessionStatus();
-  const livePush = useLivePush();
-  const shouldMountTimelineLoader = useShouldMountTimelineLoader(liveSessionKey, isRacingPush(livePush));
+  const statePush = useStatePush();
+  const shouldMountTimelineLoader = useShouldMountTimelineLoader(liveSessionKey, isRacingPush(statePush));
 
   return (
     <div className={styles.page}>

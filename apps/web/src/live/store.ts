@@ -4,7 +4,7 @@ import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { foldAt, type Timeline } from "../replay/timeline.ts";
 import { deriveAnchors, emptyAnchors, type Anchors } from "./anchors.ts";
 import { append, emptyBuffer, select, type PushBuffer } from "./buffer.ts";
-import { axisOf, type Connection, type LivePush, type RewindMode } from "./types.ts";
+import { axisOf, type Connection, type RewindMode, type StatePush } from "./types.ts";
 
 /**
  * Whether `timeline` is the live session's own log -- `createTimeline`
@@ -40,10 +40,10 @@ export interface LiveStore {
   /** True once at least one `status` SSE frame has landed -- distinguishes "still settling" (connected, nothing received yet) from "connected and confirmed no push is imminent". PollsPage's default-race-selection needs this to know when it is safe to fall back to a historical race. */
   statusReceived: boolean;
   lastMessageAt: number | null;
-  live: LivePush | null; // newest push, the live edge
+  live: StatePush | null; // newest push, the live edge
   buffer: PushBuffer;
   delayMs: number; // 0 = live edge
-  displayed: LivePush | null; // what the board renders
+  displayed: StatePush | null; // what the board renders
   bufferShort: boolean; // true when delay asks for older history than the buffer holds; displayed is then the oldest entry
   anchors: Anchors; // jump targets folded from pushes seen since this tab connected
   /** The browser-side full-race timeline for the live session, set by the page that loads it (`LiveTimelineLoader`); null when not loaded. */
@@ -53,7 +53,7 @@ export interface LiveStore {
   onOpen(): void;
   onError(): void;
   onStatus(status: { catching_up: boolean }): void;
-  onState(push: LivePush, now: number): void;
+  onState(push: StatePush, now: number): void;
   setDelayMs(ms: number, now: number): void;
   /** Sets the delay so the viewer sees source time `atMs`, reading the current head at call time -- never a snapshot from an earlier render -- so a push arriving between a render and this call cannot throw the result off. No-op before the first push (nothing to seek relative to). */
   seekToAxis(atMs: number, now: number): void;
@@ -66,7 +66,7 @@ export interface LiveStore {
 export type LiveStoreApi = UseBoundStore<StoreApi<LiveStore>>;
 
 interface Selection {
-  displayed: LivePush | null;
+  displayed: StatePush | null;
   bufferShort: boolean;
   mode: RewindMode;
 }
@@ -95,9 +95,9 @@ export function createLiveStore(): LiveStoreApi {
   // on the same `sequence` as the previous one, so the cached push must
   // not be reused across two different `live` values; comparing `live` by
   // reference is enough, since every push is a fresh, immutable object).
-  let lastTimelineDisplayed: { events: RaceEvent[]; sequence: number; live: LivePush; push: LivePush } | null = null;
+  let lastTimelineDisplayed: { events: RaceEvent[]; sequence: number; live: StatePush; push: StatePush } | null = null;
 
-  function timelineDisplayed(timeline: Timeline, atMs: number, live: LivePush): LivePush {
+  function timelineDisplayed(timeline: Timeline, atMs: number, live: StatePush): StatePush {
     const state = foldAt(timeline, atMs);
     if (
       lastTimelineDisplayed !== null &&
@@ -107,7 +107,7 @@ export function createLiveStore(): LiveStoreApi {
     ) {
       return lastTimelineDisplayed.push;
     }
-    const push: LivePush = {
+    const push: StatePush = {
       type: "state",
       seq: live.seq,
       sent_at: live.sent_at,

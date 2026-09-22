@@ -6,7 +6,7 @@ import { emptyAnchors } from "./anchors.ts";
 import { emptyBuffer } from "./buffer.ts";
 import { LiveTimelineLoader } from "./LiveTimelineLoader.tsx";
 import { useLiveStore } from "./store.ts";
-import type { LivePush } from "./types.ts";
+import type { StatePush } from "./types.ts";
 
 vi.mock("../races/api.ts", () => ({
   fetchRaceEventsPage: vi.fn(),
@@ -32,7 +32,7 @@ function resetLiveStore(): void {
 }
 
 /** A live push carrying a full session row, the way a real join would. */
-function liveSessionPush(): LivePush {
+function liveSessionPush(): StatePush {
   return {
     type: "state",
     seq: "1",

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { LivePush } from "../live/types.ts";
+import type { StatePush } from "../live/types.ts";
 import { useLiveStore } from "../live/store.ts";
 import { makeDriver, makePush, makeState } from "../test/fixtures.ts";
 import {
@@ -76,7 +76,7 @@ describe("useBoardState", () => {
 // silently, a backwards axis (replay rewind/scrub) resets silently, and a
 // cue expires 8s after it was set, checked on the next render rather than
 // a per-row timer.
-function pushAt(sessionKey: string, sourceTimeIso: string, positions: Record<number, number>): LivePush {
+function pushAt(sessionKey: string, sourceTimeIso: string, positions: Record<number, number>): StatePush {
   const drivers = Object.fromEntries(
     Object.entries(positions).map(([driverNumber, position]) => [
       driverNumber,
@@ -109,7 +109,7 @@ function readDeltas(): Record<number, number> {
   return JSON.parse(screen.getByTestId("deltas").textContent ?? "{}");
 }
 
-function renderWithPush(push: LivePush | null) {
+function renderWithPush(push: StatePush | null) {
   return render(
     <BoardSourceProvider push={push}>
       <DeltaProbe />

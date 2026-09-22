@@ -5,7 +5,7 @@ import type { RaceState } from "@formula-time/domain";
 import { FakeEventSource } from "../test/fakeEventSource.ts";
 import { emptyBuffer } from "./buffer.ts";
 import { useLiveStore } from "./store.ts";
-import type { DeltaPush, LivePush } from "./types.ts";
+import type { DeltaPush, StatePush } from "./types.ts";
 import { useLiveStream } from "./useLiveStream.ts";
 
 vi.mock("../api.ts", async (importOriginal) => {
@@ -73,7 +73,7 @@ function minimalRaceState(overrides: Partial<RaceState> = {}): RaceState {
   };
 }
 
-function statePush(seq: string, sequence: number): LivePush {
+function statePush(seq: string, sequence: number): StatePush {
   return {
     type: "state",
     seq,

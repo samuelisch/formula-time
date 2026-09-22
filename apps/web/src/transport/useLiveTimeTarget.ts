@@ -20,7 +20,7 @@
 import { useCallback, useMemo } from "react";
 
 import { deriveTimelineAnchors } from "../live/anchors.ts";
-import { useAnchors, useDelay, useDisplayed, useLastMessageAt, useLivePush, useRewindMode, useTimeline } from "../live/selectors.ts";
+import { useAnchors, useDelay, useDisplayed, useLastMessageAt, useRewindMode, useStatePush, useTimeline } from "../live/selectors.ts";
 import { headAxisOf } from "../live/store.ts";
 import { axisOf } from "../live/types.ts";
 import type { TimeTarget } from "./TimeTarget.ts";
@@ -39,7 +39,7 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
   const streamAnchors = useAnchors();
   const timeline = useTimeline();
   const mode = useRewindMode();
-  const livePush = useLivePush();
+  const statePush = useStatePush();
   const lastMessageAt = useLastMessageAt();
 
   const displayedAtMs = displayed === null ? null : axisOf(displayed);
@@ -52,11 +52,11 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
   // `seekTo`/`nudge` do not use this: they hand the source time straight to
   // the store's own `seekToAxis`/`nudgeDelay`, which read the store's
   // current state at call time rather than this render's snapshot of
-  // `livePush`/`lastMessageAt`/`delayMs` -- a push (or several) landing
+  // `statePush`/`lastMessageAt`/`delayMs` -- a push (or several) landing
   // between a render and a click must not throw the result off.
   const headMs = useCallback(
-    () => headAxisOf({ live: livePush, lastMessageAt }, now()) ?? now(),
-    [livePush, lastMessageAt, now],
+    () => headAxisOf({ live: statePush, lastMessageAt }, now()) ?? now(),
+    [statePush, lastMessageAt, now],
   );
 
   // Memoised on the `timeline` reference: `useSessionTimeline` publishes a

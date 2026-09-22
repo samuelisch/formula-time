@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { makePush } from "../test/fixtures.ts";
 import { applyDelta } from "./deltas.ts";
-import type { DeltaPush, LivePush } from "./types.ts";
+import type { DeltaPush, StatePush } from "./types.ts";
 
 /** Two reducer-built states from the same lineage, sharing the fixture the server-side patch test uses (createInitialState/RaceStateReducer, diffState) so the patch this test applies is the same shape the server actually sends. */
 function fixtureStates(): { prev: RaceState; next: RaceState } {
@@ -37,7 +37,7 @@ function deltaFrame(overrides: Partial<DeltaPush> & { base_seq: string }): Delta
   };
 }
 
-function heldWithState(state: RaceState, overrides: Partial<LivePush> = {}): LivePush {
+function heldWithState(state: RaceState, overrides: Partial<StatePush> = {}): StatePush {
   return makePush({ seq: "1", state, ...overrides });
 }
 

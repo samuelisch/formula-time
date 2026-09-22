@@ -1,9 +1,9 @@
 import type { StatePush } from "@formula-time/domain";
 export type { PollLifecycleStatus, PollOptionPublic, PollPublic } from "@formula-time/domain";
 // `StatePush` (packages/domain/src/wire.ts) is the api's full-state push,
-// verbatim; kept under this app's own name since it ripples through most
-// of `live/` and `board/` -- see there for what `events` and `rebuilt` mean.
-export type { StatePush as LivePush, DeltaPush } from "@formula-time/domain";
+// verbatim; re-exported here since it ripples through most of `live/` and
+// `board/` -- see there for what `events` and `rebuilt` mean.
+export type { StatePush, DeltaPush } from "@formula-time/domain";
 
 export type Connection = "connecting" | "open" | "reconnecting";
 

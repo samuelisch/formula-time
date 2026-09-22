@@ -2,7 +2,7 @@
 // the delay control resolves to a `delayMs` (lights-out, a lap number,
 // restarts). Pure and unit-tested; the store folds pushes into it in onState.
 import type { Timeline } from "../replay/timeline.ts";
-import type { LivePush } from "./types.ts";
+import type { StatePush } from "./types.ts";
 
 export interface LapAnchor {
   lap: number;
@@ -29,7 +29,7 @@ function earlierIso(a: string, b: string): string {
  * `race_control.recent_messages` is a rolling window (last 100 rows) that
  * resends the same "SESSION STARTED" row across many pushes.
  */
-export function deriveAnchors(previous: Anchors, push: LivePush, seen: Set<string>): Anchors {
+export function deriveAnchors(previous: Anchors, push: StatePush, seen: Set<string>): Anchors {
   const lapsByNumber = new Map<number, string>(previous.laps.map((anchor) => [anchor.lap, anchor.source_time]));
 
   for (const driver of Object.values(push.state.drivers)) {

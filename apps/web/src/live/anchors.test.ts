@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { FoldedRace, LapMarker } from "../replay/foldRace.ts";
 import { deriveAnchors, deriveTimelineAnchors, emptyAnchors } from "./anchors.ts";
-import type { LivePush } from "./types.ts";
+import type { StatePush } from "./types.ts";
 
 function driver(overrides: { currentLap: number | null; lapSourceTime?: string }): DriverState {
   return {
@@ -33,7 +33,7 @@ function raceControlMessage(payload: RawRecord): { event_id: string; payload: Ra
 function push(overrides: {
   drivers?: Record<string, DriverState>;
   recentMessages?: Array<{ event_id: string; payload: RawRecord }>;
-}): LivePush {
+}): StatePush {
   const state: RaceState = {
     sequence: 1,
     latest_source_time: null,

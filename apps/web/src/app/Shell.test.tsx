@@ -5,7 +5,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { FakeEventSource } from "../test/fakeEventSource.ts";
 import { emptyBuffer } from "../live/buffer.ts";
 import { useLiveStore } from "../live/store.ts";
-import type { LivePush } from "../live/types.ts";
+import type { StatePush } from "../live/types.ts";
 import { useHeaderStore } from "./headerStore.ts";
 import { Shell } from "./Shell.tsx";
 
@@ -27,7 +27,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>>
   });
 }
 
-function displayedWithSession(session: Record<string, unknown> | null): LivePush {
+function displayedWithSession(session: Record<string, unknown> | null): StatePush {
   return {
     type: "state",
     seq: "1",
