@@ -44,7 +44,7 @@ conversion.
 
 Locally: `pnpm db:up` starts the worktree's own Postgres (a per-worktree
 compose project and port, so concurrent worktrees never share a database —
-see the root README's "Local ports"), then `pnpm db:migrate:dev` applies
+see `docs/operations.md`'s "Local ports"), then `pnpm db:migrate:dev` applies
 pending migrations and regenerates the client.
 
 On deploy: the api service's `preDeploy` command is `pnpm
