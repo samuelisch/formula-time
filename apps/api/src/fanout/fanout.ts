@@ -82,7 +82,7 @@ export class Fanout {
   // frame) is chained through this promise so only one write + full-flush
   // is ever in flight -- the deflater is one stateful stream. A heartbeat's
   // WRITE is chained through it too (for socket-write ordering against an
-  // in-flight push), even once its bytes are cached and no longer feed the
+  // in-flight push), even once its bytes are cached and stop feeding the
   // deflater itself.
   private deflateChain: Promise<unknown> = Promise.resolve();
 
