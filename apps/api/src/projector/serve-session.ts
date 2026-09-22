@@ -16,7 +16,7 @@ export interface HealthResponse {
   viewers: number;
 }
 
-export interface Pusher {
+export interface PushSink {
   push(payload: object): Promise<void>;
   size(): number;
 }
@@ -45,7 +45,7 @@ export interface PollHooks {
 export interface SessionLifecycleOptions {
   db: SessionsDb;
   source: EventSource;
-  pusher: Pusher;
+  pusher: PushSink;
   pickSession: (db: SessionsDb) => Promise<Session | null>;
   polls: PollHooks;
   log: ProjectorLog;
