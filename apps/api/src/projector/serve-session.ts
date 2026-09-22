@@ -148,11 +148,11 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
           return opts.pusher.push(payload);
         })
         .catch((err) => {
-          // A push failure (a deflate write error, a socket destroyed
-          // mid-write) must never reach an unhandled rejection -- Node 24
-          // kills the process on one. The next tick pushes the next
-          // state; this tick's events reached no client, so the next
-          // push attempted is marked rebuilt: true above.
+          // A push failure must never reach an unhandled rejection --
+          // Node 24 kills the process on one. The socket that caused it
+          // is already dropped by the fan-out's own write loop; the next
+          // tick pushes the next state, marked rebuilt: true since this
+          // tick's events reached no client.
           skippedSinceLastPush = true;
           const message = err instanceof Error ? err.message : String(err);
           opts.log("push failed", { level: "error", cursor: cursor.toString(), error: message });

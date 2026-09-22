@@ -14,6 +14,12 @@ same-key row change — `status`, `total_laps`, `meeting_name`,
 every viewer at once, on that same check, rather than waiting for a
 restart to re-pick the row (`projector/serve-session.ts`, ADR-0033).
 
+`sessions` holds the whole season calendar (ingest discovery upserts
+every row `sessions?year=` returns), so the greatest `dateStart` is not
+"the next session" — it is whichever race is latest on the calendar,
+live or not. Measured against the deployed database 2026-09-09: 131
+rows, 81 finished, 50 upcoming.
+
 ## One tick
 
 ```mermaid
@@ -54,12 +60,15 @@ class actually delivers to be a full `state` push carrying `rebuilt: true`,
 on every socket format, regardless of what the caller set, so no
 connected client keeps a permanent hole in its timeline (ADR-0032).
 
-This guarantee is bounded, not immediate: ticks run on a fixed interval
-regardless of whether the previous push settled, so if a push is still in
-flight when the next tick's payload is built, that payload goes out
-without `rebuilt` and the earlier rejection is only observed afterward —
-the next payload built once it is observed carries `rebuilt: true`, since
-the tick interval vastly exceeds a promise settling.
+The deflate-skip and detector-rebuild causes resolve synchronously: the
+forced `state` push goes out on the very same tick the skip or rebuild
+happens. Only the rejected-push cause is bounded, not immediate: ticks
+run on a fixed interval regardless of whether the previous push settled,
+so if a push is still in flight when the next tick's payload is built,
+that payload goes out without `rebuilt` and the earlier rejection is only
+observed afterward — the next payload built once it is observed carries
+`rebuilt: true`, since the tick interval vastly exceeds a promise
+settling.
 
 ## Polls
 
