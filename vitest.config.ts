@@ -6,7 +6,9 @@ import { defineConfig } from "vitest/config";
 // package from source instead; a domain change is visible to a test
 // immediately, and a stale or missing dist can never mask a test result.
 // This alias is vitest-only: `pnpm build` and the app builds still resolve
-// the package through its `exports`, i.e. from dist.
+// the package through its `exports`, i.e. from dist. apps/web/vite.config.ts
+// carries the matching alias, gated on VITEST, for the builds that a test
+// starts itself.
 const domainSrc = fileURLToPath(new URL("./packages/domain/src/index.ts", import.meta.url));
 
 // Unit tests: every *.test.ts across the workspace, in-memory fakes only.
