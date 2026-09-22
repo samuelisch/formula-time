@@ -63,6 +63,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Check exact pins
+        run: pnpm check:exact-pins
+
       - name: Typecheck
         run: pnpm typecheck
 
