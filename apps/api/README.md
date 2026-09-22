@@ -53,22 +53,32 @@ vote never triggers a push; it only ever sends what a tick hands it.
 
 Every push also carries `events`, the `RaceEvent` rows this tick applied
 in seq order (`[]` on a catch-up or rebuild tick), for a client to fold
-into its own deep-rewind timeline (ADR-0014). A tick whose frame never
-reached a client — a fan-out-level deflate skip, a rejected `pusher.push()`,
-or the late-commit detector's own rebuild — forces the next frame this
-class actually delivers to be a full `state` push carrying `rebuilt: true`,
-on every socket format, regardless of what the caller set, so no
-connected client keeps a permanent hole in its timeline (ADR-0032).
+into its own deep-rewind timeline (ADR-0014). Three things leave a
+connected client without a tick's `events` — a fan-out-level deflate
+skip, a rejected `pusher.push()`, and the late-commit detector's own
+rebuild — and each one puts `rebuilt: true` on a push, which tells the
+client to discard its timeline and backfill from the paged log route
+instead, so no connected client keeps a permanent hole in it (ADR-0032).
 
-The deflate-skip and detector-rebuild causes resolve synchronously: the
-forced `state` push goes out on the very same tick the skip or rebuild
-happens. Only the rejected-push cause is bounded, not immediate: ticks
-run on a fixed interval regardless of whether the previous push settled,
-so if a push is still in flight when the next tick's payload is built,
-that payload goes out without `rebuilt` and the earlier rejection is only
-observed afterward — the next payload built once it is observed carries
-`rebuilt: true`, since the tick interval vastly exceeds a promise
-settling.
+The three reach the client differently. A deflate skip drops that tick's
+frame entirely: `deliver()` logs, sets `skippedSinceLastDelivery` and
+returns without writing to any socket, so the flag is read on the *next*
+`deliver()` call, which forces that frame to be a full `state` push
+carrying `rebuilt: true` on every socket format, overriding whatever the
+caller set (`fanout/fanout.ts`). A rejected `pusher.push()` is a failure
+upstream of the fan-out — the fan-out's own `push()` swallows the
+failures it can see, a deflate error or a failed diff, rather than
+reject — and is tracked separately, in the subscriber chain's `.catch()`;
+the next payload the projector builds reads that flag and sets
+`rebuilt: true` on it, in whatever format each socket already has
+(`projector/serve-session.ts`). That one is bounded by the tick, not
+immediate: ticks run on a fixed interval regardless of whether the
+previous push settled, so a payload built while the rejection is still in
+flight goes out without `rebuilt`, and the first one built after the
+rejection is observed carries it. The detector's rebuild needs no later
+frame at all: `runDetector()` publishes the rebuilt fold itself, with
+`events: []` and `rebuilt: true`, in the tick that ran the detector
+(`projector/projector.ts`).
 
 ## Polls
 
