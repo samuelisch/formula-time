@@ -24,7 +24,7 @@ async function expandPoll(poll: Locator): Promise<void> {
 }
 
 test("a vote lands and the tally updates", async ({ page }) => {
-  test.skip(!RECORDING_PRESENT, "recordings/11361 fixture not present");
+  test.skip(!RECORDING_PRESENT, "apps/web/e2e/fixtures/11361-slice fixture not present");
 
   await page.goto("/polls");
 

@@ -27,7 +27,7 @@ async function dismissPollPopupIfOpen(page: Page): Promise<void> {
 }
 
 test("the delay nudge changes what is shown", async ({ page }) => {
-  test.skip(!RECORDING_PRESENT, "recordings/11361 fixture not present");
+  test.skip(!RECORDING_PRESENT, "apps/web/e2e/fixtures/11361-slice fixture not present");
 
   await page.goto("/live");
 
