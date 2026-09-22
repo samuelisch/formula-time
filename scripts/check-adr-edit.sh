@@ -6,6 +6,7 @@
 set -u
 f=$(jq -r '.tool_input.file_path // empty')
 case "$f" in */docs/decisions-adr/*) ;; *) exit 0 ;; esac
+case "$f" in */docs/decisions-adr/README.md) exit 0 ;; esac
 dir=$(dirname "$f")
 base=$(git -C "$dir" rev-parse -q --verify origin/main 2>/dev/null || git -C "$dir" rev-parse -q --verify main 2>/dev/null) || exit 0
 rel="docs/decisions-adr/${f##*/docs/decisions-adr/}"
