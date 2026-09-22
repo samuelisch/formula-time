@@ -146,7 +146,10 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   folds from it once a viewer rewinds past the push ring buffer
   (`mode: "timeline"`, `polls: []`). A reconnect resumes `useSessionTimeline`
   from the head seq into the same timeline; only a `rebuilt` push re-backfills
-  it from zero.
+  it from zero. `src/replay/replayStart.ts`'s
+  `replayStartMs` cuts a replay's playback and scrub bar to the formation
+  lap -- `date_start` on time, `FORMATION_WINDOW_MS` before the measured
+  lights-out when delayed -- instead of the recording's first row.
 - Styling is CSS Modules (`*.module.css` next to the component); the dark
   palette lives as CSS variables in `src/index.css`.
 - Unit tests are `*.test.ts(x)` next to the source. The root

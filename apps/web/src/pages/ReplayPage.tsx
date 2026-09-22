@@ -133,26 +133,21 @@ export function ReplayPage() {
     return <Card>Loading race…</Card>;
   }
 
-  // The replay always opens at the recording's first row, which can sit
-  // well before lights-out -- this notice
-  // tells the viewer where the race actually starts instead of leaving them
-  // to find "Race start" on their own. It shows only before lights-out, only
-  // when there is a lights-out anchor to jump to, and only until the viewer
-  // has started or seeked playback themselves (`dismissed`).
+  // The replay now opens at the formation lap (`replayStartMs`), not the
+  // recording's first row -- this notice tells the viewer that, instead of
+  // leaving them to find "Race start" on their own. It shows only before
+  // lights-out, only when there is a lights-out anchor to jump to, and only
+  // until the viewer has started or seeked playback themselves (`dismissed`).
   const anchors = targetWithDismissal.anchors();
   const lightsOutMs = anchors.lights_out === null ? null : Date.parse(anchors.lights_out);
   const displayedAtMs = targetWithDismissal.displayedAt();
   const showStartNotice = !dismissed && lightsOutMs !== null && displayedAtMs !== null && displayedAtMs < lightsOutMs;
-  const startNoticeMinutes =
-    lightsOutMs === null || foldQuery.data.firstSourceMs === null
-      ? null
-      : Math.round((lightsOutMs - foldQuery.data.firstSourceMs) / 60_000);
 
   return (
     <div className={styles.replay}>
-      {showStartNotice && startNoticeMinutes !== null && (
+      {showStartNotice && (
         <div className={styles.startNotice}>
-          This replay starts {startNoticeMinutes} min before lights out.{" "}
+          This replay starts at the formation lap.{" "}
           <button type="button" className={styles.startNoticeLink} onClick={() => jumpToRaceStart(targetWithDismissal)}>
             Jump to race start
           </button>
