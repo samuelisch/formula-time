@@ -13,6 +13,8 @@
 ## Decisions
 
 - `docs/decisions-adr/` holds every architectural decision, numbered and dated. New decisions are appended.
+- [How it is built](docs/architecture.md)
+- [Glossary](docs/glossary.md)
 
 ## Local ports
 
