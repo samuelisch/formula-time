@@ -80,6 +80,27 @@ const lifecycle = createSessionLifecycle({
   log,
 });
 
+// Registered here, before any route or timer starts: a crash before this
+// point (bootstrap) would otherwise print a bare stack trace with no
+// service, build or session_key field -- a log query for an error finds
+// nothing and the "api: last 60s" line just stops. Exit semantics are
+// unchanged (Railway restarts the service); only the evidence is new.
+function fatal(kind: string, reason: unknown): void {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  const health = lifecycle.health();
+  log("api: fatal error", {
+    level: "error",
+    kind,
+    reason: { message: err.message, stack: err.stack ?? null },
+    session_key: health.session_key,
+    cursor: health.cursor,
+  });
+  process.nextTick(() => process.exit(1));
+}
+
+process.on("unhandledRejection", (reason) => fatal("unhandledRejection", reason));
+process.on("uncaughtException", (err) => fatal("uncaughtException", err));
+
 // /health stays at the root: it is the platform's probe (Railway
 // healthcheck, .railway/railway.ts), not a client route. `ok` is always
 // true while this process is serving; `db` is informational only -- a

@@ -19,6 +19,20 @@ import { EventQueue } from "./writer/queue.js";
 import { upsertSession } from "./writer/sessions.js";
 import { EventWriter } from "./writer/writer.js";
 
+// Registered before anything else starts: neither this service nor the api
+// caught these before, so a crash printed a bare stack trace with no
+// service, build or lane field -- a log query for an error finds nothing
+// and the "ingest: last 60s" line just stops. Exit semantics are
+// unchanged (the platform restarts the service); only the evidence is new.
+function fatal(kind: string, reason: unknown): void {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  logger.error({ kind, reason: { message: err.message, stack: err.stack ?? null } }, "ingest: fatal error");
+  process.nextTick(() => process.exit(1));
+}
+
+process.on("unhandledRejection", (reason) => fatal("unhandledRejection", reason));
+process.on("uncaughtException", (err) => fatal("uncaughtException", err));
+
 const config = loadConfig();
 
 if (!config.databaseUrl) {
