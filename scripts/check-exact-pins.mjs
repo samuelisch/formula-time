@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Fails when a workspace package.json pins a dependency to anything but an
-// exact version, per AGENTS.md's pin rule (2026-09-11: "no ~ ^, just
-// strictly a certain version, throughout the whole app"). A caret, tilde,
-// or other range lets an install drift from what was actually tested, and
-// Dependabot's "bump the pin in place" flow only works on a pin.
-// workspace:*, catalog: and link: specifiers are exempt: each names
-// another package in this monorepo, or a pnpm catalog entry, not a
-// registry version range, so there is no install to drift.
+// Fails when a workspace package.json pins a dependency, a pnpm override,
+// or a Yarn resolution to anything but an exact version, per AGENTS.md's
+// pin rule (2026-09-11: "no ~ ^, just strictly a certain version,
+// throughout the whole app"). A caret, tilde, or other range lets an
+// install drift from what was actually tested, and Dependabot's "bump the
+// pin in place" flow only works on a pin. workspace:*, catalog: and link:
+// specifiers are exempt: each names another package in this monorepo, or
+// a pnpm catalog entry, not a registry version range, so there is no
+// install to drift.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,17 +39,30 @@ export function isPinned(spec) {
 }
 
 /**
- * The offending specifiers in one package.json's dependencies and
- * devDependencies blocks.
+ * Every name/spec block this check scans in one manifest: `dependencies`
+ * and `devDependencies`, plus pnpm's `pnpm.overrides` and Yarn's top-level
+ * `resolutions` -- both rewrite what actually installs for a transitive
+ * package, so a floating range there is exactly the drift this check
+ * exists to catch, same as an unpinned direct dependency.
+ * @param {unknown} manifest parsed package.json content
+ * @returns {Array<Record<string, unknown>>}
+ */
+function pinnableBlocks(manifest) {
+  const blocks = DEPENDENCY_KEYS.map((key) => manifest?.[key]);
+  blocks.push(manifest?.pnpm?.overrides, manifest?.resolutions);
+  return blocks.filter((block) => block && typeof block === "object");
+}
+
+/**
+ * The offending specifiers in one package.json: its dependencies,
+ * devDependencies, pnpm.overrides and resolutions blocks.
  * @param {string} label the file's path, as printed in an offender line
  * @param {unknown} manifest parsed package.json content
  * @returns {string[]} one line per offender, `<label>: <name> "<spec>"`
  */
 export function findOffenders(label, manifest) {
   const offenders = [];
-  for (const key of DEPENDENCY_KEYS) {
-    const block = manifest?.[key];
-    if (!block || typeof block !== "object") continue;
+  for (const block of pinnableBlocks(manifest)) {
     for (const [name, spec] of Object.entries(block)) {
       if (!isPinned(spec)) offenders.push(`${label}: ${name} "${spec}"`);
     }

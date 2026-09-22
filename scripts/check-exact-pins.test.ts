@@ -78,6 +78,28 @@ describe("findOffenders", () => {
   it("returns an empty list for a manifest with no dependency blocks", () => {
     expect(findOffenders("packages/domain/package.json", { name: "@formula-time/domain" })).toEqual([]);
   });
+
+  it("reports a floating pnpm.overrides range and passes an exact one", () => {
+    const manifest = {
+      pnpm: {
+        overrides: {
+          "deepmerge-ts": ">=8.0.0",
+          "exact-override": "1.2.3",
+        },
+      },
+    };
+    expect(findOffenders("package.json", manifest)).toEqual(['package.json: deepmerge-ts ">=8.0.0"']);
+  });
+
+  it("reports a floating resolutions range and passes an exact one", () => {
+    const manifest = {
+      resolutions: {
+        "some-dep": "^2.0.0",
+        "other-dep": "3.0.0",
+      },
+    };
+    expect(findOffenders("package.json", manifest)).toEqual(['package.json: some-dep "^2.0.0"']);
+  });
 });
 
 describe("run", () => {
@@ -119,6 +141,18 @@ describe("run", () => {
       'package.json: typescript "^6.0.3"',
       'apps/web/package.json: react "^19.3.0"',
     ]);
+    errorSpy.mockRestore();
+  });
+
+  it("catches a floating pnpm.overrides range alongside a clean dependencies block", () => {
+    writeManifest("package.json", {
+      devDependencies: { typescript: "6.0.3" },
+      pnpm: { overrides: { "deepmerge-ts": ">=8.0.0" } },
+    });
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(run([], { root })).toBe(1);
+    expect(errorSpy.mock.calls.map((call) => call[0])).toEqual(['package.json: deepmerge-ts ">=8.0.0"']);
     errorSpy.mockRestore();
   });
 });

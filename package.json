@@ -46,7 +46,7 @@
   },
   "pnpm": {
     "overrides": {
-      "deepmerge-ts": ">=8.0.0"
+      "deepmerge-ts": "8.0.2"
     }
   }
 }
