@@ -4,7 +4,7 @@
 // code, per the package's own browser-safe rule.
 import type { JsonPatchOp } from "./patch.js";
 import type { PollPublic } from "./polls.js";
-import type { RaceState } from "./race_state.js";
+import type { RaceState } from "./race-state.js";
 import type { RaceEvent, RawRecord } from "./types.js";
 
 /**

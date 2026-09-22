@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createInitialState, RaceStateReducer } from "./race_state.js";
+import { createInitialState, RaceStateReducer } from "./race-state.js";
 import type { RaceEvent, RawRecord } from "./types.js";
 
 function event(eventId: string, endpoint: string, sourceTime: string, payload: RawRecord): RaceEvent {

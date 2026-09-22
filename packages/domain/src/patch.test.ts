@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { applyPatch, diffState } from "./patch.js";
-import { createInitialState, RaceStateReducer } from "./race_state.js";
+import { createInitialState, RaceStateReducer } from "./race-state.js";
 
 // The full diffState/applyPatch round-trip suite lives in
 // apps/api/src/fanout/patch.test.ts, importing this module's re-export

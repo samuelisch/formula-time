@@ -17,7 +17,7 @@ interface Strip {
   text: string;
 }
 
-// active_flags keys are `scope` or `${scope}:${sector}` (race_state.ts
+// active_flags keys are `scope` or `${scope}:${sector}` (race-state.ts
 // applyRaceControl); render the colon as a space, e.g. "Sector:4" -> "Sector 4".
 function formatScope(key: string): string {
   return key.replace(":", " ");

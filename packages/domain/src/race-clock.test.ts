@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createInitialState, RaceStateReducer } from "./race_state.js";
+import { createInitialState, RaceStateReducer } from "./race-state.js";
 import type { RaceEvent, RawRecord } from "./types.js";
-import { isChequered, leaderLap, locksAtLap } from "./race_clock.js";
+import { isChequered, leaderLap, locksAtLap } from "./race-clock.js";
 
 function event(eventId: string, endpoint: string, sourceTime: string, payload: RawRecord): RaceEvent {
   return {
