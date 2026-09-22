@@ -98,6 +98,81 @@ describe("parseAdrFile", () => {
     expect(parseAdrFile("README.md", "# Decisions")).toBeNull();
   });
 
+  it("does not take an Amends field mention that the field text explicitly says is untouched", () => {
+    // Reproduces docs/decisions-adr/0033-session-row-refresh-publishes-once.md's
+    // Amends field: it amends ADR-0014, and separately notes that ADR-0013's
+    // rule is untouched -- untouched is not amended.
+    const content = [
+      "# ADR-0033 — A session row refresh publishes once, outside the tick cycle",
+      "",
+      "- **Status:** Proposed (accepted when this PR merges)",
+      "- **Date:** 2026-09-13",
+      "- **Owner:** Samuel Chan",
+      "- **Supersedes:** nothing",
+      "- **Amends:** ADR-0014 point 2 (the two named exceptions to a genuine new",
+      "  tick that publish `events: []` — catch-up and rebuild — gain a third:",
+      "  a session-row refresh outside either. ADR-0013 point 1's delta patch",
+      '  "computed once per tick on the server" is untouched: a row refresh',
+      "  carries no patch computation, only the session field of the pushed",
+      '  state, so it does not conflict with "once per tick" for the delta',
+      "  payload itself.)",
+      "",
+      "## Context",
+      "",
+      "Some context paragraph with no trigger word.",
+      "",
+    ].join("\n");
+    const parsed = parseAdrFile("0033-session-row-refresh-publishes-once.md", content);
+    expect(parsed?.amends).toEqual(["0014"]);
+  });
+
+  it("does not take an Amends field mention that is only a parenthetical cross-reference", () => {
+    // Reproduces docs/decisions-adr/0004-prisma-and-db-package.md's Amends
+    // field: it amends ADR-0002, and separately cites ADR-0001's seam
+    // contract as a cross-reference for where migrations are applied.
+    const content = [
+      "# ADR-0004 — Prisma as the database client, in a Node-only `packages/db`",
+      "",
+      "- **Status:** Proposed (accepted when this PR merges)",
+      "- **Date:** 2026-09-08",
+      "- **Owner:** Samuel Chan",
+      "- **Amends:** ADR-0002 (toolchain). Migrations stay numbered SQL files",
+      "  applied by the deploy pipeline (ADR-0001 seam contract 1); Prisma Migrate",
+      "  is what emits and applies them.",
+      "",
+      "## Context",
+      "",
+      "Some context paragraph with no trigger word.",
+      "",
+    ].join("\n");
+    const parsed = parseAdrFile("0004-prisma-and-db-package.md", content);
+    expect(parsed?.amends).toEqual(["0002"]);
+  });
+
+  it("does not mistake an ellipsis inside a quoted excerpt for a sentence break in the Amends field", () => {
+    // Reproduces docs/decisions-adr/0036-ingest-runs-as-root-on-railway-so-the-volume-is-writable.md's
+    // Amends field, which quotes another ADR's text containing "...": the
+    // second target, ADR-0007, must not be cut off by that ellipsis.
+    const content = [
+      "# ADR-0036 — The ingest service runs as root on Railway so the volume is writable",
+      "",
+      "- **Status:** Accepted",
+      "- **Date:** 2026-09-14",
+      "- **Owner:** Samuel Chan",
+      '- **Amends:** ADR-0034 (its "a rejected append is logged at error level ...',
+      "  never allowed to block or stop the lane\" stance is extended to the",
+      "  startup probe this ADR adds, not changed); ADR-0007 §4 (names",
+      "  `LIVE_LOG_DIR` as a config seam and is unchanged by this).",
+      "",
+      "## Context",
+      "",
+      "Some context paragraph with no trigger word.",
+      "",
+    ].join("\n");
+    const parsed = parseAdrFile("0036-ingest-runs-as-root-on-railway-so-the-volume-is-writable.md", content);
+    expect(parsed?.amends.sort()).toEqual(["0007", "0034"]);
+  });
+
   it("does not attribute an amendment described about a different ADR pair to this file", () => {
     // Reproduces docs/decisions-adr/0026-session-names-on-the-wire.md's Context
     // paragraph: it reports that ADR-0025 amends ADR-0004, which is a fact

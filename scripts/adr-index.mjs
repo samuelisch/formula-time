@@ -87,7 +87,11 @@ function firstParagraph(content) {
   return para.join(" ").trim();
 }
 
-const SENTENCE_SPLIT_RE = /(?<=[.!?])\s+/;
+// A sentence boundary is [.!?] followed by whitespace, but the boundary
+// character itself must not be preceded by another [.!?\s]: this skips
+// every dot of an ellipsis ("logged at error level ... never") instead of
+// splitting mid-quote at its last dot.
+const SENTENCE_SPLIT_RE = /(?<=[^.!?\s][.!?])\s+/;
 // A trigger word whose subject is another, explicitly named ADR (e.g. "ADR-0025
 // amends only ADR-0004") describes that other ADR's amendment, not this file's;
 // such a sentence is skipped rather than misread as this file amending ADR-0004.
@@ -114,6 +118,33 @@ function adrMentionsFromText(text) {
   return mentions;
 }
 
+// A mention within this many characters of "untouched" or "unchanged" names
+// what the amendment leaves alone, not what it amends.
+const NEGATION_RE = /\b(untouched|unchanged)\b/i;
+const NEGATION_WINDOW = 40;
+
+/**
+ * Every ADR-NNNN mention this file's own `Amends:` field names as an
+ * amendment target: only the leading sentence (the list before the first
+ * full stop, the shape every field in this repo uses for its target list),
+ * since a later sentence in the same field is prose about what the
+ * amendment does *not* touch or a cross-reference to an unrelated ADR, not
+ * a second target. A mention is also dropped if "untouched" or "unchanged"
+ * appears shortly before it even within that leading sentence.
+ * @param {string} fieldText the Amends field's value, from `fieldValue`
+ * @returns {string[]} four-digit ADR numbers, in the order they appear
+ */
+function amendsMentionsFromField(fieldText) {
+  const leadingSentence = fieldText.split(SENTENCE_SPLIT_RE)[0] ?? "";
+  const mentions = [];
+  for (const m of leadingSentence.matchAll(ADR_MENTION_RE)) {
+    const context = leadingSentence.slice(Math.max(0, m.index - NEGATION_WINDOW), m.index);
+    if (NEGATION_RE.test(context)) continue;
+    mentions.push(m[1]);
+  }
+  return mentions;
+}
+
 /**
  * Parses one ADR file's front matter and amendment mentions.
  * @param {string} filename e.g. "0013-delta-pushes.md"
@@ -135,7 +166,7 @@ export function parseAdrFile(filename, content) {
   const date = fieldValue(content, "Date");
 
   const amends = new Set();
-  for (const m of fieldValue(content, "Amends").matchAll(ADR_MENTION_RE)) amends.add(m[1]);
+  for (const n of amendsMentionsFromField(fieldValue(content, "Amends"))) amends.add(n);
   for (const n of adrMentionsFromText(firstLine)) amends.add(n);
   for (const n of adrMentionsFromText(firstParagraph(content))) amends.add(n);
   amends.delete(number);
