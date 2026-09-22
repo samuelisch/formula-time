@@ -105,6 +105,22 @@ ticks. An already-exported session is re-exported the same way once
 the historical-race route sends is `"<session_key>-<exported_at ms>"`, so a
 re-export changes it (`export/exporter.ts`).
 
+The exporter runs its own 5 s tick, independent of the projector's tick,
+and never overlaps ticks: one that starts while a previous pass is still
+running returns immediately (ADR-0001 §2 invariant 2). The database is the
+record and disk only a cache: when an exported session's row exists but
+its file is missing (Railway's disk is ephemeral), `GET
+/api/races/:session_key` regenerates the file from the row's stored
+`exported_at`, so the file, the row and the etag can never diverge
+(ADR-0009 §3).
+
+One query per tick finds both candidate kinds in a single `UNION ALL`: new
+candidates need only check for a missing `exports` row; stale candidates
+are found with an `EXISTS` against `events`, narrowed to one session's
+rows by `events_session_key_source_time_idx`'s leading column — a few
+short per-session scans, since `exports` holds only already-exported
+sessions, not a table-wide scan.
+
 `export/prune-exports.ts` is a one-off maintenance command, not part of
 the running service: `node apps/api/dist/export/prune-exports.js` inside
 the container logs what it would delete; `--apply` deletes the file and
