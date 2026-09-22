@@ -1,11 +1,9 @@
-// The shared PollPublic shape and its build logic. Both the live/in-memory
-// path (poll-module.ts, folded from RaceState) and the read path for
-// `GET /api/races/:session_key/polls` (routes.ts, read straight from
-// Postgres) produce the same wire shape from here, so they cannot drift.
-//
-// pollsBySession is the read path itself: two queries per request, never
-// per viewer per tick (ADR-0001 §2 invariant 2) -- one `poll.findMany` for
-// the session's rows, one `vote.groupBy` for their tallies.
+// The shared PollPublic shape and its build logic: the live/in-memory
+// path (poll-module.ts) and the read path for `GET
+// /api/races/:session_key/polls` (routes.ts) both produce this wire shape
+// from here, so they cannot drift. `pollsBySession` is that read path:
+// two queries per request, never per viewer per tick (ADR-0001 §2
+// invariant 2).
 import type { PrismaClient } from "@formula-time/db";
 import type { PollLifecycleStatus, PollOptionPublic, PollPublic, PollTemplateKind } from "@formula-time/domain";
 

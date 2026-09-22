@@ -80,6 +80,14 @@ that locks between a fast in-memory reject and the write still can't take
 a vote — and it is acknowledged to the caller only after that insert
 commits (`polls/vote-path.ts`).
 
+`RETURNING option_id` also settles a race between two concurrent votes
+from the same viewer: Postgres decides which option is stored last by
+commit order, not by which of two racing promises resolves first in this
+process, so the in-memory tally is set from the value the statement
+returns rather than from the caller's own argument. `PollModule.vote`
+additionally serializes votes per viewer so the two concerns don't
+compound.
+
 A viewer is an HttpOnly `viewer_id` cookie, `SameSite=None; Secure` in
 production (needed for the cookie to cross the split origins) and
 `SameSite=Lax`, not `Secure`, everywhere else (`polls/viewer-identity.ts`).
