@@ -733,5 +733,79 @@ describe("createSessionLifecycle", () => {
       await expect(lifecycle.check()).resolves.toBeUndefined();
       expect(log).toHaveBeenCalledWith("poll hook start failed", expect.objectContaining({ error: "boom" }));
     });
+
+    test("a rejected pickSession is caught: check() resolves, logs session check failed at error, and a later check() still serves a session", async () => {
+      vi.useFakeTimers();
+      const log = vi.fn();
+      const sess = fakeSession();
+      const pickSession = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("connection terminated"))
+        .mockResolvedValueOnce(sess);
+
+      const lifecycle = createSessionLifecycle({
+        db: fakePrisma(),
+        source: fakeEventSource([]),
+        pusher: fakePusher(),
+        pickSession,
+        polls: fakePollHooks(),
+        log,
+      });
+      projectors.push({ stop: () => lifecycle.stop() });
+
+      // Vitest fails the whole run on an unhandled rejection by default, so
+      // this test passing at all is proof the rejection was caught, not
+      // just that the log fired.
+      await expect(lifecycle.check()).resolves.toBeUndefined();
+
+      expect(log).toHaveBeenCalledWith(
+        "session check failed",
+        expect.objectContaining({ level: "error", error: "connection terminated", session_key: null }),
+      );
+      expect(lifecycle.health()).toEqual({
+        ok: true,
+        session_key: null,
+        cursor: "0",
+        caught_up: false,
+        viewers: 0,
+      });
+
+      await lifecycle.check();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(lifecycle.health().session_key).toBe(sess.sessionKey.toString());
+    });
+
+    test("a rejected pickSession while a session is already served leaves health() unchanged", async () => {
+      vi.useFakeTimers();
+      const log = vi.fn();
+      const sess = fakeSession({ sessionKey: 7n });
+      const pickSession = vi
+        .fn()
+        .mockResolvedValueOnce(sess)
+        .mockRejectedValueOnce(new Error("connection terminated"));
+
+      const lifecycle = createSessionLifecycle({
+        db: fakePrisma(),
+        source: fakeEventSource([]),
+        pusher: fakePusher(),
+        pickSession,
+        polls: fakePollHooks(),
+        log,
+      });
+      projectors.push({ stop: () => lifecycle.stop() });
+
+      await lifecycle.check(); // serves session 7
+      await vi.advanceTimersByTimeAsync(0);
+      const before = lifecycle.health();
+
+      await expect(lifecycle.check()).resolves.toBeUndefined();
+
+      expect(log).toHaveBeenCalledWith(
+        "session check failed",
+        expect.objectContaining({ level: "error", error: "connection terminated", session_key: "7" }),
+      );
+      expect(lifecycle.health()).toEqual(before);
+    });
   });
 });
