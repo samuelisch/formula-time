@@ -11,7 +11,7 @@ import { afterAll, beforeEach, expect, test } from "vitest";
 import { createDb } from "@formula-time/db";
 
 import { fetchRaces } from "./fetch-race.js";
-import type { Fetcher, RawRecord } from "./openf1/types.js";
+import type { Fetcher, RawRecord } from "../openf1/types.js";
 
 const db = createDb(undefined, { max: 1 });
 

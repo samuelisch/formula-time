@@ -21,12 +21,12 @@ import { createDb } from "@formula-time/db";
 
 import { dumpRecording } from "./dump-recording.js";
 import { loadRecordings } from "./load-recording.js";
-import { eventId } from "./openf1/normalize.js";
+import { eventId } from "../openf1/normalize.js";
 
 const db = createDb(undefined, { max: 1 });
 
 const RECORDING_11361_DIR =
-  process.env["RECORDING_11361_DIR"] ?? path.resolve(fileURLToPath(import.meta.url), "../../../../recordings/11361");
+  process.env["RECORDING_11361_DIR"] ?? path.resolve(fileURLToPath(import.meta.url), "../../../../../recordings/11361");
 const SESSION_KEY = 11361n;
 
 async function wipeRecording11361(): Promise<void> {

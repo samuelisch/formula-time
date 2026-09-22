@@ -1,7 +1,7 @@
 // One-shot loader (ADR-0009): writes a POC recording into
 // `sessions` + `events` as a finished session, so historical races can be
 // stored and exported. The live REST lane only polls a session inside its
-// ±30 min window (`pickLiveSession` in ./openf1/rest-lane.js), so pointing
+// ±30 min window (`pickLiveSession` in ../openf1/rest-lane.js), so pointing
 // `LIVE_SOURCE` at an old recording discovers and upserts the session but
 // never fetches its rows — historical races need this explicit load
 // instead.
@@ -30,20 +30,20 @@
 import type { SessionStatus } from "@formula-time/db";
 import { createDb } from "@formula-time/db";
 
-import { ENTRY_LIST_2026 } from "./openf1/entry-list.js";
-import { OpenF1Auth, createOpenF1Fetcher, credentialsFromEnv } from "./openf1/auth.js";
-import { enqueueRows } from "./openf1/enqueue.js";
-import { createFileFetcher, readRecordingEndpoint } from "./openf1/file-fetcher.js";
-import type { RecordedRow } from "./openf1/file-fetcher.js";
-import { LiveNormalizer } from "./openf1/normalize.js";
-import { FETCH_SPACING_MS, withRetry, withSpacing } from "./openf1/rate-limit.js";
-import { OPENF1_BASE, POLL_ROTATION } from "./openf1/rest-lane.js";
-import type { Fetcher, QueueItem, RawRecord } from "./openf1/types.js";
-import { EventQueue } from "./writer/queue.js";
-import type { DrainResult, EventWriterDb } from "./writer/writer.js";
-import { EventWriter } from "./writer/writer.js";
-import type { SessionsDb } from "./writer/sessions.js";
-import { isRaceSession, sessionFieldsFromRaw, upsertSession } from "./writer/sessions.js";
+import { ENTRY_LIST_2026 } from "../openf1/entry-list.js";
+import { OpenF1Auth, createOpenF1Fetcher, credentialsFromEnv } from "../openf1/auth.js";
+import { enqueueRows } from "../openf1/enqueue.js";
+import { createFileFetcher, readRecordingEndpoint } from "../openf1/file-fetcher.js";
+import type { RecordedRow } from "../openf1/file-fetcher.js";
+import { LiveNormalizer } from "../openf1/normalize.js";
+import { FETCH_SPACING_MS, withRetry, withSpacing } from "../openf1/rate-limit.js";
+import { OPENF1_BASE, POLL_ROTATION } from "../openf1/rest-lane.js";
+import type { Fetcher, QueueItem, RawRecord } from "../openf1/types.js";
+import { EventQueue } from "../writer/queue.js";
+import type { DrainResult, EventWriterDb } from "../writer/writer.js";
+import { EventWriter } from "../writer/writer.js";
+import type { SessionsDb } from "../writer/sessions.js";
+import { isRaceSession, sessionFieldsFromRaw, upsertSession } from "../writer/sessions.js";
 
 /**
  * The read half of the live-session guard (ADR-0010): whether an *existing*
@@ -708,7 +708,7 @@ export async function loadRecordings(
   return { ...totals, sessionsAttempted, sessionsSkipped };
 }
 
-// CLI entry: `node dist/load-recording.js [--replace] <recording-dir>
+// CLI entry: `node dist/commands/load-recording.js [--replace] <recording-dir>
 // [<recording-dir> ...]` (package.json script "load"; root script
 // "ingest:load"). Guarded so this module can be imported by the unit test
 // without running the CLI.
