@@ -3,10 +3,12 @@
 - **Status:** Proposed (accepted when this PR merges)
 - **Date:** 2026-09-22
 - **Owner:** Samuel Chan
-- **Amends:** ADR-0006. The three tiers and what each is responsible for
-  proving are unchanged; `checks` gains one more required step, matching
-  the precedent an earlier amendment set for adding a required check to
-  this same job (see Context).
+- **Amends:** ADR-0006 and ADR-0019. The three tiers ADR-0006 names and
+  what each is responsible for proving are unchanged; `checks` gains one
+  more required step, matching the precedent an earlier amendment set for
+  adding a required check to this same job (see Context). ADR-0019
+  documents the release gate's step list, and the release gate reuses
+  `checks` by `workflow_call`, so the new step lands there too.
 
 ## Context
 
@@ -21,14 +23,20 @@ and the accepted-ADR immutability check, none of which reads
 `docs/decisions-adr/README.md`. ADR-0017 already set the precedent for
 adding one more required check to the same `checks` job (lint, there);
 this is that same category of change, so it gets its own amending ADR
-rather than landing silently inside a feature PR.
+rather than landing silently inside a feature PR. ADR-0019 documents
+`release.yml`'s `gate` job as reusing `ci.yml`'s `checks` via
+`workflow_call` and enumerates its steps by name; a new required step in
+`checks` reaches the release gate the same way, through that reuse, so
+ADR-0019's enumeration goes stale unless this ADR also amends it.
 
 ## Decision
 
 - `.github/workflows/ci.yml`'s `checks` job gains a step named "ADR index
   is current", running `node scripts/adr-index.mjs --check`, placed right
   after "Accepted ADRs unchanged". It is required for merge, the same as
-  every other step in that job.
+  every other step in that job. `release.yml`'s `gate` job reuses `checks`
+  by `workflow_call`, so the release gate now runs this step too, updating
+  ADR-0019's step-list enumeration to include it.
 - `node scripts/adr-index.mjs --check` exits 1 without writing when the
   generated content differs from `docs/decisions-adr/README.md`, printing
   `docs/decisions-adr/README.md is stale; run node scripts/adr-index.mjs`
