@@ -36,11 +36,11 @@ writer of `polls`, `votes` and `exports`.
 
 - This service is the sole writer of `polls`, `votes` and `exports`; it
   reads `sessions` and `events` and never writes either.
-- A wire shape (`StatePush`, `DeltaPush`, the poll shapes, `RaceIndexEntry`,
-  `RaceEventsPage`, `RaceFile`) is always built typed against its
-  `packages/domain/src/wire.ts` or `polls.ts` export, never a local or
-  untyped copy, so the web reading the same shape fails typecheck the
-  moment the two disagree.
+- A wire shape (`StatePush`, `DeltaPush`, `StatusFrame`, `SessionStatus`,
+  the poll shapes, `RaceIndexEntry`, `RaceEventsPage`, `RaceFile`) is
+  always built typed against its `packages/domain/src/wire.ts` or
+  `polls.ts` export, never a local or untyped copy, so the web reading the
+  same shape fails typecheck the moment the two disagree.
 - The SSE route (`http/routes/live.ts`) is hand-written on the raw
   response; it must never sit behind compression middleware, which would
   gzip per viewer and defeat the fan-out's one-serialize-per-format design.
