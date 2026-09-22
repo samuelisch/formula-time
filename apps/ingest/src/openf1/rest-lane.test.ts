@@ -625,13 +625,6 @@ describe("RestLane.stop() and an in-flight tick (SIGTERM race)", () => {
   });
 });
 
-// The fetched entry list, replacing the static ENTRY_LIST_2026
-// fallback. Verified: every OpenF1 `drivers` row carries
-// its own `session_key` and `meeting_key`, e.g.
-// `{"meeting_key":1293,"session_key":11361,"driver_number":1,...}`
-// (recordings/11361/raw/drivers.jsonl) — so a row is tagged by the
-// `session_key` in ITS OWN payload, never by the session/meeting the fetch
-// was made for.
 describe("RestLane: a rejected recording attempt does not stop the lane", () => {
   test("logged at error level with the endpoint, row stays queued, later polls still run", async () => {
     const positionRow = { session_key: 11361, driver_number: 1, date: "2026-09-06T13:00:01Z" };

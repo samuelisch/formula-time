@@ -67,8 +67,8 @@ else.
   same writer with endpoint `drivers`.
 - Always on: discovers sessions itself, captures during a session window.
   The jsonl recording is still written — it is the irreplaceable artefact,
-  not a stopgap. It is written at emit time for both lanes: `emitRows`
-  (`openf1/rest-lane.ts`), the one place every lane's newly-queued rows pass
+  not a stopgap. It is written at emit time for both lanes: `enqueueRows`
+  (`openf1/enqueue.ts`), the one place every lane's newly-queued rows pass
   through, calls an `onRecorded` callback with exactly the rows it just
   queued, so a row reaches the recorder the moment it is queued regardless
   of which lane saw it first — REST and MQTT share one `LiveNormalizer`, so

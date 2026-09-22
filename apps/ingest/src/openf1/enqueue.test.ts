@@ -5,6 +5,13 @@ import { enqueueDriverRows } from "./enqueue.js";
 import { LiveNormalizer } from "./normalize.js";
 import { EventQueue } from "../writer/queue.js";
 
+// The fetched entry list, replacing the static ENTRY_LIST_2026
+// fallback. Verified: every OpenF1 `drivers` row carries
+// its own `session_key` and `meeting_key`, e.g.
+// `{"meeting_key":1293,"session_key":11361,"driver_number":1,...}`
+// (recordings/11361/raw/drivers.jsonl) — so a row is tagged by the
+// `session_key` in ITS OWN payload, never by the session/meeting the fetch
+// was made for.
 describe("enqueueDriverRows", () => {
   test("tags each row by its own session_key; a row naming a different session is still written and counted foreign", async () => {
     const normalizer = new LiveNormalizer();
