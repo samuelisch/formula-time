@@ -5,7 +5,7 @@ import path from "node:path";
 import * as yaml from "js-yaml";
 import { describe, expect, test } from "vitest";
 
-const repoRoot = path.resolve(fileURLToPath(new URL("../../../", import.meta.url)));
+const repoRoot = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
 
 interface Workflow {
   on: Record<string, unknown>;

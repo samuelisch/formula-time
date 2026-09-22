@@ -3,10 +3,10 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { fakeEventSource } from "../test/fake-event-source.js";
 import { fakePollHooks } from "../test/fake-poll-hooks.js";
 import { fakePrisma } from "../test/fake-prisma.js";
-import { fakePusher } from "../test/fake-pusher.js";
+import { fakePushSink } from "../test/fake-push-sink.js";
 import { fakeSession } from "../test/fixtures.js";
 import type { EventRow } from "./event-source.js";
-import { createSessionLifecycle, type Pusher } from "./serve-session.js";
+import { createSessionLifecycle, type PushSink } from "./serve-session.js";
 
 function driverRow(seq: number, driverNumber: number): EventRow {
   return {
@@ -26,7 +26,7 @@ describe("createSessionLifecycle", () => {
     const lifecycle = createSessionLifecycle({
       db: fakePrisma(),
       source: fakeEventSource(),
-      pusher: fakePusher(),
+      pusher: fakePushSink(),
       pickSession,
       polls: fakePollHooks(),
       log: () => {},
@@ -48,7 +48,7 @@ describe("createSessionLifecycle", () => {
     const lifecycle = createSessionLifecycle({
       db: fakePrisma(),
       source: fakeEventSource(),
-      pusher: fakePusher(3),
+      pusher: fakePushSink(3),
       pickSession: vi.fn(async () => null),
       polls: fakePollHooks(),
       log: () => {},
@@ -61,7 +61,7 @@ describe("createSessionLifecycle", () => {
     const lifecycle = createSessionLifecycle({
       db: fakePrisma(),
       source: fakeEventSource(),
-      pusher: fakePusher(),
+      pusher: fakePushSink(),
       pickSession: vi.fn(async () => null),
       polls: fakePollHooks(),
       log: () => {},
@@ -75,7 +75,7 @@ describe("createSessionLifecycle", () => {
     const lifecycle = createSessionLifecycle({
       db: fakePrisma(),
       source: fakeEventSource(),
-      pusher: fakePusher(),
+      pusher: fakePushSink(),
       pickSession: vi.fn(async () => null),
       polls: fakePollHooks(),
       log,
@@ -103,7 +103,7 @@ describe("createSessionLifecycle", () => {
       const calls: string[] = [];
       const polls = fakePollHooks({ calls });
       const pushed: unknown[] = [];
-      const pusher: Pusher = {
+      const pusher: PushSink = {
         push: vi.fn(async (payload: object) => {
           calls.push("push");
           pushed.push(payload);
@@ -135,7 +135,7 @@ describe("createSessionLifecycle", () => {
       const calls: string[] = [];
       const polls = fakePollHooks({ calls });
       const pushed: unknown[] = [];
-      const pusher: Pusher = {
+      const pusher: PushSink = {
         push: vi.fn(async (payload: object) => {
           calls.push("push");
           pushed.push(payload);
@@ -179,7 +179,7 @@ describe("createSessionLifecycle", () => {
       vi.useFakeTimers();
       const polls = fakePollHooks();
       const pushed: unknown[] = [];
-      const pusher: Pusher = {
+      const pusher: PushSink = {
         push: vi.fn(async (payload: object) => {
           pushed.push(payload);
         }),
@@ -226,7 +226,7 @@ describe("createSessionLifecycle", () => {
       });
       polls.publicPolls = vi.fn(() => (folded ? [{ poll_id: "after" }] : [{ poll_id: "before" }]));
       const pushed: unknown[] = [];
-      const pusher: Pusher = {
+      const pusher: PushSink = {
         push: vi.fn(async (payload: object) => {
           pushed.push(payload);
         }),
@@ -267,7 +267,7 @@ describe("createSessionLifecycle", () => {
       }
 
       const pushed: unknown[] = [];
-      const pusher: Pusher = {
+      const pusher: PushSink = {
         push: vi.fn(async (payload: object) => {
           pushed.push(payload);
         }),
@@ -310,7 +310,7 @@ describe("createSessionLifecycle", () => {
       vi.useFakeTimers();
       const polls = fakePollHooks();
       const pushed: unknown[] = [];
-      const pusher: Pusher = {
+      const pusher: PushSink = {
         push: vi.fn(async (payload: object) => {
           pushed.push(payload);
         }),
@@ -359,7 +359,7 @@ describe("createSessionLifecycle", () => {
       // refresh runs and changes total_laps.
       const polls = fakePollHooks({ manualOnState: true });
       const pushed: unknown[] = [];
-      const pusher: Pusher = {
+      const pusher: PushSink = {
         push: vi.fn(async (payload: object) => {
           pushed.push(payload);
         }),
@@ -428,7 +428,7 @@ describe("createSessionLifecycle", () => {
       const lifecycle = createSessionLifecycle({
         db: fakePrisma(),
         source: fakeEventSource([]),
-        pusher: fakePusher(),
+        pusher: fakePushSink(),
         pickSession,
         polls,
         log: noopLog,
@@ -447,7 +447,7 @@ describe("createSessionLifecycle", () => {
       vi.useFakeTimers();
       const calls: string[] = [];
       const polls = fakePollHooks({ calls });
-      const pusher: Pusher = {
+      const pusher: PushSink = {
         push: vi.fn(async () => {
           calls.push("push");
         }),
@@ -485,7 +485,7 @@ describe("createSessionLifecycle", () => {
       const lifecycle = createSessionLifecycle({
         db: fakePrisma(),
         source: fakeEventSource([]),
-        pusher: fakePusher(),
+        pusher: fakePushSink(),
         pickSession,
         polls,
         log: noopLog,
@@ -510,7 +510,7 @@ describe("createSessionLifecycle", () => {
       const lifecycle = createSessionLifecycle({
         db: fakePrisma(),
         source: fakeEventSource([]),
-        pusher: fakePusher(),
+        pusher: fakePushSink(),
         pickSession,
         polls,
         log: noopLog,
@@ -536,7 +536,7 @@ describe("createSessionLifecycle", () => {
       const lifecycle = createSessionLifecycle({
         db: fakePrisma(),
         source: fakeEventSource([]),
-        pusher: fakePusher(),
+        pusher: fakePushSink(),
         pickSession,
         polls: fakePollHooks(),
         log: noopLog,
@@ -560,7 +560,7 @@ describe("createSessionLifecycle", () => {
       const log = vi.fn();
       const pushed: unknown[] = [];
       let pushCalls = 0;
-      const pusher: Pusher = {
+      const pusher: PushSink = {
         push: vi.fn(async (payload: object) => {
           pushCalls += 1;
           if (pushCalls === 1) {
@@ -609,7 +609,7 @@ describe("createSessionLifecycle", () => {
       const polls = fakePollHooks();
       const pushed: unknown[] = [];
       let pushCalls = 0;
-      const pusher: Pusher = {
+      const pusher: PushSink = {
         push: vi.fn(async (payload: object) => {
           pushCalls += 1;
           if (pushCalls === 1) {
@@ -650,7 +650,7 @@ describe("createSessionLifecycle", () => {
       const polls = fakePollHooks();
       const pushed: unknown[] = [];
       const gates: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
-      const pusher: Pusher = {
+      const pusher: PushSink = {
         push: vi.fn(
           (payload: object) =>
             new Promise<void>((resolve, reject) => {
@@ -723,7 +723,7 @@ describe("createSessionLifecycle", () => {
       const lifecycle = createSessionLifecycle({
         db: fakePrisma(),
         source: fakeEventSource([]),
-        pusher: fakePusher(),
+        pusher: fakePushSink(),
         pickSession: vi.fn(async () => sess),
         polls,
         log,
