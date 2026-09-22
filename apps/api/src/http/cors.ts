@@ -1,6 +1,6 @@
-// CORS for the split-hosted web bundle (ADR-0008): the bundle's own
-// origin and this api's origin share one registrable domain, so the
-// SameSite=Lax viewer cookie still travels on a credentialed fetch.
+// CORS for the split-hosted web bundle (ADR-0008): the bundle and this
+// api are on different origins (Netlify and Railway), so the viewer
+// cookie needs `SameSite=None` to cross them in production (ADR-0015).
 // `CORS_ORIGIN` is a comma-separated allowlist of exact origins from the
 // platform secret store; unset means no cross-origin access, the right
 // default for same-origin dev (the Vite proxy).

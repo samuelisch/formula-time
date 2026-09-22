@@ -1,9 +1,9 @@
-// GET /api/live/events: the thin SSE route (ADR-0001 §2 invariant 1),
-// hand-written on the raw response so compression middleware never gzips
-// it per viewer. This handler never touches the projector, only the
-// Fanout, which already holds the newest frame. `?format=delta`
-// (ADR-0013 point 2) is opt-in. `GET /api/live/snapshot` is the
-// gap-recovery route (ADR-0013 point 3): the newest `state` push's bytes.
+// GET /api/live/events: the thin SSE route (ADR-0001 §1), hand-written
+// on the raw response so compression middleware never gzips it per
+// viewer (§2 invariant 1: no per-viewer server work). This handler never
+// touches the projector, only the Fanout, which already holds the newest
+// frame. `?format=delta` (ADR-0013 point 2) is opt-in. `GET
+// /api/live/snapshot` is the gap-recovery route (ADR-0013 point 3).
 import type { FastifyInstance, FastifyPluginCallback, FastifyReply, FastifyRequest } from "fastify";
 
 import { replyHeaders } from "../cors.js";
