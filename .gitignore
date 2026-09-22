@@ -2,6 +2,8 @@
 /docs/*
 !/docs/decisions-adr/
 !/docs/retros/
+!/docs/architecture.md
+!/docs/glossary.md
 
 # toolchain
 node_modules/
