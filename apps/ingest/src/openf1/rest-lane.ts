@@ -9,6 +9,8 @@
 
 import path from "node:path";
 
+import { LIVE_WINDOW_MS, OPENF1_BASE, SessionDiscovery, pickLiveSession, sessionExpired } from "./discovery.js";
+import type { CountStat } from "./discovery.js";
 import { ENTRY_LIST_2026 } from "./entry-list.js";
 import { enqueueDriverRows, enqueueRows } from "./enqueue.js";
 import type { EnqueueDriverRowsResult, RecordRows } from "./enqueue.js";
@@ -18,11 +20,10 @@ import type { LaneLog } from "../log.js";
 import type { EventQueue } from "../writer/queue.js";
 import { isRaceSession } from "../writer/sessions.js";
 
-export const OPENF1_BASE = "https://api.openf1.org/v1";
-
-// OpenF1 serves live data from 30 minutes before `date_start` to 30 minutes
-// after `date_end`.
-const LIVE_WINDOW_MS = 30 * 60 * 1000;
+// The live window and the two predicates over it moved to discovery.ts with
+// the snapshot that uses them; re-exported here so every existing import
+// (the loaders, the tests) keeps working.
+export { OPENF1_BASE, pickLiveSession, sessionExpired } from "./discovery.js";
 
 // Weighted rotation: hot endpoints appear most often. 21 slots; at a 2.2s
 // tick a full cycle ~46s (~27 req/min) — "REST (cadence unchanged from the
@@ -35,27 +36,6 @@ export const POLL_ROTATION: string[] = [
   "position", "intervals", "stints",
   "position", "intervals", "position", "intervals",
 ];
-
-export function pickLiveSession(sessions: RawRecord[], nowMs: number): RawRecord | null {
-  for (const session of sessions) {
-    const start = Date.parse(String(session["date_start"] ?? ""));
-    const end = Date.parse(String(session["date_end"] ?? ""));
-    if (Number.isNaN(start) || Number.isNaN(end)) continue;
-    if (nowMs >= start - LIVE_WINDOW_MS && nowMs <= end + LIVE_WINDOW_MS) {
-      return session;
-    }
-  }
-  return null;
-}
-
-// A session stops being live once the clock leaves its window (same ±30min
-// grace as discovery). Pure so it can be unit-tested without clock injection.
-export function sessionExpired(session: RawRecord | null, nowMs: number): boolean {
-  if (session === null) return false;
-  const end = Date.parse(String(session["date_end"] ?? ""));
-  if (Number.isNaN(end)) return false;
-  return nowMs > end + LIVE_WINDOW_MS;
-}
 
 // The live API rejects every date filter (apps/ingest/AGENTS.md); the rest
 // lane always calls this with `cursor: null` and relies on the normalizer's
@@ -136,22 +116,20 @@ export interface RestLaneStats {
 
 export class RestLane {
   private readonly fetcher: Fetcher;
-  private readonly year: number;
   private readonly now: () => number;
   private readonly tickMs: number;
   private readonly discoveryIntervalMs: number;
-  private readonly onSession: RestLaneOptions["onSession"];
   private readonly onSessionSelected: RestLaneOptions["onSessionSelected"];
   private readonly onRecordedCallback: RestLaneOptions["onRecorded"];
   private readonly liveLogDir: string;
   private readonly log: LaneLog;
+  private readonly discovery: SessionDiscovery;
   // Every OpenF1 REST call made (discovery, meetings, entry list, the
   // rotation poll), and the new rows / errors it produced, since the last
-  // takeStats() call — feeds main.ts's per-minute composed line.
-  private pollsSinceStats = 0;
-  private rowsSinceStats = 0;
-  private errorsSinceStats = 0;
-  private unjoinedSinceStats = 0;
+  // takeStats() call — feeds main.ts's per-minute composed line. Discovery
+  // and the entry-list fetches count into these through `countStat`, so
+  // there is one set of counters and one takeStats().
+  private stats: RestLaneStats = { polls: 0, rows: 0, errors: 0, unjoined: 0 };
 
   // Rows recorded (via onRecorded, i.e. written into the jsonl recording) for
   // the currently followed session only — reset when a NEW session is
@@ -180,39 +158,6 @@ export class RestLane {
   // Friday, per meeting_key: retried every 30 minutes while it
   // returns zero rows or fails.
   private readonly fridayMeetings = new Map<number, { satisfied: boolean; nextRetryAt: number }>();
-  // The last `sessions?year=` snapshot discovery saw — Friday's condition
-  // ("a meeting whose first session's date_start has passed and whose race
-  // session is in the sessions table") needs the whole year's sessions, not
-  // just the one currently selected, and discoverOnce() stops running once a
-  // session is live, so pollOnce() reuses this snapshot instead of refetching.
-  private lastSessions: RawRecord[] = [];
-  // meeting_key -> meeting_name, refetched (`meetings?year=`) once per
-  // discovery tick alongside the sessions snapshot (refreshSessions) — a
-  // fetch failure keeps the previous map rather than clearing it, so a
-  // transient error doesn't blank out every session's meeting_name on the
-  // next upsert.
-  private meetingNames: ReadonlyMap<number, string> = new Map();
-  // The followed session's own meetings row is recorded (via onRecorded,
-  // endpoint "meetings") at most once per session_key — this Set is that
-  // "already fired" marker, same pattern as preRaceRefreshDone above.
-  private readonly meetingRowRecordedFor = new Set<number>();
-  // The raw rows from the most recent successful `refreshMeetingNames`
-  // fetch — kept so the followed-session recording check (which needs to
-  // run AFTER a session is selected, not while `refreshMeetingNames` itself
-  // runs inside `refreshSessions`, before `ensureLiveSession` has picked
-  // one) can reuse this tick's fetch instead of refetching.
-  private lastMeetingRows: RawRecord[] = [];
-  // Every session_key whose `sessions` upsert has succeeded at least once
-  // (this process). A drivers row tagged to any other key must not be
-  // queued: `events.session_key` is a FK, one such row fails the writer's
-  // whole batch, and the writer requeues that batch at the front forever.
-  private readonly knownSessionKeys = new Set<number>();
-  // While a session is live the idle discovery loop does not run, so the
-  // sessions snapshot (and knownSessionKeys) would freeze: a race session
-  // whose upsert had not landed before FP1 went live would never become
-  // known and Friday's 30-minute retry would never fire. pollOnce() refreshes
-  // the snapshot every discoveryIntervalMs instead, as its own tick.
-  private nextSessionsRefreshAt = 0;
 
   private running = false;
   private timer: NodeJS.Timeout | null = null;
@@ -227,33 +172,37 @@ export class RestLane {
     opts: RestLaneOptions = {},
   ) {
     this.fetcher = opts.fetcher ?? defaultFetcher;
-    this.year = opts.year ?? new Date().getUTCFullYear();
     this.now = opts.now ?? Date.now;
     this.tickMs = opts.tickMs ?? 2200;
     this.discoveryIntervalMs = opts.discoveryIntervalMs ?? 60_000;
-    this.onSession = opts.onSession;
     this.onSessionSelected = opts.onSessionSelected;
     this.onRecordedCallback = opts.onRecorded;
     this.liveLogDir = opts.liveLogDir ?? "./live-logs";
     this.log = opts.onLog ?? ((): void => {});
+    this.discovery = new SessionDiscovery({
+      fetcher: this.fetcher,
+      year: opts.year ?? new Date().getUTCFullYear(),
+      intervalMs: this.discoveryIntervalMs,
+      onSession: opts.onSession,
+      onRecorded: this.recordRows,
+      countStat: this.countStat,
+      log: this.log,
+    });
   }
 
   public status(): { active: boolean; sessionKey: number | null } {
     return { active: this.sessionKey !== null, sessionKey: this.sessionKey };
   }
 
+  /** The one place every REST call this lane makes, wherever it was made, is counted. */
+  private readonly countStat: CountStat = (stat, n = 1): void => {
+    this.stats[stat] += n;
+  };
+
   /** Polls/rows/errors since the previous call, then reset to zero. */
   public takeStats(): RestLaneStats {
-    const stats: RestLaneStats = {
-      polls: this.pollsSinceStats,
-      rows: this.rowsSinceStats,
-      errors: this.errorsSinceStats,
-      unjoined: this.unjoinedSinceStats,
-    };
-    this.pollsSinceStats = 0;
-    this.rowsSinceStats = 0;
-    this.errorsSinceStats = 0;
-    this.unjoinedSinceStats = 0;
+    const stats = this.stats;
+    this.stats = { polls: 0, rows: 0, errors: 0, unjoined: 0 };
     return stats;
   }
 
@@ -276,7 +225,7 @@ export class RestLane {
    */
   public async discoverOnce(): Promise<{ sessionCount: number; live: boolean }> {
     const nowMs = this.now();
-    const refreshed = await this.refreshSessions(nowMs);
+    const refreshed = await this.discovery.refreshSessions(nowMs);
     if (refreshed === null) return { sessionCount: 0, live: this.sessionKey !== null };
     const { rows, upserted } = refreshed;
 
@@ -288,144 +237,14 @@ export class RestLane {
     // Friday: checked on every discovery tick — this is the idle (60s)
     // loop's own extra fetch, not competing with the rotation budget (there
     // is no rotation while idle).
-    if (!selectionFetched) await this.checkFridayFetch(this.lastSessions, nowMs);
+    if (!selectionFetched) await this.checkFridayFetch(this.discovery.sessions(), nowMs);
 
     // After ensureLiveSession, so a session selected THIS tick is already
-    // this.session/this.sessionKey — see maybeRecordFollowedMeetingRow's
-    // doc comment for why this can't run any earlier.
-    await this.maybeRecordFollowedMeetingRow();
+    // this.session/this.sessionKey — see SessionDiscovery's
+    // recordFollowedMeetingRow for why this can't run any earlier.
+    await this.discovery.recordFollowedMeetingRow(this.session, this.sessionKey);
 
     return { sessionCount: rows.length, live: this.sessionKey !== null };
-  }
-
-  /**
-   * `sessions?year=` plus the upsert of every race row: refreshes
-   * `lastSessions` (every row this fetch returned, race or not) and
-   * `knownSessionKeys` (race rows whose upsert succeeded only). Shared by
-   * the idle discovery tick and the live loop's periodic refresh. `null`
-   * when the fetch failed or returned no array.
-   */
-  private async refreshSessions(nowMs: number): Promise<{ rows: RawRecord[]; upserted: Set<RawRecord> } | null> {
-    this.nextSessionsRefreshAt = nowMs + this.discoveryIntervalMs;
-    let sessions: unknown;
-    this.pollsSinceStats += 1;
-    try {
-      sessions = await this.fetcher(`${OPENF1_BASE}/sessions?year=${this.year}`);
-    } catch (error) {
-      this.errorsSinceStats += 1;
-      this.log(`rest: session discovery failed: ${error instanceof Error ? error.message : String(error)}`, {
-        level: "error",
-      });
-      return null;
-    }
-    if (!Array.isArray(sessions)) return null;
-    const rows = sessions as RawRecord[];
-
-    // Refreshed alongside the sessions snapshot, once per tick — see
-    // `refreshMeetingNames`'s doc comment.
-    await this.refreshMeetingNames();
-
-    // Only race sessions are captured (isRaceSession): a practice,
-    // qualifying or sprint row is never upserted, never added to
-    // `upserted`, and never added to `knownSessionKeys` — so
-    // ensureLiveSession() can't select it and a drivers row tagged to it is
-    // dropped downstream as unknownSession.
-    //
-    // Tracks which rows' onSession (the sessions upsert) succeeded THIS
-    // tick, so ensureLiveSession() never selects a session whose row failed
-    // to write — selecting it anyway would mean every later event insert
-    // fails its FK against a `sessions` row that was never created.
-    const upserted = new Set<RawRecord>();
-    for (const row of rows) {
-      if (!isRaceSession(row)) continue;
-      try {
-        await this.onSession?.(row, nowMs, this.meetingNames);
-        upserted.add(row);
-        const key = Number(row["session_key"]);
-        if (Number.isFinite(key)) this.knownSessionKeys.add(key);
-      } catch (error) {
-        // One malformed row (bad session_key, bad date) must not throw out
-        // of this loop and starve ensureLiveSession()/the Friday entry-list
-        // check every discovery tick — sessions.ts's upsertSession is what
-        // actually validates and throws; this is where ingest survives it.
-        this.log(`rest: session row skipped: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-
-    // Every row this fetch returned, race or not: the Friday entry-list
-    // check groups a meeting's sessions from this snapshot to find its
-    // first session's start and its race session, independent of whether a
-    // session's own `sessions` upsert has landed — checkFridayFetch below
-    // still requires the race session to be in `knownSessionKeys` before it
-    // fires, so a not-yet-written race session still blocks the fetch the
-    // same way it always did.
-    this.lastSessions = rows;
-    return { rows, upserted };
-  }
-
-  /**
-   * `meetings?year=<current>`, once per discovery tick — the session row
-   * never carries the Grand Prix name itself, so `sessionFieldsFromRaw`
-   * joins it from this map by `meeting_key`. A fetch failure or a
-   * non-array response leaves the previous tick's map in place rather than
-   * clearing it: a transient error shouldn't blank out every session's
-   * `meeting_name` on the next upsert.
-   */
-  private async refreshMeetingNames(): Promise<void> {
-    let meetings: unknown;
-    this.pollsSinceStats += 1;
-    try {
-      meetings = await this.fetcher(`${OPENF1_BASE}/meetings?year=${this.year}`);
-    } catch (error) {
-      this.errorsSinceStats += 1;
-      this.log(`rest: meetings fetch failed: ${error instanceof Error ? error.message : String(error)}`, {
-        level: "error",
-      });
-      this.lastMeetingRows = [];
-      return;
-    }
-    if (!Array.isArray(meetings)) {
-      this.lastMeetingRows = [];
-      return;
-    }
-    const rows = meetings as RawRecord[];
-    this.lastMeetingRows = rows;
-    const map = new Map<number, string>();
-    for (const meeting of rows) {
-      const key = Number(meeting["meeting_key"]);
-      const name = meeting["meeting_name"];
-      if (Number.isFinite(key) && typeof name === "string" && name.length > 0) map.set(key, name);
-    }
-    this.meetingNames = map;
-  }
-
-  /**
-   * Records the followed session's own meetings row, once, through
-   * `onRecorded` (endpoint `"meetings"`) — the same jsonl-recorder path
-   * every other endpoint uses, so a later `pnpm ingest:load` of this
-   * session's recording can source `meeting_name` too
-   * (`meetingNamesFromRecording`, load-recording.ts). Matched by the row's
-   * own `meeting_key`, not by index, in case the response ever carries
-   * more than one meeting.
-   *
-   * Must run AFTER a session is selected: `refreshMeetingNames` runs
-   * inside `refreshSessions`, which `ensureLiveSession` (the selection
-   * logic) has not been called yet when a session is newly selected THIS
-   * tick — so this is called separately, once from the end of
-   * `discoverOnce` (covers the just-selected-this-tick case) and once from
-   * `pollOnce`'s periodic sessions refresh (covers the already-following
-   * case), both using `lastMeetingRows` from whichever tick's
-   * `refreshMeetingNames` call most recently succeeded.
-   */
-  private async maybeRecordFollowedMeetingRow(): Promise<void> {
-    if (this.sessionKey === null || this.session === null) return;
-    if (this.meetingRowRecordedFor.has(this.sessionKey)) return;
-    const meetingKey = Number(this.session["meeting_key"]);
-    if (!Number.isFinite(meetingKey)) return;
-    const row = this.lastMeetingRows.find((m) => Number(m["meeting_key"]) === meetingKey);
-    if (!row) return;
-    await this.recordRows(this.sessionKey, "meetings", [row]);
-    this.meetingRowRecordedFor.add(this.sessionKey);
   }
 
   /**
@@ -532,19 +351,19 @@ export class RestLane {
 
     let rows: RawRecord[] = [];
     let reason = "";
-    this.pollsSinceStats += 1;
+    this.countStat("polls");
     try {
       const raw = await this.fetcher(`${OPENF1_BASE}/drivers?session_key=${key}`);
       rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
       if (rows.length === 0) reason = "no rows";
     } catch (error) {
-      this.errorsSinceStats += 1;
+      this.countStat("errors");
       reason = error instanceof Error ? error.message : String(error);
     }
 
     if (rows.length > 0) {
       const result = await this.enqueueAndRecordDrivers(rows, key);
-      this.rowsSinceStats += result.newRows;
+      this.countStat("rows", result.newRows);
       this.entryListSatisfied = true;
       this.log(
         `entry list: fetched session_key=${key} rows=${rows.length} new=${result.newRows} foreign=${result.foreign} unknown_session=${result.unknownSession}`,
@@ -562,7 +381,7 @@ export class RestLane {
         team_colour: driver.team_colour,
       }));
       const result = await this.enqueueAndRecord("drivers", key, driverRows);
-      this.rowsSinceStats += result.newRows;
+      this.countStat("rows", result.newRows);
       this.entryListFallbackEmitted = true;
       this.log(`entry list: static fallback (${reason}) session_key=${key}`);
     }
@@ -585,12 +404,12 @@ export class RestLane {
     if (nowMs < start - 5 * 60_000 || nowMs >= start) return false;
 
     let rows: RawRecord[];
-    this.pollsSinceStats += 1;
+    this.countStat("polls");
     try {
       const raw = await this.fetcher(`${OPENF1_BASE}/drivers?session_key=${key}`);
       rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
     } catch (error) {
-      this.errorsSinceStats += 1;
+      this.countStat("errors");
       this.log(
         `entry list: pre-race refresh failed for session_key=${key}: ${error instanceof Error ? error.message : String(error)}`,
         { level: "error" },
@@ -600,7 +419,7 @@ export class RestLane {
 
     if (rows.length > 0) {
       const result = await this.enqueueAndRecordDrivers(rows, key);
-      this.rowsSinceStats += result.newRows;
+      this.countStat("rows", result.newRows);
       this.log(
         `entry list: pre-race refresh session_key=${key} rows=${rows.length} new=${result.newRows} foreign=${result.foreign} unknown_session=${result.unknownSession}`,
       );
@@ -641,14 +460,14 @@ export class RestLane {
       const raceSession = meetingSessions.find((s) => isRaceSession(s));
       if (!raceSession) continue;
 
-      // The race session must already be in `knownSessionKeys` (its own
-      // `sessions` upsert has landed) — `lastSessions` above holds every
-      // fetched row regardless of upsert outcome, so this is the guard that
+      // The race session's own `sessions` upsert must already have landed
+      // (discovery's `isKnownSession`) — the snapshot holds every fetched
+      // row regardless of upsert outcome, so this is the guard that
       // keeps a not-yet-written race session from triggering a meeting-wide
       // drivers fetch whose rows would just be dropped downstream as
       // unknownSession (events.session_key is a FK).
       const raceKey = Number(raceSession["session_key"]);
-      if (!Number.isFinite(raceKey) || !this.knownSessionKeys.has(raceKey)) continue;
+      if (!Number.isFinite(raceKey) || !this.discovery.isKnownSession(raceKey)) continue;
 
       // Friday's meeting-wide fetch applies only to a meeting whose race
       // session's window has not closed: `date_end` of the meeting's race
@@ -674,19 +493,19 @@ export class RestLane {
   private async runFridayFetch(meetingKey: number, nowMs: number): Promise<void> {
     let rows: RawRecord[] = [];
     let reason = "";
-    this.pollsSinceStats += 1;
+    this.countStat("polls");
     try {
       const raw = await this.fetcher(`${OPENF1_BASE}/drivers?meeting_key=${meetingKey}`);
       rows = Array.isArray(raw) ? (raw as RawRecord[]) : [];
       if (rows.length === 0) reason = "no rows";
     } catch (error) {
-      this.errorsSinceStats += 1;
+      this.countStat("errors");
       reason = error instanceof Error ? error.message : String(error);
     }
 
     if (rows.length > 0) {
       const result = await this.enqueueAndRecordDrivers(rows, null);
-      this.rowsSinceStats += result.newRows;
+      this.countStat("rows", result.newRows);
       this.fridayMeetings.set(meetingKey, { satisfied: true, nextRetryAt: nowMs });
       this.log(
         `entry list: friday fetch meeting_key=${meetingKey} rows=${rows.length} new=${result.newRows} foreign=${result.foreign} unknown_session=${result.unknownSession}`,
@@ -709,7 +528,7 @@ export class RestLane {
   private async runDueDriversFetch(nowMs: number): Promise<boolean> {
     if (await this.tryEntryListSelectionFetch(nowMs)) return true;
     if (this.session && (await this.tryPreRaceRefresh(this.session, nowMs))) return true;
-    if (await this.checkFridayFetch(this.lastSessions, nowMs)) return true;
+    if (await this.checkFridayFetch(this.discovery.sessions(), nowMs)) return true;
     return false;
   }
 
@@ -740,12 +559,12 @@ export class RestLane {
     // snapshot on its cadence as this tick's one request, so a late upsert
     // (a race session that failed while FP1 went live) becomes known and
     // Friday's retry can fire on a later tick.
-    if (nowMs >= this.nextSessionsRefreshAt) {
-      await this.refreshSessions(nowMs);
+    if (this.discovery.sessionsRefreshDue(nowMs)) {
+      await this.discovery.refreshSessions(nowMs);
       // Already following (pollOnce only runs while live) — this covers a
       // meetings row that becomes available on a later tick than
       // selection (e.g. this tick's fetch is the first to succeed).
-      await this.maybeRecordFollowedMeetingRow();
+      await this.discovery.recordFollowedMeetingRow(this.session, this.sessionKey);
       return { endpoint: "sessions", rows: 0, newRows: 0, malformed: 0 };
     }
 
@@ -753,11 +572,11 @@ export class RestLane {
     this.rotationIndex += 1;
     const url = buildPollUrl(endpoint, this.sessionKey, null);
     let rows: unknown;
-    this.pollsSinceStats += 1;
+    this.countStat("polls");
     try {
       rows = await this.fetcher(url);
     } catch (error) {
-      this.errorsSinceStats += 1;
+      this.countStat("errors");
       this.log(`rest: poll ${endpoint} failed: ${error instanceof Error ? error.message : String(error)}`, {
         level: "error",
       });
@@ -765,7 +584,7 @@ export class RestLane {
     }
     const rawRows = Array.isArray(rows) ? (rows as RawRecord[]) : [];
     const { newRows, malformed } = await this.enqueueAndRecord(endpoint, this.sessionKey, rawRows);
-    this.rowsSinceStats += newRows;
+    this.countStat("rows", newRows);
     this.log(`rest: poll endpoint=${endpoint} rows=${rawRows.length} new=${newRows} malformed=${malformed}`);
     return { endpoint, rows: rawRows.length, newRows, malformed };
   }
@@ -777,7 +596,7 @@ export class RestLane {
     rows: RawRecord[],
   ): Promise<{ newRows: number; malformed: number }> {
     const result = await enqueueRows(this.normalizer, this.queue, endpoint, sessionKey, rows, this.recordRows);
-    this.unjoinedSinceStats += result.unjoined;
+    this.countStat("unjoined", result.unjoined);
     return { newRows: result.newRows, malformed: result.malformed };
   }
 
@@ -794,10 +613,10 @@ export class RestLane {
       this.queue,
       rows,
       expectedSessionKey,
-      (key) => this.knownSessionKeys.has(key),
+      (key) => this.discovery.isKnownSession(key),
       this.recordRows,
     );
-    this.unjoinedSinceStats += result.unjoined;
+    this.countStat("unjoined", result.unjoined);
     return result;
   }
 
@@ -825,7 +644,7 @@ export class RestLane {
         await this.pollOnce();
       }
     } catch (error) {
-      this.errorsSinceStats += 1;
+      this.countStat("errors");
       this.log(`rest: tick failed: ${error instanceof Error ? error.message : String(error)}`, { level: "error" });
     }
   }

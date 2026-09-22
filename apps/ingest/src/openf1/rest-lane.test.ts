@@ -199,79 +199,6 @@ describe("RestLane discovery", () => {
 
     expect(lane.status()).toEqual({ active: true, sessionKey: 11361 });
   });
-
-  test("discovery fetches meetings?year= once per tick and passes the resulting map to onSession", async () => {
-    const meetings = [{ meeting_key: 1293, meeting_name: "Italian Grand Prix" }];
-    const { fetcher, calls } = fakeFetcher({ sessions: [SESSION], drivers: [], meetings });
-    const onSession = vi.fn();
-    const queue = new EventQueue<QueueItem>();
-    const lane = new RestLane(queue, { fetcher, now: () => START - 2 * WINDOW, onSession, onLog: () => {} });
-
-    await lane.discoverOnce();
-
-    expect(calls.filter((u) => u.includes("/meetings?"))).toHaveLength(1);
-    expect(onSession).toHaveBeenCalledWith(SESSION, START - 2 * WINDOW, new Map([[1293, "Italian Grand Prix"]]));
-  });
-
-  test("a meetings fetch failure keeps the previous tick's map instead of clearing it", async () => {
-    let shouldFail = false;
-    const meetings = [{ meeting_key: 1293, meeting_name: "Italian Grand Prix" }];
-    const fetcher = async (url: string): Promise<unknown> => {
-      const parsed = new URL(url);
-      const endpoint = parsed.pathname.split("/").at(-1) ?? "";
-      if (endpoint === "meetings") {
-        if (shouldFail) throw new Error("network error");
-        return meetings;
-      }
-      if (endpoint === "sessions") return [SESSION];
-      return [];
-    };
-    const onSession = vi.fn();
-    const queue = new EventQueue<QueueItem>();
-    const lane = new RestLane(queue, { fetcher, now: () => START - 2 * WINDOW, onSession, onLog: () => {} });
-
-    await lane.discoverOnce();
-    expect(onSession).toHaveBeenNthCalledWith(1, SESSION, START - 2 * WINDOW, new Map([[1293, "Italian Grand Prix"]]));
-
-    shouldFail = true;
-    await lane.discoverOnce();
-    expect(onSession).toHaveBeenNthCalledWith(2, SESSION, START - 2 * WINDOW, new Map([[1293, "Italian Grand Prix"]]));
-  });
-
-  test("onRecorded fires once for endpoint 'meetings' with the followed session's own row, matched by meeting_key", async () => {
-    const followedSession: RawRecord = { ...SESSION, meeting_key: 1293 };
-    const meetings = [
-      { meeting_key: 1400, meeting_name: "Wrong Meeting" }, // a different meeting_key: must not be picked
-      { meeting_key: 1293, meeting_name: "Italian Grand Prix" },
-    ];
-    const { fetcher } = fakeFetcher({ sessions: [followedSession], drivers: [], meetings });
-    const onRecorded = vi.fn();
-    const queue = new EventQueue<QueueItem>();
-    const lane = new RestLane(queue, { fetcher, now: () => START, onRecorded, onLog: () => {} });
-
-    await lane.discoverOnce(); // selects followedSession (inside its live window)
-
-    const meetingCalls = onRecorded.mock.calls.filter((c) => c[1] === "meetings");
-    expect(meetingCalls).toHaveLength(1);
-    expect(meetingCalls[0]).toEqual([11361, "meetings", [{ meeting_key: 1293, meeting_name: "Italian Grand Prix" }]]);
-
-    // A later tick must not fire it again for the same session_key.
-    await lane.discoverOnce();
-    expect(onRecorded.mock.calls.filter((c) => c[1] === "meetings")).toHaveLength(1);
-  });
-
-  test("no 'meetings' row is recorded when no meetings row matches the followed session's meeting_key", async () => {
-    const followedSession: RawRecord = { ...SESSION, meeting_key: 1293 };
-    const meetings = [{ meeting_key: 1400, meeting_name: "Wrong Meeting" }];
-    const { fetcher } = fakeFetcher({ sessions: [followedSession], drivers: [], meetings });
-    const onRecorded = vi.fn();
-    const queue = new EventQueue<QueueItem>();
-    const lane = new RestLane(queue, { fetcher, now: () => START, onRecorded, onLog: () => {} });
-
-    await lane.discoverOnce();
-
-    expect(onRecorded.mock.calls.filter((c) => c[1] === "meetings")).toHaveLength(0);
-  });
 });
 
 describe("RestLane: races only (issue #168)", () => {
@@ -315,25 +242,6 @@ describe("RestLane: races only (issue #168)", () => {
     date_start: "2026-09-06T19:00:00Z",
     date_end: "2026-09-06T21:00:00Z",
   };
-
-  test("a sessions?year= response with Practice 1, Qualifying, Sprint, Race rows upserts only the Race row; knownSessionKeys holds one key", async () => {
-    const { fetcher } = fakeFetcher({ sessions: [PRACTICE_1, QUALIFYING, SPRINT, RACE_ROW], drivers: [] });
-    const onSession = vi.fn();
-    const queue = new EventQueue<QueueItem>();
-    const lane = new RestLane(queue, {
-      fetcher,
-      now: () => Date.parse("2026-09-05T00:00:00Z"), // outside every session's live window
-      onSession,
-      onLog: () => {},
-    });
-
-    await lane.discoverOnce();
-
-    expect(onSession).toHaveBeenCalledTimes(1);
-    expect(onSession).toHaveBeenCalledWith(RACE_ROW, expect.any(Number), expect.any(Map));
-    const knownSessionKeys = (lane as unknown as { knownSessionKeys: Set<number> }).knownSessionKeys;
-    expect(knownSessionKeys).toEqual(new Set([40004]));
-  });
 
   test("a Practice session inside its live window is not selected while a Race one is", async () => {
     const { fetcher } = fakeFetcher({ sessions: [PRACTICE_1, RACE_ROW], drivers: [] });
