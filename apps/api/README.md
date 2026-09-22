@@ -39,10 +39,20 @@ socket gets a JSON Patch instead, replaced by a full state keyframe every
 follows the same path every 5 s. `S1`/`S2`/`SN`: every socket of the same
 format receives identical bytes.
 
+Every push also carries `events`, the `RaceEvent` rows this tick applied
+in seq order (`[]` on a catch-up or rebuild tick), for a client to fold
+into its own deep-rewind timeline (ADR-0014). A tick whose frame never
+reached a client — a fan-out-level deflate skip, a rejected `pusher.push()`,
+or the late-commit detector's own rebuild — forces the next frame this
+class actually delivers to be a full `state` push carrying `rebuilt: true`,
+on every socket format, regardless of what the caller set, so no
+connected client keeps a permanent hole in its timeline (ADR-0032).
+
 ## Polls
 
 Open: the first fold that has both drivers and a lap total opens two
-polls, winner and podium. Lock: at `floor(total_laps / 2)`
+polls, winner and podium. Lock: at `Math.max(1, Math.floor(total_laps /
+2))`, never lap 0 even for a very short race
 (`packages/domain/src/race-clock.ts`'s `locksAtLap`). Resolve: at the
 chequered flag, from `driver_order`. Void: the session finishes with the
 poll still open or locked.
@@ -68,7 +78,7 @@ and is rate-limited to 60 votes a minute per IP (`polls/viewer-identity.ts`,
 | `GET /api/live/events` (`?format=delta`) | SSE stream: `state` and `status` events, or `state`/`delta` with `?format=delta` | `no-cache, no-transform` |
 | `GET /api/live/snapshot` | the newest `state` push, verbatim; 503 before the first push | `no-store` |
 | `GET /api/polls` | `PollPublic[]` for the currently served session | none |
-| `POST /api/vote` | `{ poll_id, option_id, viewer_id, counted: true }`, or `404\|400\|409 { error }` | n/a |
+| `POST /api/vote` | `{ poll_id, option_id, viewer_id, counted: true }`, or `400\|403\|404\|409\|429 { error }` | n/a |
 | `GET /api/races` | `RaceIndexEntry[]`, every exported race | none |
 | `GET /api/races/:session_key` | the pre-gzipped export file, streamed straight through | `public, max-age=31536000, immutable` |
 | `GET /api/races/:session_key/events` (`?since_seq&limit`) | a page of `RaceEvent` rows for any session, live included | `immutable` on a full page, else `no-store` |
@@ -76,6 +86,12 @@ and is rate-limited to 60 votes a minute per IP (`polls/viewer-identity.ts`,
 
 Read from `http/routes/live.ts`, `http/routes/races.ts`, `polls/routes.ts`
 and `main.ts`.
+
+`/health`'s `ok` is always `true` while the process is serving, regardless
+of the database; `db` is informational only — a dead database degrades
+reads, it never flips `ok` (`http/health.ts`). `release.yml`'s smoke job
+polls `/health` after a release to confirm the running process's `build`
+matches the commit just deployed, not the previous one.
 
 ## Exports
 
@@ -100,6 +116,13 @@ endpoint.
 This service reads `sessions` and `events`. It writes `polls`, `votes` and
 `exports`. It never writes `events` or `sessions`. See
 `../../packages/db/README.md` for the full data model.
+
+`GET /api/races`, the export's `session` object, and the live push's
+`state.session` all carry `meeting_name`, `circuit_short_name` and
+`location` from the same three nullable `sessions` columns (ADR-0025),
+read straight through and never guessed: a session row with none of them
+set has `null` on all three surfaces, the same as any other unavailable
+field.
 
 ## Configuration
 
@@ -126,8 +149,11 @@ Read from `main.ts` and `http/health.ts`.
 | `push failed` | a push's promise rejected (a deflate or socket error); the next push actually delivered is forced `rebuilt: true` |
 | `poll hook … failed` | one of the poll module's lifecycle hooks threw; the session lifecycle logs it and continues |
 | `deflate failed …` | the shared deflate stream rejected a write — on a join's snapshot frame, a heartbeat, or a push; that one frame is skipped |
+| `delta diff failed, falling back to a state push for this tick` | building this tick's JSON Patch delta threw; that delta socket gets the full state frame instead, same as a keyframe tick |
 | `slow client dropped` | a socket with more than 1 MiB unsent was destroyed and removed |
 | `socket write failed` | one socket's write threw; it is dropped, the rest of the fan-out's write loop continues |
+| `poll write failed` | a poll module write (open, lock, resolve or void) threw; the write chain still resolves, and each write is conditional on the poll's current status, so it is safely retried on a later tick |
+| `polls not opened: total_laps unknown` | the served session has drivers but no `total_laps` yet, so no poll opens; logged once, retried once a `total_laps` refresh lands |
 | `export skipped` | a finished session has no non-`drivers` event yet; logged once per process, re-checked every tick |
 | `export re-exported` | a finished session's `events` gained rows after its last export; the file and row are rewritten |
 | `export failed` | one session's export threw; its row is left as it was and the next tick retries |
@@ -136,8 +162,8 @@ Read from `main.ts` and `http/health.ts`.
 | `no session found` | `pickSession` found no live, upcoming, or finished session; logged once until one appears |
 
 Exact text is in the source: `main.ts`, `projector/projector.ts`,
-`projector/serve-session.ts`, `fanout/fanout.ts`, `export/exporter.ts`,
-`http/health.ts`.
+`projector/serve-session.ts`, `fanout/fanout.ts`, `polls/poll-module.ts`,
+`export/exporter.ts`, `http/health.ts`.
 
 ## Reading order
 
