@@ -119,11 +119,6 @@ export const CIRCUITS: Record<number, { name: string; totalLaps: number }> = {
   // https://www.formula1.com/en/racing/2026/united-arab-emirates
   // ("Number of Laps: 58"), retrieved 2026-09-11.
   70: { name: "Yas Marina Circuit", totalLaps: 58 },
-  // circuit_key 12 ("Kuala Lumpur") is deliberately absent: session 11731
-  // reports it tagged with country_name "Bahrain" and the same country_key
-  // as the real Sakhir/Bahrain session (11261) — internally inconsistent
-  // (Kuala Lumpur is not in Bahrain, and there is no Malaysia round on the
-  // 2026 calendar). Left out rather than guessed at.
 };
 
 export function totalLapsForCircuit(circuitKey: number): number | null {
