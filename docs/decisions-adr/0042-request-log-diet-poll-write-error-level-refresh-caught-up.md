@@ -1,4 +1,4 @@
-# ADR-0041 — Request log diet, poll write failures at error, a session-row refresh guarded by caught-up
+# ADR-0042 — Request log diet, poll write failures at error, a session-row refresh guarded by caught-up
 
 - **Status:** Proposed (accepted when this PR merges)
 - **Date:** 2026-09-23
