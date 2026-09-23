@@ -6,7 +6,7 @@ import { FakeEventSource } from "../test/fakeEventSource.ts";
 import { emptyBuffer } from "./buffer.ts";
 import { useLiveStore } from "./store.ts";
 import type { DeltaPush, StatePush } from "./types.ts";
-import { useLiveStream } from "./useLiveStream.ts";
+import { malformedFrames, useLiveStream } from "./useLiveStream.ts";
 
 vi.mock("../api.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api.ts")>();
@@ -302,5 +302,80 @@ describe("useLiveStream", () => {
 
     expect(useLiveStore.getState().live).toEqual(keyframe);
     expect(useLiveStore.getState().live?.rebuilt).toBeUndefined();
+  });
+
+  it("recovers a malformed delta frame: no throw, counts it, and fetches a snapshot", async () => {
+    const { EventSourceImpl, es } = capturingEventSource();
+    renderHook(() => useLiveStream({ EventSourceImpl }));
+
+    es().emit("state", JSON.stringify(statePush("1", 1)));
+
+    const before = malformedFrames;
+    const snapshot = statePush("50", 50);
+    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(snapshot));
+
+    expect(() => es().emit("delta", "{not json")).not.toThrow();
+
+    expect(malformedFrames).toBe(before + 1);
+    await waitFor(() => expect(useLiveStore.getState().live).toEqual({ ...snapshot, rebuilt: true }));
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    expect(apiFetch).toHaveBeenCalledWith("/api/live/snapshot");
+  });
+
+  it("recovers a malformed state frame: no throw, counts it, and fetches a snapshot", async () => {
+    const { EventSourceImpl, es } = capturingEventSource();
+    renderHook(() => useLiveStream({ EventSourceImpl }));
+
+    es().emit("state", JSON.stringify(statePush("1", 1)));
+
+    const before = malformedFrames;
+    const snapshot = statePush("50", 50);
+    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(snapshot));
+
+    expect(() => es().emit("state", "{not json")).not.toThrow();
+
+    expect(malformedFrames).toBe(before + 1);
+    await waitFor(() => expect(useLiveStore.getState().live).toEqual({ ...snapshot, rebuilt: true }));
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    expect(apiFetch).toHaveBeenCalledWith("/api/live/snapshot");
+  });
+
+  it("counts a malformed status frame without fetching a snapshot", () => {
+    const { EventSourceImpl, es } = capturingEventSource();
+    renderHook(() => useLiveStream({ EventSourceImpl }));
+
+    const before = malformedFrames;
+
+    expect(() => es().emit("status", "{not json")).not.toThrow();
+
+    expect(malformedFrames).toBe(before + 1);
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it("counts a parsed value that is not an object with the expected type as malformed", () => {
+    const { EventSourceImpl, es } = capturingEventSource();
+    renderHook(() => useLiveStream({ EventSourceImpl }));
+
+    const before = malformedFrames;
+    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(statePush("50", 50)));
+
+    // Valid JSON, but not a delta push -- the wrong `type` discriminant.
+    expect(() => es().emit("delta", JSON.stringify({ type: "state" }))).not.toThrow();
+
+    expect(malformedFrames).toBe(before + 1);
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies a well-formed frame normally after a malformed one", () => {
+    const { EventSourceImpl, es } = capturingEventSource();
+    renderHook(() => useLiveStream({ EventSourceImpl }));
+
+    es().emit("state", JSON.stringify(statePush("1", 1)));
+    es().emit("status", "{not json");
+
+    es().emit("delta", JSON.stringify(deltaFrame("1", "2", 2)));
+
+    expect(useLiveStore.getState().live?.seq).toBe("2");
+    expect(useLiveStore.getState().live?.state.sequence).toBe(2);
   });
 });
