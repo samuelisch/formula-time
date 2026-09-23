@@ -1,11 +1,9 @@
 // The historical-race routes (ADR-0009 §4): `GET /api/races` and
 // `GET /api/races/:session_key`, verbatim from the seam contract.
 // `RaceIndexEntry`, `RaceFile`, `SessionStatus` and `RaceEventsPage` are
-// declared once in `packages/domain/src/wire.ts`, exactly as the api
-// builds them (`apps/api/src/routes/races.ts`, `export/exporter.ts`) --
-// never copy them, import from there. `fetchRaceEventsPage` is the paged
-// event-log route, used by both a finished session's replay and a live
-// session's browser-side timeline (`apps/web/src/live/useSessionTimeline.ts`).
+// declared once in `packages/domain/src/wire.ts` -- never copy them,
+// import from there. `fetchRaceEventsPage` is the paged event-log route,
+// used by both a finished session's replay and a live session's timeline.
 export type { RaceEventsPage, RaceFile, RaceIndexEntry, SessionStatus } from "@formula-time/domain";
 import type { RaceEventsPage, RaceFile, RaceIndexEntry } from "@formula-time/domain";
 
@@ -27,14 +25,10 @@ export async function fetchRaceIndex(): Promise<RaceIndexEntry[]> {
 }
 
 /**
- * `GET /api/races/:session_key`. The response is gzip-encoded (`content-encoding: gzip`);
- * `fetch` decodes it transparently, so this reads a plain JSON body. Throws
- * on a 404 (no export for this session) or any other non-2xx status.
- *
- * The file route is served `cache-control: immutable`, so the URL itself
- * must change when the file does. `exportedAt` (the index entry's
- * `exported_at`) becomes a `v` query param the api ignores -- it exists
- * only to make a re-exported race's URL distinct from the cached one.
+ * `GET /api/races/:session_key`. Gzip-encoded; throws on a 404 (no
+ * export) or other non-2xx status. Served `cache-control: immutable`, so
+ * `exportedAt` becomes a `v` query param that busts the cache.
+ * See README: Data sources.
  */
 export async function fetchRaceFile(sessionKey: number, exportedAt: string): Promise<RaceFile> {
   return fetchJson<RaceFile>(`/api/races/${sessionKey}?v=${Date.parse(exportedAt)}`);

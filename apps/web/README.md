@@ -222,6 +222,12 @@ first row.
 | polls by race | `GET /api/races/:key/polls` | TanStack Query | 5 minutes |
 | the vote | `POST /api/vote` | a mutation | remembered in `localStorage` as `poll-vote-{poll_id}` |
 
+The export file's route is served `cache-control: immutable`, so the URL
+itself must change when the file does: `exportedAt` (the races index
+entry's `exported_at`) becomes the `v` query param above, existing only to
+make a re-exported race's URL distinct from the cached one
+(`src/races/api.ts`'s `fetchRaceFile`).
+
 ## Delay, offset, nudge, seek
 
 - **Delay** is how far behind the live edge a viewer watches, on the
@@ -389,6 +395,16 @@ this unchanged, so the collapse behaviour comes for free.
   once the push landed and the real session key was known, `myVote` would
   look under a different key and silently lose the pick. Keying by
   `poll_id` alone makes that race impossible.
+- **Placeholder-select guard** (`src/races/RaceSelect.tsx`).
+  `current === null` (no session confirmed yet) renders a leading,
+  disabled placeholder entry rather than silently letting the browser's
+  native `<select>` fallback pick the first historical race as visually
+  selected. A caller (e.g. `PollsPage`) must never treat "no current
+  session known yet" as license to show a different, unrelated race's
+  data -- the placeholder exists to make that impossible: since the
+  dropdown can only ever show a historical race as selected when its
+  `value` explicitly names one, the caller's content and the selector
+  can't drift apart.
 
 ## Narrow-viewport detection
 
