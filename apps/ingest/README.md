@@ -192,6 +192,173 @@ race day: OpenF1 -> ingest (rest-lane + recorder) -> files -> ingest (LIVE_SOURC
 sim:      recording -> simulator -> files -> ingest (LIVE_SOURCE) -> ...
 ```
 
+## Recording layout
+
+A recording directory holds `session.json` (`{ session, discovered_at }`,
+the session in OpenF1's own field names) and `raw/<endpoint>.jsonl` — one
+line per event, the recorder's `{ received_at, payload }` shape — plus an
+empty `polls.jsonl` whenever the directory should read as a *real*
+recording rather than scratch output: the drip simulator's "never wipe a
+real recording" guard checks only for that file's presence.
+
+`pnpm ingest:dump` is `load-recording.ts`'s inverse: round trip is the
+invariant, so `ingest:load --replace` of a dump's output reproduces the
+same `event_id` set in the same `received_at` order as the source,
+because it is fed the same payloads, in the same per-endpoint order, that
+produced them. The `sessions` table does not keep every field a live
+OpenF1 `sessions` row carries — no `session_type`, `year`, `gmt_offset`,
+`country_key`, `country_code`, `is_cancelled`, or `meeting_key` column
+exists — so a dump's `session.json` omits them too; this is enough for
+the loader either way, and only `meeting_name` is permanently
+unrecoverable from a dump (it depends on `meeting_key`, resolved once at
+load time and not stored back onto the row).
+
+`raw/<endpoint>.jsonl` is written paged by `seq`, appending each page's
+rows immediately so a whole race is never held in memory at once; within
+one endpoint's file, line order is `seq` order, which is also
+`received_at` order, since the single writer that produced these rows
+commits in `seq` order (ADR-0007) — the order the round-trip invariant
+depends on.
+
+`pnpm ingest:dump` runs against the deployed database over `railway ssh`
+(no public proxy), the same as the loader and `fetch-race` — see the
+`load-race` skill's "Dump a recording" section for the tarball-out
+procedure.
+
+## Historical fetch (fetch-race)
+
+`fetch-race` pulls one finished session straight from OpenF1 into
+`sessions` + `events`, as a one-shot CLI command — a historical fetch is
+never served on demand and never rerun automatically: the database is the
+record once a race is fetched. It reuses `writeSessionThroughLoader`
+(`load-recording.ts`) for the write path, so the ADR-0010 live guard, the
+`upcoming` -> events -> `finished` ordering, and idempotency
+(`skipDuplicates`) are exactly the loader's. What's new, specific to
+fetching from the live API rather than reading a recorded capture: a
+rate-limited, retrying `Fetcher` (`openf1/rate-limit.ts`); an
+emission-order rule keyed on `source_time` instead of `received_at` (a
+historical row carries no arrival time); the fetched `drivers` rows ARE
+this session's entry list (never the static `ENTRY_LIST_2026`, unlike the
+loader and the live REST lane); and the raw response for every endpoint
+is also appended to a jsonl recording, so the loader can replay this
+session later without OpenF1.
+
+**The lap spoiler rule.** A live capture emits a `laps` row more than
+once as a lap fills in — the row a viewer sees mid-lap only has partial
+data, with `date_start` set and everything else null, filling in only
+once the lap ends. A historical fetch instead gets one already-complete
+row per lap. `splitLapRow` turns that one row into the two versions a
+live capture would have produced: a start row (durations, sectors, and
+speeds nulled) and the complete row (unchanged). Both survive dedup,
+since the two payloads differ and so does their `eventId`. The complete
+row's *emission order* and its *persisted `source_time`* both use an
+adjusted instant — `date_start + lap_duration`, not raw `date_start` —
+because the browser fold's scrub (`foldAt`/`truncationBoundary` in
+`apps/web`, which stops at the first event whose own `source_time`
+exceeds the scrub target) would otherwise reveal the lap's final time for
+any scrub target between the lap's start and its true finish: exactly the
+spoiler this adjustment exists to prevent.
+
+**Emission order.** `drivers` rows go first, unsorted — a hard
+requirement, not a consequence of a (nonexistent) timestamp. Every other
+row sorts by `orderKeyMs`: the lap rule above for `laps`; for `stints`
+(which carry no timestamp of their own), the `date_start` of the lap
+named by `lap_start` and `driver_number`, via the same join
+`LiveNormalizer` already builds while normalizing `laps` (which the fetch
+order always visits first); every other endpoint's own timestamp
+otherwise. Ties break in fetch order, since the rows are built in
+`RECORDING_ENDPOINT_ORDER` before a stable sort.
+
+**Recording only on real work.** A rerun (`--replace`, or a retry) is
+DB-idempotent via `skipDuplicates`, but a fresh `LiveNormalizer` sees
+every row as "new" again — recording those to the jsonl file on every
+rerun would duplicate its content unboundedly, unlike the DB write. The
+recorder only runs when the run is doing first-time work for the session
+(`!alreadyFinished`).
+
+## Recording load
+
+The live REST lane only polls a session inside its ±30 minute window
+(`pickLiveSession`, `openf1/rest-lane.ts`), so pointing `LIVE_SOURCE` at
+an old recording discovers and upserts the session but never fetches its
+rows — historical races need `pnpm ingest:load` instead. It lifts the
+in-process path `replay.integration.test.ts` already exercises (file
+fetcher -> normalizer -> queue -> writer) into a command, reusing the
+same normalizer, queue, writer, and `upsertSession` the live service
+uses — no second writer, no second normalizer, one connection (ADR-0007
+§1: ingest never updates an `events` row).
+
+**Time-ordered merge.** A bulk read of a complete recording that emitted
+one endpoint fully before the next would leave a loaded session's
+`events.seq` grouped by endpoint instead of following time — every `laps`
+row landing after every `position`/`intervals` row, which the browser
+fold (`foldAt`, seq order up to `source_time`) reads as "no lap yet" for
+most of the race. `readSessionRowsInTimeOrder` instead reads every
+endpoint's rows and emits them in `received_at` order, reproducing the
+order a live capture would have produced. Two rows tying exactly on
+`received_at` break by endpoint, using `POLL_ROTATION`'s order
+(`rest-lane.ts`) — the order one live poll cycle visits them in;
+`drivers` never appears in `POLL_ROTATION` (fetched once at session
+selection, not polled), so it keeps its own first position. The live REST
+lane itself needs none of this — it already emits in time order, one
+poll's rows at a time; only a bulk recording load needs the sort.
+
+**The verify line.** Printed once per session after every load, whether
+or not `--replace` was used: `endpoint_runs` counts maximal runs of equal
+`endpoint` in `seq` order — an endpoint-grouped load has exactly one run
+per endpoint, while a correctly interleaved race has many times that
+many. `source_time_backsteps` counts rows whose non-null `source_time` is
+earlier than the previous non-null one; a few are normal even on a
+healthy load (OpenF1 batches arrive slightly out of order), so on its own
+it doesn't separate healthy from broken — `endpoint_runs` is the decisive
+signal.
+
+**The write path (shared with `fetch-race`).** `writeSessionThroughLoader`
+validates the session, applies the ADR-0010 live guard, upserts the row
+`upcoming` (unless already `finished`), lets the caller push every event
+onto the queue, drains it (or, with `--replace`, deletes then drains as
+one transaction), prints the verify line, and only then upserts
+`finished`. Upserting `finished` before the events exist would let the
+api's exporter (which exports any `finished` row with no `exports` row
+yet, on its own 5-second tick, ADR-0009 §2) win the race and write an
+export with `"events": []` — exports are immutable, so that file would
+need to be deleted by hand. A rerun of an already-`finished` session
+skips the `upcoming` step (a rerun must not visibly demote a finished
+session), but the final `upsertSession(..., { status: "finished" })`
+still runs, so the net effect is unchanged. If the process dies before
+every event has committed, the row stays `upcoming`; the exporter never
+touches an `upcoming` row, and the next `ingest:load`/`ingest:fetch-race`
+of the same session finishes it — the whole path is idempotent by design,
+via `skipDuplicates`.
+
+**The ADR-0010 live guard.** The single-writer guarantee (ADR-0007) is
+per session, not per process: the live `ingest` service owns any session
+inside its live window; the loader and `fetch-race` own only sessions
+whose window has closed. Two checks, both against a *live* verdict: the
+session's own dates (computed fresh, since it can be loaded before its
+window has actually ended — a stale or partial capture), and any existing
+`sessions` row (in case the live service is still tracking it under
+different dates). A session that is `upcoming` — not live *yet*, but
+about to be owned by the live service once its window opens — is also
+refused: the Friday/pre-race `drivers` fetches write rows for a session
+while it is still `upcoming`, so the live service could otherwise race
+this loader for the same `session_key`.
+
+**`--replace`.** Deletes a session's `events` rows and drains the queue's
+already-ordered rows back in, as one transaction, so an insert failure
+(the writer gives up, per `EventWriter.drainAll()`) rolls the delete back
+too and the session's old rows are left exactly as they were.
+
+**The meeting-name fallback.** Two sources, in order: the recording's own
+`raw/meetings.jsonl` first (present whenever the session was captured
+live or fetched via `fetch-race`, since both route their meetings fetch
+through the same jsonl-recorder path every other endpoint uses); when
+that file is absent or has no matching row, and a `meetingsFetcher` was
+given, one live `meetings?meeting_key=` call through it, rate-limited the
+same way `fetch-race`'s own live requests are. With neither source
+available, `meeting_name` stays null for this run, same as any other
+unavailable field.
+
 ## What the log lines mean
 
 | Line | Level | Meaning | Fields |

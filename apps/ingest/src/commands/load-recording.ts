@@ -1,31 +1,8 @@
-// One-shot loader (ADR-0009): writes a POC recording into
-// `sessions` + `events` as a finished session, so historical races can be
-// stored and exported. The live REST lane only polls a session inside its
-// ±30 min window (`pickLiveSession` in ../openf1/rest-lane.js), so pointing
-// `LIVE_SOURCE` at an old recording discovers and upserts the session but
-// never fetches its rows — historical races need this explicit load
-// instead.
-//
-// Lifts the in-process path `replay.integration.test.ts` already exercises
-// (file fetcher -> normalizer -> queue -> writer) into a command. Reuses
-// `createFileFetcher`, `LiveNormalizer` (via the shared `enqueueRows` in
-// `openf1/enqueue.ts`), `EventQueue`, `EventWriter`, `upsertSession`, and
-// the static `ENTRY_LIST_2026` emission — no second writer, no second
-// normalizer, one `createDb(url, { max: 1 })` (ADR-0007 §1: "Ingest never
-// updates an `events` row."; apps/ingest/AGENTS.md: "Sole writer of the
-// `sessions` and `events` tables"). Never touches `polls`, `votes`, or
-// `exports`.
-//
-// ADR-0010: ADR-0007's single-writer guarantee is per session, not per
-// process — this loader is a second connection writing `events`, which is
-// only safe because it refuses any session that is (or might still be)
-// live; see the guard in loadOneSession() below.
-//
-// `loadOneSession` upserts each session `upcoming`, writes and
-// drains every one of its events, and only then updates the row to
-// `finished` — see the comments at each step. Upserting `finished` first
-// would let the api's exporter (ADR-0009 §2) export the
-// session the moment the row flipped, before any event existed.
+// load-recording (ADR-0009): writes a POC recording into `sessions` +
+// `events` as a finished session, reusing the live service's normalizer,
+// queue, writer, and `upsertSession` (ADR-0007 §1). See README:
+// Recording load. Usage: `pnpm ingest:load [--replace] <recording-dir>
+// [<recording-dir> ...]`.
 
 import type { SessionStatus } from "@formula-time/db";
 import { createDb } from "@formula-time/db";
@@ -90,14 +67,10 @@ export interface EventTransactionDb {
 /** The slice of the Prisma client the loader needs — real client or a fake (unit test). */
 export type LoaderDb = SessionsDb & EventWriterDb & SessionStatusReader & EventDeleteDb & EventReadDb & EventTransactionDb;
 
-// Reads every `raw/*.jsonl` through the same `LiveNormalizer` (identity,
-// dedup) in file order, endpoint order `drivers, position, intervals,
-// laps, stints, pit, race_control, weather`. "drivers" here is
-// the recorded OpenF1 `drivers` fetch (`raw/drivers.jsonl`, distinct fields
-// from the static `ENTRY_LIST_2026` payload below) — the entry list is
-// emitted separately, first, exactly as session selection does. This list
-// is still the read order for `raw/*.jsonl` files (the ordering below
-// reorders only the *emitted* order, by `received_at`).
+// Reads every `raw/*.jsonl` through the same `LiveNormalizer` in this
+// file order; "drivers" here is the recorded OpenF1 fetch
+// (`raw/drivers.jsonl`), distinct from the static `ENTRY_LIST_2026`
+// entry list emitted separately, first. See README: Recording load.
 export const RECORDING_ENDPOINT_ORDER = [
   "drivers",
   "position",
@@ -109,22 +82,9 @@ export const RECORDING_ENDPOINT_ORDER = [
   "weather",
 ] as const;
 
-// A bulk read of a complete recording that emitted one endpoint fully
-// before the next would leave a loaded session's `events.seq` blocked by
-// endpoint instead of following time — every `laps` row landing after every
-// `position`/`intervals` row, which the browser fold (`foldAt`, seq order up
-// to `source_time`) reads as "no lap yet" for most of the race. Instead,
-// read every endpoint's rows (with `received_at`, via
-// `readRecordingEndpoint`) and emit them in `received_at` order,
-// reproducing the order live capture would have produced. When two rows tie
-// exactly on `received_at`, break the tie by endpoint using
-// `POLL_ROTATION`'s order (rest-lane.ts) — the order one live poll cycle
-// visits them in; `drivers` never appears in `POLL_ROTATION` (fetched once
-// at session selection, not polled), so it keeps its
-// `RECORDING_ENDPOINT_ORDER` position, first. Do not touch `RestLane` — the
-// live REST lane already emits in time order, one poll's rows at a time;
-// only a bulk recording load needs this sort (`replay.integration.test.ts`'s
-// per-endpoint block order is expected there too, and is unaffected).
+// Tie-break order for rows sharing a `received_at` across endpoints —
+// `drivers` first, then `POLL_ROTATION`'s order (rest-lane.ts). See
+// README: Recording load.
 const ENDPOINT_TIE_BREAK_ORDER: readonly string[] = [
   "drivers",
   ...POLL_ROTATION.filter((endpoint, index) => POLL_ROTATION.indexOf(endpoint) === index),
@@ -136,13 +96,9 @@ function endpointTieBreakIndex(endpoint: string): number {
 }
 
 /**
- * Reads every `RECORDING_ENDPOINT_ORDER` endpoint's rows for one session and
- * merges them into `received_at` order (stable): ties within one endpoint
- * keep file order (the per-endpoint arrays are read and concatenated in
- * order, untouched by the first sort); ties across endpoints keep
- * `ENDPOINT_TIE_BREAK_ORDER`'s order, because that first sort — grouping by
- * endpoint before the stable `received_at` sort — is what a same-key stable
- * sort preserves.
+ * Reads every `RECORDING_ENDPOINT_ORDER` endpoint's rows for one session
+ * and merges them into `received_at` order (stable). See README:
+ * Recording load.
  */
 async function readSessionRowsInTimeOrder(dir: string, sessionKey: number): Promise<RecordedRow[]> {
   const perEndpoint = await Promise.all(
@@ -166,19 +122,8 @@ async function readSessionRowsInTimeOrder(dir: string, sessionKey: number): Prom
 }
 
 /**
- * The two counts the verify line reports: a race loaded with `events`
- * emitted one endpoint fully before the next, instead of interleaved by
- * time, has `events.seq` grouped by endpoint — the browser fold reads that
- * as "no lap yet" for most of a scrubbed replay. `endpoint_runs` counts
- * maximal runs of equal `endpoint` in `seq` order: an endpoint-grouped load
- * has exactly one run per endpoint; a correctly interleaved race has many
- * times that many, order-of-magnitude closer to the row count than to the
- * endpoint count. `source_time_backsteps` counts rows whose non-null
- * `source_time` is earlier than the previous non-null one — present on a
- * healthy load too (OpenF1 batches arrive slightly out of order), so on its
- * own it does not separate a healthy load from a broken one; `endpoint_runs`
- * is the decisive signal. A `null` `source_time` (e.g. `drivers`) never
- * counts as a backstep and never resets the comparison.
+ * The two counts the verify line reports: `endpoint_runs` and
+ * `source_time_backsteps`. See README: Recording load.
  */
 export function verifyCounts(
   rows: readonly { endpoint: string; source_time: Date | string | null }[],
@@ -210,11 +155,9 @@ function sourceTimeMs(value: Date | string | null): number | null {
 }
 
 /**
- * Reads a session's own `events` back in `seq` order (the commit order) and
- * logs `verifyCounts` on them — one line per session, printed after every
- * load whether or not `--replace` was used, so an endpoint-grouped load is
- * visible in the log without a manual query. `endpoint`/`source_time` only,
- * never the payload: this is a shape check, not a data read.
+ * Reads a session's own `events` back in `seq` order and logs
+ * `verifyCounts` on them, once per load. `endpoint`/`source_time` only,
+ * never the payload — a shape check, not a data read.
  */
 async function logVerifyLine(db: EventReadDb, sessionKey: number, log: (line: string) => void): Promise<void> {
   const rows = await db.event.findMany({
@@ -236,12 +179,8 @@ const REPLACE_TRANSACTION_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * `--replace`: deletes a session's `events` rows and drains the queue's
- * already-ordered rows back in, as one transaction — so a insert failure
- * (the writer gives up, per `EventWriter.drainAll()`) rolls the delete back
- * too, and the session's old rows are exactly as they were. `queue` is
- * shared with the caller: `emitAll` has already filled it (outside this
- * transaction — for `fetch-race` that means the OpenF1 requests themselves
- * are not held inside a database transaction).
+ * already-ordered rows back in, as one transaction. See README:
+ * Recording load.
  */
 async function replaceSessionEvents(
   db: EventTransactionDb,
@@ -273,12 +212,9 @@ export interface LoadRecordingsOptions {
   /** Reload a session in place: delete its `events` rows, then the normal insert path, as one transaction. */
   replace?: boolean;
   /**
-   * A live OpenF1 fetcher, used only as a fallback to source `meeting_name`
-   * when a recording has no `raw/meetings.jsonl` — see
-   * `meetingNamesForSession`'s doc comment. The CLI entry always wires a
-   * rate-limited, unauthenticated-capable one (historical meetings data is
-   * public); undefined here means "no fallback", e.g. a unit test that
-   * wants to pin the file-only path.
+   * A live OpenF1 fetcher, used only as a fallback to source
+   * `meeting_name`. See README: Recording load. `undefined` here means
+   * "no fallback" — a unit test can pin the file-only path.
    */
   meetingsFetcher?: Fetcher | undefined;
 }
@@ -289,12 +225,9 @@ export interface LoadRecordingsResult {
   /** Sessions the loader tried to load, across every `dir`. */
   sessionsAttempted: number;
   /**
-   * Sessions not written, or not fully written: a malformed row (caught in
-   * `loadRecordings`'s per-session loop, not here); refused as live
-   * (ADR-0010 — returned as `{ skipped: true }` below); or the writer gave
-   * up on the session's events after repeated failures (the row is left
-   * `upcoming`, not written, for the next run to finish; also
-   * `{ skipped: true }`).
+   * Sessions not written, or not fully written: a malformed row, a
+   * refusal (ADR-0010), or a writer give-up leaving the row `upcoming`
+   * for the next run. See README: Recording load.
    */
   sessionsSkipped: number;
 }
@@ -308,30 +241,14 @@ export interface WriteSessionThroughLoaderResult {
 export interface WriteSessionThroughLoaderOptions {
   /**
    * Reload this session in place: delete its `events` rows and run the
-   * insert path as one transaction, instead of `createMany`'s
-   * skip-duplicates behaviour leaving stale rows (and their stale `seq`
-   * order) untouched. The ADR-0010 live guard runs first either way — a
-   * live/not-yet-closed session is refused before anything is deleted.
+   * insert path as one transaction. See README: Recording load.
    */
   replace?: boolean;
 }
 
 /**
- * The write path shared by the recording loader and `fetch-race`
- * (ADR-0009: "a fetched race reaches the exporter the same way a loaded
- * one does"): validate the session key, apply the ADR-0010 live guard,
- * upsert `upcoming` (unless already `finished`), let `emitAll` push every
- * event onto `queue` (via a fresh `LiveNormalizer` it is handed, so every
- * row is normalized with the same LiveNormalizer), drain (or, with
- * `--replace`, delete-then-drain as one transaction), print the verify
- * line, and only then upsert `finished` — see the inline comments below.
- * `getMeetingNames` is the caller's own way of sourcing the map (the
- * loader reads its own recording's `raw/meetings.jsonl`, `fetch-race`
- * fetches `meetings?meeting_key=` live) — called at most once, and only
- * AFTER every guard below has passed (never for a session refused as
- * still-live, not a race, or not yet closed): a refused session must cost
- * no further request, exactly like every other endpoint this function's
- * caller fetches only once the guard has passed.
+ * The write path shared by the recording loader and `fetch-race`. See
+ * README: Recording load.
  */
 export async function writeSessionThroughLoader(
   session: RawRecord,
@@ -351,28 +268,20 @@ export async function writeSessionThroughLoader(
     return { skipped: true, drainResult: noEvents };
   }
 
-  // Only race sessions are loaded: practice, qualifying and sprint are
-  // refused here, before any write — including before the `--replace`
-  // delete below, so a `--replace` run can never wipe a non-race session's
-  // events on its way to refusing the reload. isRaceSession is the one
-  // shared predicate (writer/sessions.ts) so the REST lane, this loader,
-  // and fetch-race (via this same function) all agree on what counts as a
-  // race.
+  // Only race sessions are loaded, refused here before any write
+  // (including before the `--replace` delete) — `isRaceSession` is the
+  // one shared predicate so the REST lane, this loader, and `fetch-race`
+  // all agree on what counts as a race.
   if (!isRaceSession(session)) {
     log(`load: refused ${sessionKey}: session_name is "${String(session["session_name"])}", only "Race" is loaded`);
     return { skipped: true, drainResult: noEvents };
   }
 
-  // ADR-0010: the single-writer guarantee (ADR-0007) is per session, not
-  // per process — the live `ingest` service owns any session inside its
-  // live window; the loader (and `fetch-race`) owns only sessions whose
-  // window has closed. Two checks, both against a *live* verdict: the
-  // session's own dates (it can be loaded/fetched before its window has
-  // actually ended, e.g. a stale/partial capture), and any existing
-  // `sessions` row (in case the live service is still tracking it under
-  // different dates). `sessionFieldsFromRaw` also validates
-  // `date_start`/`date_end` — a malformed date throws here and is caught by
-  // the caller, same as it always was inside `upsertSession`.
+  // ADR-0010 live guard, two checks against a *live* verdict — the
+  // session's own dates and any existing `sessions` row. See README:
+  // Recording load. `sessionFieldsFromRaw` also validates
+  // `date_start`/`date_end`; a malformed date throws here, caught by the
+  // caller.
   const fields = sessionFieldsFromRaw(session, nowMs);
   if (fields.status === "live") {
     log(`load: refused ${sessionKey}: session is live; the live ingest service owns it`);
@@ -384,45 +293,20 @@ export async function writeSessionThroughLoader(
     return { skipped: true, drainResult: noEvents };
   }
 
-  // The two checks above only refuse a session already `live`. ADR-0010 §1,
-  // quoted verbatim: "The single-writer guarantee holds per `session_key`:
-  // at most one process writes rows for a given session. The live `ingest`
-  // service owns every session inside its live window; the loader owns
-  // only sessions whose window has closed." A window that hasn't closed yet
-  // also covers `upcoming` (not live YET, but the live service will start
-  // owning that SAME session_key once its window opens) — the checks above
-  // let an `upcoming` session through unrefused, and the Friday/pre-race
-  // `drivers` fetches write rows for a session while it is still
-  // `upcoming`, which the live service could then race against this
-  // loader/fetch-race run for the same session_key. `fields.status` is
-  // "live" only when ADR-0010 already refused above, so by this point it
-  // is "upcoming" or "finished" — refuse whenever it isn't "finished" (the
-  // window hasn't closed).
+  // The two checks above only refuse a session already `live`; an
+  // `upcoming` session is also refused — the live service will start
+  // owning it once its window opens, and the Friday/pre-race `drivers`
+  // fetches already write rows for it. See README: Recording load.
   if (fields.status !== "finished") {
     log(`load: refused ${sessionKey}: window not closed; the live ingest service owns it`);
     return { skipped: true, drainResult: noEvents };
   }
 
-  // ADR-0009 §2: the api's exporter runs on its own 5s tick and
-  // exports any `sessions` row with `status = 'finished'` that has no
-  // `exports` row yet (HLD §7, quoted: "**Export** = once, when `status =
-  // finished` and `exported_at IS NULL`; idempotent; retried by the same
-  // check. No separate job."). Upserting `finished` before the events exist
-  // would let the exporter win the race and write an export with
-  // `"events": []` — exports are immutable, so that file would need to be
-  // deleted by hand. Upsert `upcoming` first instead: it satisfies the
-  // `events` FK (the exporter's query ignores `upcoming` rows) without ever
-  // exposing a finished session with no events.
-  //
-  // Skip that `upcoming` upsert when the row is already `finished` — a
-  // rerun of an already-loaded recording (idempotent by design; see
-  // `loadRecordings`'s doc comment) must not visibly demote a finished
-  // session back to `upcoming` and then straight back to `finished`. The
-  // final `upsertSession(..., { status: "finished" })` below still runs
-  // either way, so the net effect is unchanged: still finished.
-  // Every guard above has passed — only now is a meetings request (a file
-  // read, or a live/rate-limited network call) actually spent on this
-  // session. Called once and reused for both upserts below.
+  // ADR-0009 §2: upserts `upcoming` first, not `finished`, so the
+  // exporter's 5s tick never sees a finished row with no events yet — a
+  // rerun of an already-`finished` session skips this step. See README:
+  // Recording load. Every guard above has passed, so only now is a
+  // meetings request actually spent on this session.
   const meetingNames = await getMeetingNames();
 
   const alreadyFinished = existing?.status === "finished";
@@ -431,13 +315,9 @@ export async function writeSessionThroughLoader(
   }
 
   const normalizer = new LiveNormalizer();
-  // `alreadyFinished` is handed to `emitAll` too: this write path always
-  // re-fetches/re-normalizes on a rerun (DB-level idempotency comes from
-  // `event.createMany({ skipDuplicates: true })` downstream, not from
-  // skipping the work here) — but a caller with its own side effect keyed
-  // off "is this actually new" (fetch-race.ts's jsonl recording) needs to
-  // know a rerun when it sees one, since a fresh `LiveNormalizer` per call
-  // means every row looks "new" to it again.
+  // `alreadyFinished` is handed to `emitAll` too, so a caller with its
+  // own new-vs-rerun side effect (fetch-race.ts's jsonl recording) can
+  // tell — this path always re-fetches/re-normalizes on a rerun.
   await emitAll(normalizer, sessionKey, alreadyFinished);
 
   // Wait for every queued event to actually commit before
@@ -465,14 +345,10 @@ export async function writeSessionThroughLoader(
   } else {
     drainResult = await writer.drainAll();
     if (!queue.isEmpty()) {
-      // The queue and writer are shared across
-      // every session in this `loadRecordings()` call, and a batch that gave
-      // up is left sitting at the FRONT of the queue (requeueFront in
-      // writer.ts) — the next session's own `drainAll()` would hit that stuck
-      // batch first (or get merged into the same batch, since drain isn't
-      // session-aware) and be wrongly marked skipped for a failure that was
-      // never its own. Clear it here so the failure stays attributed to
-      // *this* session and the next one starts from an empty queue.
+      // A batch that gave up sits at the queue's front (requeueFront);
+      // the next session's own drainAll() would hit it first and be
+      // wrongly marked skipped for a failure that wasn't its own. Clear
+      // it here so the failure stays attributed to this session.
       const dropped = queue.clear();
       log(`load: dropped ${dropped} unwritten rows for ${sessionKey}`);
       log(
@@ -499,14 +375,9 @@ export async function writeSessionThroughLoader(
 }
 
 /**
- * `raw/meetings.jsonl` for this one session (via `readRecordingEndpoint`,
- * the same per-session/root-vs-single-mode candidate resolution every
- * other endpoint already uses) — never the generic `createFileFetcher`
- * URL dispatch, because that would only ever find a shared,
- * session-key-less `dir/raw/meetings.jsonl`, wrong for a root-mode
- * directory holding several sessions. Filters on the row's own
- * `meeting_key` matching the session's, in case the file ever holds more
- * than one meeting's rows.
+ * `raw/meetings.jsonl` for this one session, via `readRecordingEndpoint`
+ * (never the generic `createFileFetcher` URL dispatch, which would find
+ * only a shared, session-key-less file). See README: Recording load.
  */
 async function meetingNamesFromRecording(
   dir: string,
@@ -520,19 +391,9 @@ async function meetingNamesFromRecording(
 }
 
 /**
- * Two sources, in order: the recording's own `raw/meetings.jsonl` first
- * (present whenever the session was captured live, or fetched via
- * `fetch-race`, after this feature shipped — the REST lane routes its own
- * meetings fetch through the same jsonl-recorder path every other endpoint
- * uses). When that file is absent or has no matching row (an older
- * recording), and `meetingsFetcher` is given, fall back to one live
- * `meetings?meeting_key=` call through it — the CLI entry below wires a
- * rate-limited, unauthenticated-capable fetcher (historical meetings data
- * is public), the same spacing/retry budget `fetch-race`'s own live
- * requests use; a caller (or a unit test) may omit it to skip the network
- * fallback entirely. With neither source available, logs one line and
- * returns an empty map — `meeting_name` stays null for this run, same as
- * any other unavailable field.
+ * The meeting-name fallback: the recording's own `raw/meetings.jsonl`
+ * first, then one live `meetings?meeting_key=` call if given a fetcher.
+ * See README: Recording load.
  */
 async function meetingNamesForSession(
   dir: string,
@@ -610,13 +471,10 @@ async function loadOneSession(
         `load: session=${sessionKey} endpoint=drivers(entry-list) rows=${driverRows.length} new=${entryResult.newRows}`,
       );
 
-      // Emit in `received_at` order across every endpoint, not one
-      // endpoint's rows fully before the next — see
-      // `readSessionRowsInTimeOrder` above. Consecutive rows that share an
-      // endpoint are still batched into one `enqueueRows` call each (same
-      // identity/dedup path, fewer/larger writer batches and log lines than
-      // one row at a time); only the batch boundaries move, not the per-row
-      // order within/across batches.
+      // Emitted in `received_at` order across endpoints (see README:
+      // Recording load), batched into one `enqueueRows` call per
+      // consecutive same-endpoint run — only batch boundaries move, not
+      // per-row order.
       const merged = await readSessionRowsInTimeOrder(dir, sessionKey);
       let mergedIndex = 0;
       while (mergedIndex < merged.length) {
@@ -635,19 +493,10 @@ async function loadOneSession(
 }
 
 /**
- * Loads one or more POC recordings into `sessions` + `events`. Each `dir` is
- * either a single recording (`session.json`, `raw/<endpoint>.jsonl`) or a
- * root holding several (`<dir>/<session_key>/{session.json, raw/...}`) —
- * `createFileFetcher` answers the `sessions` endpoint for both layouts, and
- * routes every later endpoint fetch to the right subdirectory via
- * `session_key`, so this function doesn't need to know which layout it got.
- *
- * Every row for one session is pushed to one shared `EventQueue`, then
- * drained (`writer.drainAll()`) before that session's row is marked
- * `finished` — draining happens per session, not once at
- * the very end, though the queue and writer are still shared across every
- * session and `dir`. Idempotent: rows already in the database are skipped
- * by `event.createMany({ skipDuplicates: true })`, not re-inserted.
+ * Loads one or more POC recordings into `sessions` + `events`. Each
+ * `dir` is a single recording or a root holding several — see
+ * `createFileFetcher`. Every row for one session drains before that
+ * session flips to `finished`; idempotent via `skipDuplicates`.
  */
 export async function loadRecordings(
   dirs: string[],
