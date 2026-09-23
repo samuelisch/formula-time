@@ -54,7 +54,9 @@ Read `docs/` before doing anything. What each part holds:
   (real Postgres in Docker — dedup + vote upsert); Playwright for e2e.
   `typecheck` + unit + the ADR check before a commit (the hook), plus
   `pnpm lint` (ESLint, root `eslint.config.js`) in the hook and in CI
-  (ADR-0017); the same plus integration and build in CI on every PR,
+  (ADR-0017), plus `prettier --check` (the hook checks only the files the
+  commit touches; CI's `pnpm format:check` covers the whole tree) in both
+  (ADR-0043); the same plus integration and build in CI on every PR,
   required for merge (ADR-0006). The PR's Verified section is prose about what CI does not
   cover, never pasted output. A fake that resolves synchronously cannot
   test ordering; a test of concurrent writes runs against real Postgres or
