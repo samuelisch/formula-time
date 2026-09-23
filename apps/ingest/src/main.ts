@@ -181,7 +181,8 @@ await logRecordingRoot();
 // One line before the lanes start: an operator reads the service's
 // effective configuration from this line alone, without diffing env vars
 // against defaults. Credentials are never logged, only whether they are
-// present (`sponsored`).
+// present (`sponsored`). `build` is not added here: pino's base fields
+// already carry it on every line, this one included.
 logger.info(
   {
     live_source: config.liveSource,
@@ -191,7 +192,6 @@ logger.info(
     log_level: logger.level,
     year: new Date().getUTCFullYear(),
     sponsored: Boolean(config.openf1Login && config.openf1Password),
-    build: logger.bindings()["build"],
   },
   "ingest: config",
 );
