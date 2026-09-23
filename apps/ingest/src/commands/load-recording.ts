@@ -1,8 +1,8 @@
 // load-recording (ADR-0009): writes a POC recording into `sessions` +
 // `events` as a finished session, reusing the live service's normalizer,
-// queue, writer, and `upsertSession` (ADR-0007 §1). See README:
-// Recording load. Usage: `pnpm ingest:load [--replace] <recording-dir>
-// [<recording-dir> ...]`.
+// queue, writer, and `upsertSession` (ADR-0007 §1). Never touches
+// `polls`, `votes`, or `exports`. See README: Recording load. Usage:
+// `pnpm ingest:load [--replace] <recording-dir> [<recording-dir> ...]`.
 
 import type { SessionStatus } from "@formula-time/db";
 import { createDb } from "@formula-time/db";
