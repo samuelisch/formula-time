@@ -121,4 +121,17 @@ if [ ! -d "node_modules/.pnpm" ] || [ "pnpm-lock.yaml" -nt "node_modules/.pnpm" 
   exit 1
 fi
 
-pnpm check:exact-pins && pnpm typecheck && pnpm lint && pnpm test:unit && scripts/check-adr-immutable.sh
+# Prettier only over the files this commit actually touches (added, copied,
+# modified or renamed), not the whole tree: a repo-wide `format:check` would
+# also fail on pre-existing files this commit never asked the author to
+# clean up. Filtered to the extensions Prettier has an opinion on; a file
+# .prettierignore excludes (docs/decisions-adr, *.md, pnpm-lock.yaml, ...)
+# still reaches `prettier --check` here but is a silent no-op there, since
+# Prettier's own ignore file governs regardless of how a path was passed in.
+run_format_check() {
+  staged_format_files=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(js|jsx|mjs|cjs|ts|tsx|json|css|ya?ml)$')
+  [ -z "$staged_format_files" ] && return 0
+  printf '%s\n' "$staged_format_files" | xargs pnpm prettier --check
+}
+
+pnpm check:exact-pins && pnpm typecheck && pnpm lint && run_format_check && pnpm test:unit && scripts/check-adr-immutable.sh

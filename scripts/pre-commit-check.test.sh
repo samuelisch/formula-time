@@ -104,6 +104,51 @@ else
   fail=1
 fi
 
+# --- prettier --check runs on staged files, between lint and the unit
+# tests, and only when the commit actually stages a file Prettier handles.
+# These three cases run against $repo_root's own git index (not a synthetic
+# repo below), so they stage and unstage a scratch file rather than relying
+# on trap-based cleanup, which would clobber the stub_dir trap set above.
+
+scratch_format_file="$repo_root/scripts/.pre-commit-check-test-scratch.ts"
+echo 'export const x = 1;' > "$scratch_format_file"
+git -C "$repo_root" add "$scratch_format_file"
+
+rm -f "$MARKER_FILE" "$CALLS_FILE"
+jq -cn --arg cmd 'git commit -m x' '{tool_input:{command:$cmd}}' | (cd "$repo_root" && "$hook") >/dev/null 2>&1
+calls=$(tr '\n' ' ' < "$CALLS_FILE")
+if [ "$calls" = "check:exact-pins typecheck lint prettier test:unit " ]; then
+  echo "PASS: a staged file Prettier handles runs prettier --check between lint and the unit tests"
+else
+  echo "FAIL: expected 'check:exact-pins typecheck lint prettier test:unit ' but got ($calls)"
+  fail=1
+fi
+
+rm -f "$MARKER_FILE" "$CALLS_FILE"
+export FAIL_CMD=prettier
+jq -cn --arg cmd 'git commit -m x' '{tool_input:{command:$cmd}}' | (cd "$repo_root" && "$hook") >/dev/null 2>&1
+unset FAIL_CMD
+calls=$(tr '\n' ' ' < "$CALLS_FILE")
+if [ "$calls" = "check:exact-pins typecheck lint prettier " ]; then
+  echo "PASS: a failing prettier check blocks the commit before the unit tests run"
+else
+  echo "FAIL: expected 'check:exact-pins typecheck lint prettier ' (unit tests never called) but got ($calls)"
+  fail=1
+fi
+
+git -C "$repo_root" reset -q -- "$scratch_format_file"
+rm -f "$scratch_format_file"
+
+rm -f "$MARKER_FILE" "$CALLS_FILE"
+jq -cn --arg cmd 'git commit -m x' '{tool_input:{command:$cmd}}' | (cd "$repo_root" && "$hook") >/dev/null 2>&1
+calls=$(tr '\n' ' ' < "$CALLS_FILE")
+if [ "$calls" = "check:exact-pins typecheck lint test:unit " ]; then
+  echo "PASS: no staged file Prettier handles skips the format check"
+else
+  echo "FAIL: expected 'check:exact-pins typecheck lint test:unit ' (nothing staged) but got ($calls)"
+  fail=1
+fi
+
 # --- tree resolution: which tree does the gate actually run against? ---
 # Real git repos under mktemp -d, independent of the real main checkout or
 # any real worktree, each with its own pnpm-lock.yaml and (except the
