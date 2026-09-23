@@ -1,9 +1,8 @@
 // Which race PollsPage should show, and whether it's the current session
 // or a historical one. Selection lives in the URL (`?race=<session_key>`).
 // An explicit `?race=<key>` always wins immediately; with no param, the
-// default is "the current session, else the newest race", resolved by
-// waiting for a settled signal from the live connection rather than
-// racing `GET /api/races` against the first SSE push.
+// default settles from the live connection rather than racing
+// `GET /api/races` against the first SSE push.
 // See README: Polls.
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";

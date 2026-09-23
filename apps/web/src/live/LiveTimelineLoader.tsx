@@ -1,15 +1,9 @@
 // Hands a full-race browser-side timeline to the live store so
-// `reselect()` (`live/store.ts`) can fold past the push ring buffer once a
-// viewer rewinds further back than the buffer covers ("timeline mode").
-//
-// A separate component, not called directly from `BoardPage`, for two
-// reasons: `useSessionTimeline` needs a numeric session key, which only
-// exists once a live session is actually known (mounting it unconditionally
-// would need a sentinel key and a lot of "is this real yet" plumbing at
-// every call site inside the hook); and unmounting it -- which `BoardPage`
-// does once the live page itself unmounts -- is what drops the timeline
-// (`setTimeline(null, ...)`) so its memory is freed rather than held for
-// the lifetime of the tab.
+// `reselect()` can fold past the push ring buffer once a viewer rewinds
+// further back than the buffer covers ("timeline mode"). A separate
+// component so unmounting it (the live page itself unmounting) is what
+// drops the timeline and frees its memory.
+// See README: Timeline fold.
 import { useEffect } from "react";
 
 import type { RawRecord } from "@formula-time/domain";

@@ -65,6 +65,120 @@ built; only the first join and a `rebuilt` push start it over from seq 0
   `useBoardState.ts`, so `TimeTargetProvider` is built with `createElement`
   rather than JSX.
 
+## Live stream gap recovery
+
+`src/live/useLiveStream.ts` mounts once in the shell -- the only place in
+the app that owns an `EventSource` (`apps/web/AGENTS.md`). It opens the
+stream in delta format (ADR-0013): a `state` frame seeds or replaces the
+held push outright (a join snapshot or a keyframe, both handled
+identically by `onState`); a `delta` frame is folded against the held push
+by `applyDelta` (`deltas.ts`).
+
+- **Gap detection and recovery.** A `null` result from `applyDelta` is a
+  gap -- the held push's `seq` does not match the delta's `base_seq` --
+  resolved by fetching `GET /api/live/snapshot` once; further deltas
+  arriving while that fetch is in flight are dropped (the fetch itself
+  will resume the stream from whatever `seq` it returns), and a failed
+  fetch simply leaves the flag clear so the next delta retries it. A
+  `state` frame is not gated by that flag -- it can land mid-fetch (a
+  keyframe, or a fresh join snapshot from the stream's own reconnect) --
+  so the fetch's own resolution only ever applies its snapshot if it is
+  not older than whatever is already held (`seq` compared as numbers); an
+  older snapshot is discarded rather than regressing the board back past a
+  push that has already arrived.
+- **The `rebuilt` flag.** A gap is recorded (`pendingGap`) the instant it
+  is detected and cleared only once some push actually reaches `onState`
+  afterward -- the fetched snapshot, if it was accepted above, or a
+  `state` frame that got there first and made the fetch moot. Whichever
+  push clears it is marked `rebuilt: true` (`types.ts`): the client's own
+  local timeline has a hole across the gap, the same condition the
+  server's late-commit rebuild flag signals, and `timeline.ts` already
+  discards and re-backfills on it.
+
+## Live timeline join sequence
+
+`src/live/useSessionTimeline.ts` is how a live client keeps a full event
+timeline of a live race from the stream alone, backfilling the log once
+per join and never reading Postgres again per viewer per tick (ADR-0001
+§2 invariant 2). The stream is already open when a page mounts
+(`useLiveStream`, mounted once in `Shell`), so this hook: subscribes to
+the live store's pushes *before* starting the backfill; while
+backfilling, buffers every push's `events` into a pending list; once the
+backfill reaches a short page, appends the pending list once
+(`appendEvents`'s own `event_id` dedupe absorbs the overlap between the
+last backfilled page and the first buffered pushes -- both are
+`seq`-ordered, so that overlap never produces a duplicate); then keeps
+appending each subsequent push's `events` directly, no further reads.
+
+- **Rebuild vs. resume.** A `rebuilt` push discards the timeline and
+  backfills from seq 0 (a late commit, a skipped frame, or a client-side
+  gap means folded rows can no longer be trusted); a plain reconnect
+  instead resumes from the current `headSeq` into the same timeline -- the
+  log is append-only with one writer per session, so those rows stay
+  valid. Both gate on `status`: a finished session ignores either, since
+  once finished the log is static and the timeline this hook already
+  built is complete.
+- **Serialization.** Every `appendEvents(built, ...)` call -- backfill
+  pages, the pending-merge, and each stream push -- is serialized through
+  one promise chain (`enqueueAppend`), and the backfill-to-stream handoff
+  captures/clears `pending` and flips `backfilling` in one synchronous
+  step, so a push arriving right at that handoff can neither run a
+  concurrent `appendEvents` on the same mutable arrays nor get silently
+  dropped. The subscriber also skips a notification whose `state.live` is
+  unchanged (the store's own 250ms `tick()` never touches `live`, but
+  still notifies every subscriber) and any push whose `seq` is not past
+  the last one already folded in.
+- **`timeline`/`headSeq` as one state value.** `publish` always updates
+  them together, and coupling them into a single `setSnapshot` call is
+  what guarantees they commit in the same render. Two separate
+  `useState`s do not give that guarantee -- `publish` runs from a promise
+  continuation (a live push's `appendEvents(...).then(...)`), outside any
+  of React's automatically-batched contexts, so a reader could (and,
+  under test, intermittently did) observe a render with the new
+  `timeline` but the previous `headSeq`.
+- **`statusRef` via `useLayoutEffect`.** The guards that read
+  `statusRef.current` live in a `useLiveStore.subscribe` callback, which
+  fires synchronously and outside React's render cycle whenever the
+  store's `set()` is called (e.g. from an `EventSource` handler) -- a
+  passive `useEffect` is deferred to a later task with no guarantee it
+  lands before the next SSE-driven `set()`, so a push that flips `status`
+  to `"finished"` could still see a stale `statusRef` during a
+  `rebuilt`/reconnect check delivered in the same event-loop turn.
+  `useLayoutEffect` runs synchronously during commit, before the browser
+  can process another event, so the ref is current by the time any such
+  synchronous check can run. `status` is deliberately not a dependency of
+  the join-sequence effect (it is read through `statusRef` instead), so a
+  live -> finished transition takes effect on the very next push/reconnect
+  check without re-running (and re-joining) the effect.
+- **`sessionRef`.** Mirrors `statusRef`, but for the opposite purpose:
+  `session` is read through this ref so it can stay out of the
+  join-sequence effect's dependency array (a plain dependency would
+  restart -- and re-backfill -- the whole join sequence on every push,
+  since `session` is a new object each time). `start()` reads
+  `sessionRef.current` exactly once, at the moment it builds the
+  timeline, so a later change to this ref (the session's `status`
+  flipping to "finished", say) is never picked up -- the row a timeline is
+  created with is the one it keeps for its whole life, which is the
+  point: a viewer rewound past the chequered flag must still see the
+  session as it was when the timeline first captured it.
+- **`restart()`'s microtask deferral.** This runs from inside a
+  `useLiveStore.subscribe` callback, itself invoked while the store is
+  still iterating its listener set for the state change that triggered
+  it. Calling `start()` synchronously here would register the *new*
+  subscription mid-iteration -- and a `Set` iterates entries added during
+  its own iteration, so the new listener would immediately observe the
+  very same (still unchanged) `state.live`/`connection` and call
+  `restart()` again, recursively without end -- unbounded synchronous
+  recursion, exhausting the stack. `restarting` dedupes multiple triggers
+  (e.g. a reconnect and a rebuilt push in the same tick) within this one
+  generation.
+- **`resume()`.** Resumes paging into the same `built` timeline from
+  `headSeqLocal` rather than rebuilding from zero -- no new subscription
+  is registered, so (unlike `restart()`) this can run synchronously with
+  no re-entrant-listener risk. `backfilling` itself is the dedupe guard: a
+  resume already in flight (or the first join's own backfill, still
+  running) means nothing more to do here.
+
 ## Timeline fold
 
 `src/replay/timeline.ts`'s `Timeline` is the incremental fold shared by
@@ -147,6 +261,65 @@ file) or across many `appendEvents` calls as pages arrive from
   worth of events, never the whole timeline. `timeline.events` is already
   deduped (by `appendEvents`), so no duplicate `event_id` can reach the
   fresh reducer built here.
+- **LiveTimelineLoader mounting/unmounting**
+  (`src/live/LiveTimelineLoader.tsx`). A separate component, not called
+  directly from `BoardPage`, for two reasons: `useSessionTimeline` needs a
+  numeric session key, which only exists once a live session is actually
+  known (mounting it unconditionally would need a sentinel key and a lot
+  of "is this real yet" plumbing at every call site inside the hook); and
+  unmounting it -- which `BoardPage` does once the live page itself
+  unmounts -- is what drops the timeline (`setTimeline(null, ...)`) so its
+  memory is freed rather than held for the lifetime of the tab. It waits
+  for the live push's own session row (`state.live?.state.session`) before
+  mounting the inner loader: `useSessionTimeline` captures that row once,
+  when it builds the timeline, so there must already be a real row to
+  capture.
+- **Deriving anchors from a timeline** (`src/live/anchors.ts`'s
+  `deriveTimelineAnchors`). The same `Anchors` shape the live store folds
+  from accumulated pushes (`deriveAnchors`), but built from a full-race
+  `Timeline` instead: lap N's anchor is `Timeline.lapMarkers` (already
+  "the lap's own start time"); lights-out is lap 1's anchor; restarts come
+  from "SESSION STARTED" race-control events across the whole timeline
+  rather than a rolling 100-row window. Takes a `Timeline` rather than
+  only a `FoldedRace` -- `FoldedRace` is `Timeline & { finalState }`, so a
+  replay's fold passes unchanged -- so the live `TimeTarget` can use it
+  too once a full-race timeline is loaded, and a late joiner's "Race
+  start" and lap jumps are not limited to laps seen since the tab
+  connected.
+- **`useTimeline`'s session-match guard** (`src/live/selectors.ts`). The
+  browser-side full-race timeline for the live session
+  (`LiveTimelineLoader` sets it), or null when not loaded -- or when it is
+  loaded but does not match the *live* push's own session
+  (`timelineMatchesSession`, the same guard `reselect()` applies in
+  `store.ts`). That mismatch window is real, not hypothetical: a session
+  change (e.g. quali -> race) leaves `useSessionTimeline`'s effect keyed
+  on the old `sessionKey` for at least one render after `state.live` flips
+  to the new session, and `BoardPage` never remounts `LiveTimelineLoader`
+  across that transition (`/live` carries no session param) -- without
+  this guard, `useLiveTimeTarget`'s `anchors()`/`range()` would show the
+  outgoing session's span and lap markers for that window even though the
+  store's own `displayed`/`mode` have already fallen back correctly.
+- **Timeline-mode display caching** (`src/live/store.ts`'s
+  `timelineDisplayed`). A one-entry cache for the timeline-mode
+  synthesised push: `foldAt` clones on every call, so without this,
+  `displayed` would get a new reference on every 250ms tick even when the
+  fold did not cross an event boundary -- breaking the
+  referential-stability guarantee the buffer path gets for free (it
+  returns the stored push object itself, so `displayed` keeps the same
+  reference across ticks that select the same entry). A cached entry is
+  reused only when all three of its keys still match the current call:
+  `events` (the mutable array `appendEvents` pushes onto in place --
+  unchanged by `useSessionTimeline` publishing a new shallow *copy* of the
+  `Timeline` per page/push, so that alone must not invalidate the cache; a
+  restarted backfill hands over a genuinely new array), `sequence`
+  (`RaceStateReducer` increments it once per applied, non-duplicate event,
+  so two folds that stop at the same event boundary agree on it
+  regardless of how far `now` advanced between them), and `live` itself (a
+  real push arriving mid-interval still changes the envelope --
+  `seq`/`sent_at`/`session_key`/`total_laps` -- even when its fold lands
+  on the same `sequence` as the previous one, so the cached push must not
+  be reused across two different `live` values; comparing `live` by
+  reference is enough, since every push is a fresh, immutable object).
 
 ## Transport slider
 
@@ -300,7 +473,11 @@ which a replay does not use.
   lifecycle check. The upcoming banner is suppressed under the same
   condition, since it would otherwise sit above a board that is already
   live. The finished banner keeps its own rule -- a stale row is never the
-  reason a viewer loses the finished/replay signal.
+  reason a viewer loses the finished/replay signal. `ConnectionPill`
+  (`src/live/ConnectionPill.tsx`) uses the same gate: "connected" means
+  connected to the OpenF1 session, so with no session, or one that has not
+  started or has finished, there is nothing to show -- the
+  finished/upcoming banner already explains that state.
 
 ## ReplayPage
 

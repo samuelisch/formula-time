@@ -9,10 +9,8 @@ import type { TimeTarget } from "../transport/TimeTarget.ts";
 
 /**
  * Routes one anchored observation's computed offset through the
- * `TimeTarget` seam instead of a raw `setDelayMs`. `now` must be the same
- * wall clock the offset's `observedWall` was computed from, not a fresh
- * `Date.now()` here, or the two calls' sub-ms drift leaks into the
- * position. One branch serves both live and replay.
+ * `TimeTarget` seam. `now` must be the same wall clock `observedWall` was
+ * computed from, not a fresh `Date.now()` here.
  * See README: Alignment.
  */
 export function applyOffsetToTarget(target: TimeTarget, ms: number, now: () => number = Date.now): void {

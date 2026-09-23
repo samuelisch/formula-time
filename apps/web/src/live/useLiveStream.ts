@@ -1,29 +1,9 @@
 // Mounted once in the shell. The only place in the app that owns an
-// EventSource -- no component below the shell creates one (apps/web/AGENTS.md).
-//
-// Opens the stream in delta format (ADR-0013): a `state` frame seeds or
-// replaces the held push outright (a join snapshot or a keyframe, both
-// handled identically by `onState`); a `delta` frame is folded against the
-// held push by `applyDelta` (deltas.ts). A `null` result is a gap -- the
-// held push's `seq` does not match the delta's `base_seq` -- resolved by
-// fetching `GET /api/live/snapshot` once; further deltas arriving while
-// that fetch is in flight are dropped (the fetch itself will resume the
-// stream from whatever `seq` it returns), and a failed fetch simply leaves
-// the flag clear so the next delta retries it. A `state` frame is not
-// gated by that flag -- it can land mid-fetch (a keyframe, or a fresh join
-// snapshot from the stream's own reconnect) -- so the fetch's own
-// resolution only ever applies its snapshot if it is not older than
-// whatever is already held (`seq` compared as numbers); an older snapshot
-// is discarded rather than regressing the board back past a push that has
-// already arrived.
-//
-// A gap is recorded (`pendingGap`) the instant it is detected and cleared
-// only once some push actually reaches `onState` afterward -- the fetched
-// snapshot, if it was accepted above, or a `state` frame that got there
-// first and made the fetch moot. Whichever push clears it is marked
-// `rebuilt: true` (`types.ts`): the client's own local timeline has a hole
-// across the gap, the same condition the server's late-commit rebuild flag
-// signals, and `timeline.ts` already discards and re-backfills on it.
+// EventSource -- no component below the shell creates one. Opens the
+// stream in delta format (ADR-0013): a `state` frame seeds or replaces
+// the held push outright; a `delta` frame is folded against the held
+// push by `applyDelta` (deltas.ts).
+// See README: Live stream gap recovery.
 import { useEffect } from "react";
 
 import { apiFetch, apiUrl } from "../api.ts";

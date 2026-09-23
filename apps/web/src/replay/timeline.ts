@@ -95,10 +95,8 @@ function normalizedSessionRow(session: RawRecord): RawRecord {
 }
 
 /**
- * The index of the first event in `events`, scanning from `fromIndex`,
- * whose `source_time` is non-null and exceeds `targetSourceMs`. Events at
- * `[fromIndex, boundary)` apply for `targetSourceMs`; `events.length`
- * means every remaining event applies.
+ * The index of the first event in `events`, from `fromIndex`, whose
+ * `source_time` is non-null and exceeds `targetSourceMs`.
  * See README: Timeline fold.
  */
 export function truncationBoundary(events: RaceEvent[], targetSourceMs: number, fromIndex = 0): number {
@@ -137,9 +135,8 @@ function keyframeBefore(timeline: Timeline, targetSourceMs: number): Keyframe {
 }
 
 /**
- * Appends `rawEvents` onto `timeline` in place and returns it: dedupes by
- * `event_id`, applies each new event through a reducer resumed from the
- * last keyframe, and keeps keyframes/lap markers exactly as a single full
+ * Appends `rawEvents` onto `timeline` in place and returns it: dedupes,
+ * applies each event, and keeps keyframes/lap markers exactly as a full
  * fold would. Chunked: yields every `CHUNK_SIZE` applied events.
  * See README: Timeline fold.
  */
@@ -215,10 +212,8 @@ export async function appendEvents(timeline: Timeline, rawEvents: RaceEvent[]): 
 }
 
 /**
- * The race state at `targetSourceMs`: the nearest earlier keyframe, cloned,
- * with the events after it re-applied up to `truncationBoundary`.
- * Synchronous -- bounded by one keyframe interval's worth of events, never
- * the whole timeline.
+ * The race state at `targetSourceMs`: the nearest earlier keyframe,
+ * cloned, with the events after it re-applied up to `truncationBoundary`.
  * See README: Timeline fold.
  */
 export function foldAt(timeline: Timeline, targetSourceMs: number): RaceState {

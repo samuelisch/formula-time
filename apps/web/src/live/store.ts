@@ -7,14 +7,9 @@ import { append, emptyBuffer, select, type PushBuffer } from "./buffer.ts";
 import { axisOf, type Connection, type RewindMode, type StatePush } from "./types.ts";
 
 /**
- * Whether `timeline` is the live session's own log -- `createTimeline`
- * always normalises `session.session_key` to a string (see
- * `replay/timeline.ts`), so this is a plain string comparison against the
- * live push's own `session_key`. A timeline for a different session (e.g.
- * a stale one left over from before a session change finished unmounting)
- * must never be folded from. Exported so `live/selectors.ts`'s
- * `useTimeline()` can apply the identical guard: `useLiveTimeTarget`'s
- * `anchors()`/`range()` must never see a mismatched timeline either.
+ * Whether `timeline` is the live session's own log. A timeline for a
+ * different session must never be folded from.
+ * See README: Timeline fold.
  */
 export function timelineMatchesSession(timeline: Timeline, liveSessionKey: string): boolean {
   const key = timeline.session["session_key"];
@@ -23,11 +18,9 @@ export function timelineMatchesSession(timeline: Timeline, liveSessionKey: strin
 
 /**
  * The live edge on the source axis: the newest push's own axis time, plus
- * however much wall-clock time has elapsed since it arrived. Null before
- * the first push, since there is nothing to measure from yet. Exported so
- * a caller that only needs this value for display (a render, not an
- * action) -- `useLiveTimeTarget`'s `range()` -- can compute the identical
- * formula `reselect` uses internally, so the two can never disagree.
+ * wall-clock time elapsed since it arrived. Null before the first push.
+ * Exported so `useLiveTimeTarget`'s `range()` can compute the identical
+ * formula `reselect` uses internally, so the two never disagree.
  */
 export function headAxisOf(state: Pick<LiveStore, "live" | "lastMessageAt">, now: number): number | null {
   if (state.live === null) return null;
@@ -75,26 +68,12 @@ interface Selection {
 export function createLiveStore(): LiveStoreApi {
   const seenRestarts = new Set<string>();
 
-  // One-entry cache for the timeline-mode synthesised push: `foldAt` clones
-  // on every call, so without this, `displayed` would get a new reference
-  // on every 250ms tick even when the fold did not cross an event
-  // boundary -- breaking the referential-stability guarantee the buffer
-  // path gets for free (it returns the stored push object itself, so
-  // `displayed` keeps the same reference across ticks that select the same
-  // entry). A cached entry is reused only
-  // when all three of its keys still match the current call: `events`
-  // (the mutable array `appendEvents` pushes onto in place -- unchanged by
-  // `useSessionTimeline` publishing a new shallow *copy* of the `Timeline`
-  // per page/push, so that alone must not invalidate the cache; a
-  // restarted backfill hands over a genuinely new array), `sequence`
-  // (`RaceStateReducer` increments it once per applied, non-duplicate
-  // event, so two folds that stop at the same event boundary agree on it
-  // regardless of how far `now` advanced between them), and `live` itself
-  // (a real push arriving mid-interval still changes the envelope --
-  // `seq`/`sent_at`/`session_key`/`total_laps` -- even when its fold lands
-  // on the same `sequence` as the previous one, so the cached push must
-  // not be reused across two different `live` values; comparing `live` by
-  // reference is enough, since every push is a fresh, immutable object).
+  // One-entry cache for the timeline-mode synthesised push: `foldAt`
+  // clones on every call, so without this `displayed` would get a new
+  // reference on every 250ms tick even when the fold did not cross an
+  // event boundary, breaking the referential-stability guarantee the
+  // buffer path gets for free. Reused only when `events`, `sequence`, and
+  // `live` all still match. See README: Timeline fold.
   let lastTimelineDisplayed: { events: RaceEvent[]; sequence: number; live: StatePush; push: StatePush } | null = null;
 
   function timelineDisplayed(timeline: Timeline, atMs: number, live: StatePush): StatePush {

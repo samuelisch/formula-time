@@ -61,17 +61,10 @@ export function deriveAnchors(previous: Anchors, push: StatePush, seen: Set<stri
 }
 
 /**
- * The same `Anchors` shape the live store folds from accumulated pushes, but
- * built from a full-race `Timeline` instead: lap N's anchor is
- * `Timeline.lapMarkers` (already "the lap's own start time" -- see
- * `replay/timeline.ts`); lights-out is lap 1's anchor;
- * restarts come from "SESSION STARTED" race-control events across the whole
- * timeline rather than a rolling 100-row window. Takes a `Timeline` rather
- * than only a `FoldedRace` -- `FoldedRace` is `Timeline & { finalState }`,
- * so a replay's fold passes unchanged -- so the live `TimeTarget` can use
- * it too once a full-race timeline is loaded, and a late joiner's "Race
- * start" and lap jumps are not limited to laps seen since the tab
- * connected.
+ * The same `Anchors` shape the live store folds from accumulated pushes,
+ * but built from a full-race `Timeline` instead (lap markers, not a
+ * rolling 100-row window).
+ * See README: Timeline fold.
  */
 export function deriveTimelineAnchors(timeline: Timeline): Anchors {
   const laps = timeline.lapMarkers.map((marker) => ({

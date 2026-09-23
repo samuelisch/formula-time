@@ -97,9 +97,7 @@ export function useBoardSessionStatus(): SessionStatusValue | null {
 
 /**
  * Whether a push should render as racing. The fold is the authority on
- * whether racing has begun, not the session row -- true when the row says
- * "live", or when it's not "finished" and either race control recorded
- * `SESSION STARTED` or the leader's lap is 1 or more.
+ * whether racing has begun, not the session row.
  * See README: Board layout.
  */
 export function isRacingPush(push: StatePush | null): boolean {

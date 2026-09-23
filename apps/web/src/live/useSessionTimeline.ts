@@ -2,36 +2,8 @@
 // a live race from the stream alone, backfilling the log once per join
 // and never reading Postgres again per viewer per tick (ADR-0001 §2
 // invariant 2). The stream is already open when a page mounts
-// (`useLiveStream`, mounted once in `Shell`), so this hook: subscribes to
-// the live store's pushes *before* starting the backfill; while
-// backfilling, buffers every push's `events` into a pending list; once
-// the backfill reaches a short page, appends the pending list once
-// (`appendEvents`'s own `event_id` dedupe absorbs the overlap between the
-// last backfilled page and the first buffered pushes -- both are
-// `seq`-ordered, so that overlap never produces a duplicate); then keeps
-// appending each subsequent push's `events` directly, no further reads.
-//
-// A `rebuilt` push discards the timeline and backfills from seq 0 (a late
-// commit, a skipped frame, or a client-side gap means folded rows can no
-// longer be trusted); a plain reconnect instead resumes from the current
-// `headSeq` into the same timeline -- the log is append-only with one
-// writer per session, so those rows stay valid. Both gate on `status`: a
-// finished session ignores either.
-//
-// `status` gates whether a finished session still reacts to rebuilds/
-// reconnects: once finished the log is static and the timeline this hook
-// already built is complete, so further stream activity is ignored.
-//
-// Every `appendEvents(built, ...)` call -- backfill pages, the
-// pending-merge, and each stream push -- is serialized through one
-// promise chain (`enqueueAppend`), and the backfill-to-stream handoff
-// captures/clears `pending` and flips `backfilling` in one synchronous
-// step, so a push arriving right at that handoff can neither run a
-// concurrent `appendEvents` on the same mutable arrays nor get silently
-// dropped. The subscriber also skips a notification whose `state.live` is
-// unchanged (the store's own 250ms `tick()` never touches `live`, but
-// still notifies every subscriber) and any push whose `seq` is not past
-// the last one already folded in.
+// (`useLiveStream`, mounted once in `Shell`).
+// See README: Live timeline join sequence.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { RaceEvent, RawRecord } from "@formula-time/domain";
@@ -77,48 +49,27 @@ interface Snapshot {
 const EMPTY_SNAPSHOT: Snapshot = { timeline: null, headSeq: 0 };
 
 export function useSessionTimeline(sessionKey: number, status: SessionStatus, session: RawRecord): UseSessionTimelineResult {
-  // `timeline` and `headSeq` are one state value, not two `useState`s:
-  // `publish` always updates them together, and coupling them into a
-  // single `setSnapshot` call is what guarantees they commit in the same
-  // render. Two separate `useState`s (the original shape here) do not
-  // give that guarantee -- `publish` runs from a promise continuation
-  // (a live push's `appendEvents(...).then(...)`), outside any of
-  // React's automatically-batched contexts, so a reader could
-  // (and, under test, intermittently did) observe a render with the new
-  // `timeline` but the previous `headSeq`.
+  // `timeline` and `headSeq` are one state value, not two `useState`s, so
+  // `publish` commits them together in the same render (it runs from a
+  // promise continuation, outside React's automatic batching).
+  // See README: Live timeline join sequence.
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY_SNAPSHOT);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
   // Kept current via a layout effect, not a passive one: the guards that
-  // read `statusRef.current` below live in a `useLiveStore.subscribe`
-  // callback, which fires synchronously and outside React's render cycle
-  // whenever the store's `set()` is called (e.g. from an `EventSource`
-  // handler) -- a passive `useEffect` is deferred to a later task with no
-  // guarantee it lands before the next SSE-driven `set()`, so a push that
-  // flips `status` to `"finished"` could still see a stale `statusRef`
-  // during a `rebuilt`/reconnect check delivered in the same event-loop
-  // turn. `useLayoutEffect` runs synchronously during commit, before the
-  // browser can process another event, so the ref is current by the time
-  // any such synchronous check can run. `status` is deliberately not a
-  // dependency of the join-sequence effect below (see its own comment), so
-  // this ref is how that effect learns of a live -> finished transition
-  // without re-running.
+  // read `statusRef.current` run from a store-subscribe callback outside
+  // React's render cycle, where a passive effect could still be stale.
+  // See README: Live timeline join sequence.
   const statusRef = useRef(status);
   useLayoutEffect(() => {
     statusRef.current = status;
   }, [status]);
 
-  // Mirrors `statusRef` above, but for the opposite purpose: `session` is
-  // read through this ref so it can stay out of the join-sequence effect's
-  // dependency array (a plain dependency would restart -- and re-backfill --
-  // the whole join sequence on every push, since `session` is a new object
-  // each time). `start()` reads `sessionRef.current` exactly once, at the
-  // moment it builds the timeline, so a later change to this ref (the
-  // session's `status` flipping to "finished", say) is never picked up --
-  // the row a timeline is created with is the one it keeps for its whole
-  // life, which is the point: a viewer rewound past the chequered flag must
-  // still see the session as it was when the timeline first captured it.
+  // Mirrors `statusRef`, but for the opposite purpose: `session` stays
+  // out of the join-sequence effect's dependency array, since a plain
+  // dependency would re-backfill on every push (a new object each time).
+  // See README: Live timeline join sequence.
   const sessionRef = useRef(session);
   useLayoutEffect(() => {
     sessionRef.current = session;
@@ -170,14 +121,10 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus, se
       }
 
       // Serializes every appendEvents(built, ...) call through one chain:
-      // the backfill's own per-page appends, the pending-merge append, and
-      // every subsequent stream-push append all mutate the same `built`
-      // arrays, so two of them must never run concurrently. Without this,
-      // the window between the backfill loop deciding "no more pages" and
-      // the pending-merge's own `appendEvents` call actually resolving
-      // would let a push that arrived in that window take the "direct
-      // append" branch (since `backfilling` had already flipped) and run a
-      // second, concurrent `appendEvents` on the same mutable timeline.
+      // the backfill's per-page appends, the pending-merge append, and
+      // every stream-push append all mutate the same `built` arrays, so
+      // two must never run concurrently.
+      // See README: Live timeline join sequence.
       let appendChain: Promise<void> = Promise.resolve();
       function enqueueAppend(events: RaceEvent[]): Promise<void> {
         const step = appendChain.then(async () => {
@@ -188,18 +135,12 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus, se
         return step;
       }
 
-      // Deferred to a microtask, not called synchronously: this runs from
-      // inside a `useLiveStore.subscribe` callback, itself invoked while
-      // the store is still iterating its listener set for the state
-      // change that triggered it. Calling `start()` synchronously here
-      // would register the *new* subscription mid-iteration -- and a
-      // `Set` iterates entries added during its own iteration, so the new
-      // listener would immediately observe the very same (still
-      // unchanged) `state.live`/`connection` and call `restart()` again,
-      // recursively without end -- unbounded synchronous recursion,
-      // exhausting the stack. `restarting` dedupes multiple triggers (e.g.
-      // a reconnect and a rebuilt push in the same tick) within this one
-      // generation.
+      // Deferred to a microtask, not called synchronously: this runs
+      // inside a `useLiveStore.subscribe` callback, still iterating its
+      // listener set -- a synchronous `start()` would register a new
+      // subscription mid-iteration and recurse without end. `restarting`
+      // dedupes multiple triggers within this one generation.
+      // See README: Live timeline join sequence.
       let restarting = false;
       function restart(): void {
         if (!isCurrent() || restarting) return;
@@ -222,17 +163,12 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus, se
       }
 
       let previousConnection = useLiveStore.getState().connection;
-      // Reference-equality guard: the store's own 250ms `tick()`
-      // (apps/web/src/live/store.ts, while a viewer has a delay) calls
-      // `set({ displayed, bufferShort })` -- it never touches `live` --
-      // but a plain whole-state `subscribe` still re-fires this
-      // listener on every `set()` regardless of which fields changed.
-      // Without this guard, each tick re-processed the *same* push object,
-      // re-running `appendEvents` (which rebuilds a dedup `Set` over the
-      // whole timeline) for no reason. `lastProcessedSeq` is a second,
-      // independent guard against reprocessing a push whose `seq` we've
-      // already folded in, in case some other path ever hands this
-      // listener a new `live` object carrying a seq we've already seen.
+      // Reference-equality guard: the store's own 250ms `tick()` never
+      // touches `live`, but a plain whole-state `subscribe` still re-fires
+      // on every `set()` -- without this, each tick would re-run
+      // `appendEvents` on the same push for no reason. `lastProcessedSeq`
+      // is a second guard against reprocessing an already-folded `seq`.
+      // See README: Live timeline join sequence.
       let previousLive = useLiveStore.getState().live;
       let lastProcessedSeq = 0;
       unsubscribeStore = useLiveStore.subscribe((state) => {
@@ -332,13 +268,11 @@ export function useSessionTimeline(sessionKey: number, status: SessionStatus, se
         if (!isCurrent()) return;
 
         // Capture the pending list, clear it, and flip `backfilling` all
-        // synchronously in this one step -- before awaiting anything. Any
-        // push arriving from this point forward sees `backfilling === false`
-        // and enqueues its own append (see the subscriber above), which
-        // `enqueueAppend`'s shared chain guarantees runs only after this
-        // merge's append below actually finishes -- so no push can be
-        // silently dropped (routed to a `pending` array nobody reads again)
-        // and no two `appendEvents` calls on `built` ever run concurrently.
+        // synchronously, before awaiting anything: a push arriving from
+        // this point sees `backfilling === false` and enqueues its own
+        // append, which the shared chain guarantees runs only after this
+        // merge's append finishes.
+        // See README: Live timeline join sequence.
         const toAppend = pending;
         pending = [];
         backfilling = false;
