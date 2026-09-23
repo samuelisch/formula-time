@@ -1,11 +1,9 @@
-// Lifted from `../f1-live-events-poc/poc/ts/normalize_core.ts` (stableJson,
-// eventId, timestampValue, timestampMillis, LiveNormalizer, endpointConfigs),
-// with the MQTT envelope strip (`../f1-live-events-poc/poc/ts/mqtt_ingest.ts`
-// `stripMqttMeta`) folded into identity itself, so a REST row and its MQTT
-// twin hash to the same `eventId` no matter which lane computes it
-// first. Everything the POC's reducer needed per row (schema_version,
-// original_index, out_of_order, duplicate) is dropped: ingest never folds
-// (apps/ingest/AGENTS.md), and the `events` table has no columns for them.
+// Normalizes OpenF1 rows before they join the queue: canonicalizes
+// timestamps and strips the MQTT transport envelope inside identity
+// hashing, so a REST row and its MQTT twin hash to the same `eventId`
+// regardless of lane. The POC reducer's per-row fields (schema_version,
+// original_index, out_of_order, duplicate) are dropped: ingest never
+// folds, and `events` has no columns for them.
 
 import { createHash } from "node:crypto";
 
@@ -109,21 +107,18 @@ export interface NormalizeResult {
 }
 
 // Stateful: dedups by event id across polls (the live API rejects date
-// filters, so every poll re-fetches the full endpoint — apps/ingest/AGENTS.md)
-// and infers stint start times from laps seen so far. One instance per live
-// session, same contract as the POC's LiveNormalizer.
+// filters, so every poll re-fetches the full endpoint — see README:
+// OpenF1 facts) and infers stint start times from laps seen so far. One
+// instance per live session.
 export class LiveNormalizer {
   private readonly seen = new Map<string, Set<string>>();
   private readonly lapStartByDriverAndLap = new Map<string, string>();
 
   /**
-   * Never throws: one malformed row (e.g. a stray
-   * `null` in the response array) must not lose every row after it in the
-   * same batch. Each row is normalized in its own try/catch; a row that
-   * throws is skipped and counted in `malformed`. An id is added to `seen`
-   * only once its row is safely in `rows` — a row that throws AFTER its id
-   * was computed but before it landed must not be marked seen, or a later,
-   * well-formed retry of that same row would be silently dropped forever.
+   * Never throws: a malformed row is caught, skipped, and counted in
+   * `malformed`, not lost with every row after it in the batch. An id
+   * joins `seen` only once its row is safely in `rows`, so a throw after
+   * the id is computed doesn't block a later well-formed retry.
    */
   public normalize(endpoint: string, rows: RawRecord[]): NormalizeResult {
     const config = endpointConfigs[endpoint] ?? {};

@@ -136,10 +136,9 @@ export class SessionDiscovery {
 
   /**
    * `sessions?year=` plus the upsert of every race row: refreshes the
-   * snapshot (every row this fetch returned, race or not) and
-   * `knownSessionKeys` (race rows whose upsert succeeded only). Shared by
-   * the idle discovery tick and the live loop's periodic refresh. `null`
-   * when the fetch failed or returned no array.
+   * snapshot (every row returned, race or not) and `knownSessionKeys`
+   * (race rows whose upsert succeeded). Shared by the idle discovery
+   * tick and the live loop's periodic refresh; `null` on failure.
    */
   public async refreshSessions(nowMs: number): Promise<{ rows: RawRecord[]; upserted: Set<RawRecord> } | null> {
     this.nextSessionsRefreshAt = nowMs + this.intervalMs;
@@ -161,14 +160,11 @@ export class SessionDiscovery {
     await this.refreshMeetingNames();
 
     // Only race sessions are captured (isRaceSession): a practice,
-    // qualifying or sprint row is never upserted, never added to
-    // `upserted`, and never added to `knownSessionKeys` — so the lane's
-    // selection can't pick it and a drivers row tagged to it is dropped
-    // downstream as unknownSession.
-    //
-    // `upserted` tracks which rows' onSession succeeded THIS tick, so the
-    // lane never selects a session whose row failed to write: every later
-    // event insert would fail its FK against a row that was never created.
+    // qualifying or sprint row is never upserted or added to
+    // `knownSessionKeys`, so a drivers row tagged to it is dropped
+    // downstream as unknownSession. `upserted` tracks which rows'
+    // onSession succeeded this tick, so the lane never selects a
+    // session whose row failed to write.
     const upserted = new Set<RawRecord>();
     for (const row of rows) {
       if (!isRaceSession(row)) continue;
@@ -191,11 +187,9 @@ export class SessionDiscovery {
   }
 
   /**
-   * `meetings?year=<current>`, once per discovery tick — the session row
-   * never carries the Grand Prix name itself, so `sessionFieldsFromRaw`
-   * joins it from this map by `meeting_key`. A fetch failure or a
-   * non-array response leaves the previous tick's map in place rather than
-   * clearing it.
+   * `meetings?year=<current>`, once per discovery tick. See README:
+   * Session upsert. A fetch failure or non-array response leaves the
+   * previous tick's map in place instead of clearing it.
    */
   private async refreshMeetingNames(): Promise<void> {
     let meetings: unknown;
@@ -227,11 +221,9 @@ export class SessionDiscovery {
 
   /**
    * Records the followed session's own meetings row, once, through the
-   * injected recorder (endpoint `"meetings"`) — the same jsonl path every
-   * other endpoint uses, so a later `pnpm ingest:load` of this session's
-   * recording can source `meeting_name` too. Must run AFTER the lane has
-   * selected a session, which is why the lane calls it rather than
-   * `refreshSessions` doing it inline. See README: The pipeline.
+   * injected recorder — must run after session selection, so the lane
+   * calls it rather than `refreshSessions` doing it inline. See README:
+   * The pipeline.
    */
   public async recordFollowedMeetingRow(session: RawRecord | null, sessionKey: number | null): Promise<void> {
     if (sessionKey === null || session === null) return;

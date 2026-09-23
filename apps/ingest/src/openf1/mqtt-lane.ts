@@ -1,28 +1,9 @@
-// The MQTT lane. Lifted from
-// `../f1-live-events-poc/poc/ts/mqtt_ingest.ts` (`mqttTopicEndpoint`,
-// `stripMqttMeta`, the `MqttNormalizer` shape) and
-// `../f1-live-events-poc/poc/live-recorder/mqtt_probe.ts` (the broker URL,
-// port, and credentials shape actually used against OpenF1: `mqtts://
-// mqtt.openf1.org:8883`, `username: creds.login, password: <bearer token>`,
-// proactive token refresh into `options.password` every 50 min and again on
-// every reconnect). apps/ingest/AGENTS.md: "Two lanes always on, no failover
-// logic: REST ... and MQTT (named timing topics only, never `v1/#`; exactly
-// one connection; re-subscribe on every `connect`)." ADR-0001 §2 invariant 3:
-// row identity is transport-independent, so a REST row and its MQTT twin dedup
-// to one row at one point (the writer's `event.createMany({ skipDuplicates:
-// true })`, ADR-0007).
-//
-// Deviates from the POC's `MqttNormalizer` on purpose: instead of an
-// MQTT-lane-private `LiveNormalizer` instance, this lane calls into the
-// SAME normalizer the REST lane is currently using (`getNormalizer`,
-// RestLane#getNormalizer) — the shared LiveNormalizer — so
-// in-memory dedup state is one thing, not two lanes each thinking a row is
-// new. The database's `skipDuplicates` insert is still the invariant-3
-// backstop regardless.
-//
-// Not exercised against the real broker (no network in tests, ever) —
-// `isAuthRejection`'s CONNACK-error-code guess (MQTT 3.1.1 codes 4/5, MQTT5
-// reason codes 0x86/0x87) is unverified until a live run against the broker.
+// The MQTT lane: eight named timing topics, one connection, re-subscribed
+// on every `connect` (ADR-0001 §1; see README: Rules, MQTT row). Row
+// identity is transport-independent (ADR-0001 §2 invariant 3): a REST row
+// and its MQTT twin dedup to one row via the writer's `skipDuplicates`
+// (ADR-0007). Shares the REST lane's `LiveNormalizer` (`getNormalizer`)
+// so in-memory dedup state is one thing, not two.
 
 import mqtt from "mqtt";
 
@@ -34,7 +15,7 @@ import type { LiveNormalizer } from "./normalize.js";
 import type { QueueItem, RawRecord } from "./types.js";
 import type { EventQueue } from "../writer/queue.js";
 
-// The eight named timing topics — never `v1/#` (AGENTS.md).
+// The eight named timing topics — never `v1/#` (see README: Rules).
 export const MQTT_ENDPOINTS = [
   "intervals",
   "laps",
@@ -58,11 +39,10 @@ export const MQTT_BROKER_URL = "mqtts://mqtt.openf1.org:8883";
 const TOPIC_PREFIX = "v1/";
 
 /**
- * `v1/<endpoint>` -> endpoint, but ONLY for the eight named timing topics
- * this lane subscribes to — never `v1/#`, and never an endpoint we didn't
- * ask for (AGENTS.md: "named timing topics only, never `v1/#`"). Anything
+ * `v1/<endpoint>` -> endpoint, but only for the eight named timing topics
+ * this lane subscribes to — never `v1/#` (see README: Rules). Anything
  * else, including a bare `v1/#` string, returns `null` so the caller can
- * count it as an unknown-topic drop rather than silently normalizing it.
+ * count it as an unknown-topic drop.
  */
 export function mqttTopicEndpoint(topic: string): string | null {
   if (typeof topic !== "string" || !topic.startsWith(TOPIC_PREFIX)) return null;
@@ -73,10 +53,8 @@ export function mqttTopicEndpoint(topic: string): string | null {
 /**
  * Every underscore-prefixed field is MQTT-only transport envelope (`_id`:
  * monotonic order, `_key`: document version) — not row content. Returns a
- * copy; the input is not mutated. `normalize.ts`'s `eventId` already strips
- * this internally, so REST and MQTT twins hash to the same id regardless of
- * whether this function ran — it exists so the queued payload itself never
- * carries the envelope either.
+ * copy. `eventId` (normalize.ts) strips this internally too; this exists
+ * so the queued payload itself never carries the envelope either.
  */
 export function stripMqttMeta(payload: RawRecord): RawRecord {
   const rest: RawRecord = {};
@@ -87,12 +65,10 @@ export function stripMqttMeta(payload: RawRecord): RawRecord {
 }
 
 /**
- * A payload's own `session_key`, or `null` when it doesn't carry one of its
- * own — absent, an explicit `null`, or any other non-numeric value all mean
- * "no key of its own", never "a key of zero" (`Number(null)` is `0`, which
- * would otherwise misclassify an explicit `null` as a disagreeing key).
- * Accepts a finite number or a numeric string, matching how OpenF1 sends
- * `session_key` on either transport.
+ * A payload's own `session_key`, or `null` when it doesn't carry one —
+ * absent, explicit `null`, or non-numeric all mean "no key of its own",
+ * never "a key of zero" (`Number(null)` is `0`). Accepts a finite number
+ * or numeric string, matching either OpenF1 transport.
  */
 function parseOwnSessionKey(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -116,7 +92,8 @@ export function mqttBackoffDelayMs(baseMs: number, attempt: number, maxMs: numbe
 // MQTT 3.1.1 CONNACK return codes 4 ("Bad user name or password") and 5
 // ("not authorized"); MQTT5 reason codes 0x86/0x87 carry the same meanings.
 // `mqtt.js` surfaces a CONNACK failure as an `error` event whose Error has a
-// numeric `.code` — see `ErrorWithReasonCode` in the `mqtt` package.
+// numeric `.code` — see `ErrorWithReasonCode` in the `mqtt` package. Tests
+// never touch the real broker, so this mapping is unverified live.
 const AUTH_REJECTION_CODES = new Set([4, 5, 0x86, 0x87]);
 
 function isAuthRejection(error: unknown): boolean {
@@ -194,10 +171,9 @@ const DEFAULT_MAX_BACKOFF_MS = 60_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 
 /**
- * One MQTT connection (AGENTS.md: "exactly one connection") feeding the same
- * queue the REST lane does. No failover logic — the constraint (writer's
- * `skipDuplicates`) is the dedup, not this lane trying to be smart about
- * REST being "the real redundancy" (POC CLAUDE.md).
+ * One MQTT connection (see README: Rules) feeding the same queue the
+ * REST lane does. No failover logic — the writer's `skipDuplicates` is
+ * the dedup, not this lane trying to be smart about redundancy.
  */
 export class MqttLane {
   private readonly connectImpl: MqttConnect;
@@ -235,12 +211,8 @@ export class MqttLane {
   private unjoinedSinceLog = 0;
   private foreignSinceLog = 0;
 
-  // Every `handleMessage()` call still running — `stop()` awaits these
-  // before resolving so a recording write already in flight lands before
-  // the process exits (main.ts's SIGTERM path drains the writer and calls
-  // `process.exit()` right after `stop()` resolves); without this, a row
-  // already queued but not yet written to the jsonl recording would be
-  // silently dropped from it.
+  // Every `handleMessage()` call still running. See README: MQTT
+  // connection lifecycle.
   private readonly inFlightMessages = new Set<Promise<void>>();
 
   public constructor(
@@ -291,16 +263,10 @@ export class MqttLane {
   }
 
   /**
-   * SIGTERM path: stop scheduling reconnects/timers, await the client's
-   * `end()`, then await any `handleMessage()` call still in flight — the
-   * generation bump above stops a NEW message from starting one, but one
-   * already running (its own recording write pending) must still finish
-   * before this resolves, or main.ts's drain-then-exit path can beat that
-   * write to disk. `allSettled`, not `all`: one handler rejecting must not
-   * reject `stop()` itself and skip the writer's drain in main.ts — the
-   * message listener's own `.then` already logs a rejection when it
-   * happens (`inFlightMessages`'s doc comment), so this only needs to wait,
-   * never to inspect the outcome itself.
+   * SIGTERM path: stops scheduling reconnects/timers, ends the client,
+   * then awaits any `handleMessage()` still in flight (see
+   * `inFlightMessages`). `allSettled`, not `all`, since one handler
+   * rejecting must not skip the writer's drain in main.ts.
    */
   public async stop(): Promise<void> {
     this.stopped = true;
@@ -320,13 +286,9 @@ export class MqttLane {
 
   /**
    * Cancels any reconnect already armed by a `close` handler or a failed
-   * `connectNow()`: without this, a broker-unreachable
-   * `close` could arm a backoff timer, then a `reconnectNow()` from the
-   * 50-min proactive refresh would open a fresh client while that stale
-   * timer was still pending — and when it later fired, its own
-   * `connectNow()` would silently overwrite `this.client` with a THIRD
-   * client, orphaning the fresh one: still connected to the broker, but
-   * unreferenced and never `end()`'d — a leaked socket.
+   * `connectNow()` — without this, a stale timer could fire after a
+   * newer `reconnectNow()` opened a fresh client, silently overwriting
+   * `this.client` with a third, leaked, never-`end()`'d client.
    */
   private cancelScheduledReconnect(): void {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -351,28 +313,10 @@ export class MqttLane {
   }
 
   /**
-   * Opens the one MQTT connection. `forceFreshToken`: the very first connect
-   * reuses whatever token `auth` already has cached (likely fetched by the
-   * REST lane already); every reconnect (broker-unreachable, auth-rejected,
-   * or the 50-min timer) forces a fresh one first: refresh with a fresh
-   * token before every reconnect.
-   *
-   * The attempt claims its generation number BEFORE awaiting anything: if
-   * a second, independent `connectNow()`/`reconnectNow()`
-   * runs while this one is still awaiting the token, IT claims a higher
-   * generation, so this attempt notices it's been superseded (the
-   * post-await check below) and bails out instead of racing it to set
-   * `this.client` — the loser would otherwise open a live client that
-   * silently orphans, or clobbers a client someone else just opened.
-   *
-   * A rejected `auth.getToken()` (the token endpoint down) is caught here,
-   * not left to reject an unawaited promise: `start()`, `reconnectNow()`,
-   * and the `close`/timer paths all call this via `void`, so an uncaught
-   * rejection here would surface as an unhandled promise rejection —
-   * capable of crashing the process under Node's default behavior, which
-   * must never throw out of an event handler.
-   * Treated the same as a broker-unreachable close: logged, retried with
-   * backoff.
+   * Opens the one MQTT connection, forcing a fresh token before every
+   * reconnect. Guards against superseded/racing attempts via a
+   * generation number, and never lets a rejected `getToken()` escape as
+   * an unhandled rejection. See README: MQTT connection lifecycle.
    */
   private async connectNow(forceFreshToken: boolean): Promise<void> {
     if (this.stopped) return;
@@ -407,9 +351,9 @@ export class MqttLane {
         this.connected = true;
         this.log("mqtt: connected");
       }
-      // Re-subscribe on every `connect` event (AGENTS.md), not just the
-      // first — a broker session resume can fire `connect` again without a
-      // new client.
+      // Re-subscribe on every `connect` event (see README: Rules), not
+      // just the first — a broker session resume can fire `connect`
+      // again without a new client.
       client.subscribe([...this.topics], { qos: 0 }, (error) => {
         if (error) this.log(`mqtt: subscribe error: ${error.message}`, { level: "error" });
       });
@@ -417,21 +361,9 @@ export class MqttLane {
 
     client.on("message", (topic, payload) => {
       if (generation !== this.generation) return;
-      // Fire-and-forget from the event handler's point of view (its own
-      // recording attempt is caught and logged internally, see `recordRow`
-      // below, and `mqtt.js`'s EventEmitter does not await listener return
-      // values anyway; queuing itself still happens synchronously, before
-      // this call returns, since it happens before the recorder is ever
-      // awaited) — but still tracked in `inFlightMessages` so `stop()` can
-      // wait for one still running. A handler is expected never to reject
-      // (see `recordRow`'s own try/catch); if one somehow does, it is
-      // logged here, at the moment it happens, rather than saved up for
-      // `stop()` — a lane can run for hours between messages and a call to
-      // `stop()`, and a failure must not wait that long to surface. This
-      // also attaches a handler to the promise in the same synchronous turn
-      // it was created, so it is never "unhandled" from Node's point of
-      // view regardless of how long it then sits in `inFlightMessages`
-      // before settling.
+      // Fire-and-forget from the event handler's point of view, but
+      // tracked in `inFlightMessages` so `stop()` can wait for one still
+      // running. See README: MQTT connection lifecycle.
       const inFlight = this.handleMessage(topic, payload);
       this.inFlightMessages.add(inFlight);
       void inFlight.then(
@@ -475,11 +407,10 @@ export class MqttLane {
   }
 
   /**
-   * The `onRecorded` callback handed to `enqueueRows`: forwards to whatever
-   * `onRecorded` this lane was constructed with, catching and logging a
-   * rejection at error level with the endpoint as a field instead of
-   * letting it escape — the row is already queued by the time this runs,
-   * and one failed recording attempt must not stop the lane.
+   * The `onRecorded` callback handed to `enqueueRows`: forwards to
+   * whatever `onRecorded` this lane was constructed with, catching and
+   * logging a rejection instead of letting it escape — the row is
+   * already queued by the time this runs.
    */
   private readonly recordRow: RecordRows = async (sessionKey, endpoint, payloads): Promise<void> => {
     if (!this.onRecordedCallback) return;
@@ -521,13 +452,10 @@ export class MqttLane {
     }
     const stripped = stripMqttMeta(parsed as RawRecord);
 
-    // The payload's own session_key, when it carries one, must agree with
-    // the REST lane's selection — REST is the authority on which session is
-    // live (AGENTS.md). A row naming a different session is dropped and
-    // counted `foreign`, never tagged to the selected session. A payload
-    // with no session_key of its own (absent, null, or anything that isn't
-    // itself a session key) keeps the existing behaviour: tagged to the
-    // selected session, same as always.
+    // The payload's own session_key, when it carries one, must agree
+    // with the REST lane's selected session (see README: Rules). A row
+    // naming a different session is dropped and counted `foreign`; one
+    // with no session_key of its own is tagged to the selected session.
     const ownSessionKey = parseOwnSessionKey(stripped["session_key"]);
     if (ownSessionKey !== null && ownSessionKey !== sessionKey) {
       this.foreignSinceLog += 1;

@@ -61,11 +61,10 @@ export class EventQueue<T> {
   }
 
   /**
-   * Drops every item currently queued, returning how many. After a caller
-   * decides a stuck batch (still at the front from `requeueFront`) is never
-   * going to write — `EventWriter`'s `drainAll()` gave up on it — the queue
-   * must not carry that batch into whatever the caller does next, or it
-   * poisons the next thing drained.
+   * Drops every item currently queued, returning how many. Used after
+   * `EventWriter.drainAll()` gives up on a stuck batch (still at the
+   * front from `requeueFront`): the queue must not carry that batch
+   * forward, or it poisons the next drain.
    */
   public clear(): number {
     const count = this.items.length;

@@ -1,9 +1,9 @@
 // The one writer: ONE Prisma client (`createDb(process.env.DATABASE_URL, {
 // max: 1 })`, wired in main.ts) draining the ONE queue, inserting in arrival
 // order in batches of up to 100 with `event.createMany({ data, skipDuplicates:
-// true })`. Because there is one connection, `seq`
-// order equals commit order (HLD §7 single writer). Never patch, never
-// update an event row — apps/ingest/AGENTS.md.
+// true })`. Because there is one connection, `seq` order equals commit
+// order (HLD §7 single writer). Ingest never updates an `events` row
+// (ADR-0007 §1).
 
 import type { Prisma } from "@formula-time/db";
 
@@ -95,11 +95,9 @@ export class EventWriter {
   }
 
   /**
-   * Drains up to one batch. Returns `null` when the queue was empty (no DB
-   * call). On a rejected `createMany`, the batch is put back at the front of
-   * the queue (it was the head, so this preserves arrival order) so the next
-   * drain retries it, and the error is rethrown with the batch size logged —
-   * a rejection never silently loses rows.
+   * Drains up to one batch; `null` means the queue was empty. On a
+   * rejected `createMany`, the batch goes back to the queue's front (it
+   * was the head) for the next drain to retry, and the error rethrows.
    */
   public async drainOnce(): Promise<DrainResult | null> {
     // The queue's hard cap: if it's been dropping
