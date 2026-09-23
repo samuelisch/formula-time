@@ -1,16 +1,7 @@
-// Static 2026 entry list, values from OpenF1's drivers rows for session 11361 (2026 Italian GP). The live REST lane fetches the entry list from OpenF1 instead; this static list still backs the recording loader and historical fetch, and is the fallback when a live fetch returns nothing.
-//
-// The entry list is hardcoded here, not fetched, for those paths. HLD §7: "Drivers are events. ... The fold carries them; a
-// swap arrives as a new row; Driver stays a field inside RaceState, not a
-// table." — so emitting these as `drivers` events (rest-lane.ts, on session
-// selection) through the normal path is consistent with that fact, even
-// though the source is this static list rather than a live fetch.
-// The season this fallback roster is valid for. It is a snapshot, not a
-// feed: a driver swap or livery change after this season won't reach it.
-// The season rolling over is exactly when it goes stale, so
-// entry-list.test.ts fails once the calendar year passes this value —
-// red until someone updates the roster (and this constant) or removes
-// the fallback.
+// Static 2026 entry list (OpenF1 drivers rows for session 11361, the 2026
+// Italian GP): backs the recording loader and historical fetch, and is
+// the live REST lane's fallback when a fetch returns nothing. See
+// README: The entry list.
 export const ENTRY_LIST_SEASON = 2026;
 
 export const ENTRY_LIST_2026 = [

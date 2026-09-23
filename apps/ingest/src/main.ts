@@ -1,6 +1,6 @@
 // Ingest service: the ONLY process that talks to OpenF1 (ADR-0001 §1).
 // Wires auth -> rest lane -> queue -> writer, and the MQTT lane onto the
-// SAME queue: "Two lanes always on, no failover logic" (apps/ingest/AGENTS.md).
+// same queue — both lanes always run, no failover between them.
 
 import { createDb } from "@formula-time/db";
 
@@ -91,11 +91,10 @@ function sessionKeyOf(session: RawRecord): string | number | null {
 
 // The one recorder wiring both lanes share: `enqueueRows` (openf1/enqueue.ts)
 // calls this with exactly the rows it just queued, whichever lane queued
-// them, so the jsonl recording holds every row the session produced instead
-// of only the REST lane's (the MQTT lane used to feed the queue without ever
-// reaching the recorder — a row MQTT saw first was already in the shared
-// normalizer's seen set by the time REST polled it, so REST reported
-// `new=0` and the recorder never saw it either).
+// them, so the jsonl recording holds every row the session produced (not
+// just the REST lane's) — the shared normalizer's `seen` set is why a
+// per-lane recorder call would silently miss a row the other lane saw
+// first.
 const recordRows = async (sessionKey: number, endpoint: string, payloads: RawRecord[]): Promise<void> => {
   await recorder.appendRows(sessionKey, endpoint, payloads);
 };
@@ -186,11 +185,10 @@ logger.info(
   `ingest: started (REST lane tick=${config.restTickMs}ms${mqttLane ? " + MQTT lane" : ""} + writer running; discovering a session)`,
 );
 
-// One line per minute across both lanes and the writer, replacing the MQTT
-// lane's own former per-minute line — each of takeStats() resets its own
-// counters, so a query never double-counts across two lines. `build` is not
-// added here: pino's base fields (service, build) already land on every
-// line, this one included.
+// One line per minute across both lanes and the writer: each takeStats()
+// resets its own counters, so a query never double-counts across two
+// lines. `build` is not added here: pino's base fields (service, build)
+// already land on every line, this one included.
 const STATS_INTERVAL_MS = 60_000;
 const statsInterval = setInterval(() => {
   const rest = restLane.takeStats();

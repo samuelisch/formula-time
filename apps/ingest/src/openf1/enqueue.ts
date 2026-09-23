@@ -18,27 +18,18 @@ export interface EnqueueRowsResult {
 }
 
 /**
- * Called with exactly the rows a call to `enqueueRows`/`enqueueDriverRows`
- * just queued (never with zero rows) — the one place both ingest lanes'
- * newly-queued rows reach the jsonl recorder, so a row is never queued
- * without an attempt to record it, and never recorded without having been
- * queued first. A rejection must not be allowed to escape uncaught: the
- * caller (a lane) is responsible for catching its own recorder failure,
- * logging it, and continuing — the row already queued stays queued either
- * way.
+ * Called with exactly the rows an `enqueueRows`/`enqueueDriverRows` call
+ * just queued (never zero) — see README: The pipeline (jsonl recording).
+ * A rejection must not escape uncaught: the caller (a lane) catches its
+ * own recorder failure and logs it; the row stays queued either way.
  */
 export type RecordRows = (sessionKey: number, endpoint: string, payloads: RawRecord[]) => Promise<void>;
 
 /**
- * The one normalize-and-enqueue-and-record path — so the ids match a live
- * run, and so a row is recorded at the moment it is queued, whichever lane
- * queued it first. Pushed out of `RestLane` so the MQTT lane
- * (`mqtt-lane.ts`'s `handleMessage`) and the one-shot recording loader
- * (`load-recording.ts`) can drive the same normalizer + queue a live
- * session does, both for the static `ENTRY_LIST_2026` `drivers` emission
- * and for every `raw/*.jsonl` endpoint. `RestLane` itself calls this too
- * (see `enqueueAndRecord` in rest-lane.ts) — no second normalize path, and
- * (since `onRecorded` lives here) no second recording path either.
+ * The one normalize-and-enqueue-and-record path, so ids match across
+ * lanes and every row is recorded when it's queued. `RestLane`, the MQTT
+ * lane, and the one-shot recording loader all drive it — see README:
+ * The pipeline.
  */
 export async function enqueueRows(
   normalizer: LiveNormalizer,
@@ -79,21 +70,8 @@ export interface EnqueueDriverRowsResult {
 }
 
 /**
- * Tags each `drivers` row to the `session_key` IN ITS OWN PAYLOAD, never to
- * the session or meeting the fetch was made for. Verified from
- * `recordings/11361/raw/drivers.jsonl`: every OpenF1 `drivers`
- * row carries its own `session_key` and `meeting_key` fields, e.g.
- * `{"meeting_key":1293,"session_key":11361,"driver_number":1,...}` — so the
- * tagging rule is: a drivers row is tagged to the `session_key` in its own
- * payload. Rows are grouped by that own key and each group runs through the
- * normal `enqueueRows` path (endpoint `drivers`), so dedup/malformed
- * handling stay identical to every other endpoint. A row with no numeric
- * `session_key` of its own can't be tagged or written; it's counted as
- * malformed, same meaning `enqueueRows`/`LiveNormalizer.normalize` give
- * that word elsewhere. A row naming a session that `isKnownSession` rejects
- * (not in the `sessions` table) is dropped and counted `unknownSession`:
- * the FK on `events.session_key` would fail the writer's whole batch, and
- * the writer requeues a failed batch at the front forever.
+ * Tags each `drivers` row to the `session_key` in its own payload, never
+ * to the session the fetch targeted. See README: The entry list.
  */
 export async function enqueueDriverRows(
   normalizer: LiveNormalizer,

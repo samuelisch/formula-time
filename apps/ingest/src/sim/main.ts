@@ -1,11 +1,8 @@
-// CLI entry for the drip simulator. Run: `pnpm sim -- [flags]`
-// (root) or `pnpm sim [flags]` inside `apps/ingest`. Flags match the POC's
-// `poc/live-recorder/simulator.ts` exactly:
-//   --recording <dir>   default ./live-logs/11361
-//   --sim-key <n>        default 99911353
-//   --out-root <dir>     default ./live-logs/sim
-//   --speed <n>          default 1
-//   --start recording|race   default recording
+// CLI entry for the drip simulator: `pnpm sim -- [flags]` (root) or
+// `pnpm sim [flags]` (apps/ingest). Flags: `--recording <dir>` (default
+// ./live-logs/11361), `--sim-key <n>` (default 99911353), `--out-root
+// <dir>` (default ./live-logs/sim), `--speed <n>` (default 1), `--start
+// recording|race` (default recording).
 
 import { runSimulation } from "./simulator.js";
 
