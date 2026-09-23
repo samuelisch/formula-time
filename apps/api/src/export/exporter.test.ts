@@ -200,11 +200,15 @@ describe("createExporter", () => {
     const json = JSON.parse((await gunzipAsync(gz)).toString("utf-8")) as {
       schema: number;
       exported_at: string;
+      session: { session_key: unknown };
       events: unknown[];
     };
-    expect(json.schema).toBe(1);
+    expect(json.schema).toBe(2);
     expect(json.exported_at).toBe(row?.exportedAt.toISOString());
     expect(json.events).toHaveLength(2);
+    // ADR-0041: session_key is a string on the export document, same as the
+    // live push's state.session (sessionToWire, shared with the projector).
+    expect(json.session.session_key).toBe("1");
   });
 
   test("the exported session object carries meeting_name, circuit_short_name and location, null when the row has none", async () => {

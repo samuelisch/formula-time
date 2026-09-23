@@ -329,10 +329,10 @@ describe("Every page mounts cleanly at phone width", () => {
 
   it("ReplayPage", async () => {
     const raceFile: RaceFile = {
-      schema: 1,
+      schema: 2,
       exported_at: "2026-09-06T15:10:00.000Z",
       session: {
-        session_key: 11361,
+        session_key: "11361",
         name: "Race",
         country: "Italy",
         circuit_key: 39,
@@ -340,6 +340,9 @@ describe("Every page mounts cleanly at phone width", () => {
         date_end: "2026-09-06T15:00:00.000Z",
         total_laps: 2,
         status: "finished",
+        meeting_name: null,
+        circuit_short_name: null,
+        location: null,
       },
       events: [],
     };

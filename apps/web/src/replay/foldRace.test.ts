@@ -90,17 +90,29 @@ describe("foldRace", () => {
     ]);
   });
 
-  it("stringifies session_key to match the live projector's shape (sessionAsRawRecord)", async () => {
-    // The export file's session_key travels as a JSON number (exporter.ts
-    // buildDoc); the live projector sends it .toString()'d. A folded
-    // RaceState must match the live shape (ADR-0009 §5), so both
-    // FoldedRace.session and state.session (the same normalized object)
-    // carry it as a string here, even though SESSION's own session_key is
-    // a plain number, exactly as the real export file's is.
+  it("stringifies a schema-1 file's numeric session_key to match the live shape", async () => {
+    // A schema-1 export file (written before ADR-0041) carries session_key
+    // as a JSON number; a schema-2 file and the live push both carry it as
+    // a string. A folded RaceState must match the live shape either way
+    // (ADR-0009 §5), so FoldedRace.session and state.session (the same
+    // normalized object) carry it as a string here, even though SESSION's
+    // own session_key is a plain number, exactly as a schema-1 file's is.
     const folded = await foldRace(tenEventFixture(), SESSION);
     expect(typeof SESSION["session_key"]).toBe("number");
     expect(folded.session["session_key"]).toBe("11361");
     expect(folded.finalState.session?.["session_key"]).toBe("11361");
+  });
+
+  it("a schema-2 file's already-string session_key folds to the same state.session as a schema-1 file's", async () => {
+    // A schema-2 file (sessionToWire, ADR-0041) already carries session_key
+    // as a string -- normalizedSessionRow (timeline.ts) passes it through
+    // unchanged, so both schemas must fold to the same state.session.
+    const schema2Session = { ...SESSION, session_key: "11361" };
+    const foldedFromSchema1 = await foldRace(tenEventFixture(), SESSION);
+    const foldedFromSchema2 = await foldRace(tenEventFixture(), schema2Session);
+
+    expect(foldedFromSchema2.finalState.session).toEqual(foldedFromSchema1.finalState.session);
+    expect(foldedFromSchema2.finalState.session?.["session_key"]).toBe("11361");
   });
 
   it("reports the first and last source times seen", async () => {

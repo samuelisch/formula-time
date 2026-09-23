@@ -19,7 +19,10 @@ export type {
   DeltaPush,
   StatusFrame,
   SessionStatus,
+  SessionWire,
+  SessionLike,
   RaceIndexEntry,
   RaceEventsPage,
   RaceFile,
 } from "./wire.js";
+export { sessionToWire } from "./wire.js";

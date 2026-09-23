@@ -11,6 +11,7 @@
 // second push after one more event lands for one driver (a `delta` whose
 // patch touches only that driver).
 import { createDb, type PrismaClient } from "@formula-time/db";
+import { sessionToWire } from "@formula-time/domain";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
 import { prismaEventSource } from "../projector/event-source.js";
@@ -114,7 +115,7 @@ test("three events fold into one state push; one more event for one driver produ
       type: "state",
       seq: cursor.toString(),
       sent_at: Date.now(),
-      session_key: session.sessionKey.toString(),
+      session_key: sessionToWire(session).session_key,
       total_laps: session.totalLaps,
       state,
       polls: [],

@@ -1,4 +1,4 @@
-import type { RaceEvent, RawRecord } from "@formula-time/domain";
+import type { RaceEvent, RawRecord, SessionWire } from "@formula-time/domain";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -12,8 +12,8 @@ import type { RaceFile, RaceIndexEntry } from "../races/api.ts";
 import { makePush } from "../test/fixtures.ts";
 import { ReplayPage } from "./ReplayPage.tsx";
 
-const SESSION: RawRecord = {
-  session_key: 11361,
+const SESSION: SessionWire = {
+  session_key: "11361",
   name: "Race",
   country: "Italy",
   circuit_key: 39,
@@ -21,6 +21,9 @@ const SESSION: RawRecord = {
   date_end: "2026-09-06T15:00:00.000Z",
   total_laps: 2,
   status: "finished",
+  meeting_name: null,
+  circuit_short_name: null,
+  location: null,
 };
 
 function isoAt(offsetSeconds: number): string {
@@ -38,7 +41,7 @@ const EVENTS: RaceEvent[] = [
 ];
 
 const RACE_FILE: RaceFile = {
-  schema: 1,
+  schema: 2,
   exported_at: "2026-09-06T15:10:00.000Z",
   session: SESSION,
   events: EVENTS,
@@ -254,7 +257,7 @@ describe("ReplayPage -- start notice", () => {
   // after the recording's first row, and still before lights-out.
   const GAP_MINUTES = 54;
   const RACE_FILE_WITH_GAP: RaceFile = {
-    schema: 1,
+    schema: 2,
     exported_at: "2026-09-06T15:10:00.000Z",
     session: { ...SESSION, date_start: isoAt(50 * 60), total_laps: 1 },
     events: [
@@ -263,7 +266,7 @@ describe("ReplayPage -- start notice", () => {
     ],
   };
   const RACE_FILE_NO_LAP_ONE: RaceFile = {
-    schema: 1,
+    schema: 2,
     exported_at: "2026-09-06T15:10:00.000Z",
     session: { ...SESSION, total_laps: 1 },
     events: [event("p1", "position", 0, { driver_number: 1, position: 1 })],
