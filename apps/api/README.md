@@ -229,6 +229,7 @@ field.
 | `NODE_ENV` | unset | `"production"` switches the viewer cookie to `SameSite=None; Secure` |
 | `EXPORT_DIR` | `./exports` | where the exporter writes and the races routes serve gzip files from |
 | `GIT_SHA` | `RAILWAY_GIT_COMMIT_SHA`, else `"unknown"` | the `build` field on `/health` |
+| `LOG_LEVEL` | `info` | pino's level; per-request logging is off regardless of level, replaced by one `warn` line per response with status ≥ 400 (ADR-0022 names this config name for ingest; this service reads it the same way) |
 
 Read from `main.ts` and `http/health.ts`.
 
@@ -237,6 +238,7 @@ Read from `main.ts` and `http/health.ts`.
 | Line | Meaning |
 |---|---|
 | `api: last 60s` | every 60 s: `viewers`, `delta_viewers`, `pushes`, `state_bytes_gz`, `delta_bytes_gz`, `slow_drops`, `cursor`, `caught_up`, `session_key`, `build` |
+| `request failed` | warn level: a response's status was ≥ 400; `method`, `url`, `statusCode`, `reqId`. Per-request logging is otherwise off (`LOG_LEVEL` above) |
 | `fold complete` | the projector finished its first full read from cursor 0 |
 | `late commit detected` | the detector found a row below the cursor it had not applied; the fold rebuilds from zero |
 | `rebuild failed, keeping previous state` | the rebuild's own read failed; the previous fold keeps serving and the next detector pass retries |
@@ -247,7 +249,7 @@ Read from `main.ts` and `http/health.ts`.
 | `delta diff failed, falling back to a state push for this tick` | building this tick's JSON Patch delta threw; that delta socket gets the full state frame instead, same as a keyframe tick |
 | `slow client dropped` | a socket with more than 1 MiB unsent was destroyed and removed |
 | `socket write failed, dropping socket` | one socket's write threw; it is dropped, the rest of the fan-out's write loop continues |
-| `poll write failed: …` | a poll module write (open, lock, resolve or void) threw; the write chain still resolves, and each write is conditional on the poll's current status, so it is safely retried on a later tick |
+| `poll write failed` | error level: a poll module write (open, lock, resolve or void) threw; the write chain still resolves, and each write is conditional on the poll's current status, so it is safely retried on a later tick |
 | `polls not opened: total_laps unknown` | the served session has drivers but no `total_laps` yet, so no poll opens; logged once, retried once a `total_laps` refresh lands |
 | `export skipped …: no timing events` | a finished session has no non-`drivers` event yet; logged once per process, re-checked every tick |
 | `export re-exported …` | a finished session's `events` gained rows after its last export; the file and row are rewritten |

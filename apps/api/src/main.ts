@@ -27,11 +27,29 @@ const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3000);
 // request would share the proxy's own address, and the vote route's
 // per-IP rate limit would throttle every client together instead of
 // individually.
-const app = Fastify({ logger: true, trustProxy: TRUST_PROXY });
+const app = Fastify({
+  logger: { level: process.env.LOG_LEVEL ?? "info" },
+  disableRequestLogging: true,
+  trustProxy: TRUST_PROXY,
+});
 
 const log = (msg: string, fields?: Record<string, unknown>): void => {
   app.log.info(fields ?? {}, msg);
 };
+
+// Fastify's own per-request logging is disabled above: at the default
+// level it logged two lines per request (almost all /health probes),
+// drowning the handful of lines an operator actually reads. This hook
+// logs one line only for a response an operator should look at -- the
+// SSE route is hijacked and never reaches onResponse; its joins are
+// already counted in the "api: last 60s" line's viewers.
+app.addHook("onResponse", async (request, reply) => {
+  if (reply.statusCode < 400) return;
+  app.log.warn(
+    { method: request.method, url: request.url, statusCode: reply.statusCode, reqId: request.id },
+    "request failed",
+  );
+});
 
 // Assigned once the session lifecycle is built, below; read live (never
 // captured) so a crash handler registered this early still reports
@@ -85,7 +103,13 @@ const source = prismaEventSource(db);
 // database from an idle session without adding a query to every probe.
 const dbProbe = createDbProbe({ probe: () => db.$queryRaw`SELECT 1`, log });
 
-const pollModule = new PollModule({ db, log: { info: (msg) => app.log.info(msg) } });
+const pollModule = new PollModule({
+  db,
+  log: {
+    info: (msg) => app.log.info(msg),
+    error: (msg, fields) => app.log.error(fields ?? {}, msg),
+  },
+});
 
 const fanout = new Fanout({ log });
 fanout.heartbeat();

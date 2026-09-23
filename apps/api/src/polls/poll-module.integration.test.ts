@@ -9,7 +9,7 @@
 // insert commits" (the vote path itself lands in a follow-up slice; this
 // slice pins the lock/resolve/void writes that share its pattern).
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { createDb } from "@formula-time/db";
 import type { DriverState, RaceState } from "@formula-time/domain";
 
@@ -20,7 +20,7 @@ const db = createDb();
 const SESSION_KEY = 9_100_001n;
 
 function fakeLog() {
-  return { info: () => {} };
+  return { info: vi.fn(), error: vi.fn() };
 }
 
 function driver(overrides: Partial<DriverState> & { driver_number: number }): DriverState {
@@ -146,6 +146,50 @@ describe("PollModule against real Postgres", () => {
     rows = await db.poll.findMany({ where: { sessionKey: SESSION_KEY } });
     expect(rows.every((r) => r.status === "locked")).toBe(true);
     expect(module.publicPolls().every((p) => p.status === "locked")).toBe(true);
+  });
+
+  test("a lock write rejected by real Postgres logs through error, not info, and the next tick retries", async () => {
+    const log = fakeLog();
+    const module = new PollModule({ db, log });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Testland", meetingName: null });
+
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, position: 1, current_lap: 1 }) },
+        driver_order: [1],
+      }),
+    );
+    await module.waitForIdle();
+
+    // Provoke a real rejection from the same client this test's writes go
+    // through, restored after one call so only the lock write below fails.
+    const updateMany = vi.spyOn(db.poll, "updateMany").mockRejectedValueOnce(new Error("connection reset"));
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, position: 1, current_lap: 5 }) },
+        driver_order: [1],
+      }),
+    );
+    await module.waitForIdle();
+    updateMany.mockRestore();
+
+    expect(log.error).toHaveBeenCalledTimes(1);
+    expect(log.error).toHaveBeenCalledWith("poll write failed", { error: "connection reset" });
+    expect(log.info).not.toHaveBeenCalled();
+
+    let rows = await db.poll.findMany({ where: { sessionKey: SESSION_KEY } });
+    expect(rows.every((r) => r.status === "open")).toBe(true);
+
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, position: 1, current_lap: 5 }) },
+        driver_order: [1],
+      }),
+    );
+    await module.waitForIdle();
+
+    rows = await db.poll.findMany({ where: { sessionKey: SESSION_KEY } });
+    expect(rows.every((r) => r.status === "locked")).toBe(true);
   });
 
   test("resolves winner and podium from driver_order on chequered", async () => {

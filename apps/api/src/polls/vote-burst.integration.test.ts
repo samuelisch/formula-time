@@ -9,7 +9,7 @@
 // request goes through the real HTTP path (Fastify's `app.inject`) and the
 // real conditional upsert (vote-path.ts) — nothing here is faked.
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createDb } from "@formula-time/db";
 import type { DriverState, RaceState } from "@formula-time/domain";
@@ -88,7 +88,7 @@ beforeAll(async () => {
     },
   });
 
-  module = new PollModule({ db, log: { info: () => {} } });
+  module = new PollModule({ db, log: { info: vi.fn(), error: vi.fn() } });
   await module.start({ sessionKey: SESSION_KEY, totalLaps: 50, country: "Testland", meetingName: null });
   module.onState(
     raceState({

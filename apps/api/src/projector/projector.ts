@@ -143,13 +143,16 @@ export class RaceStateProjector {
 
   // The session row is metadata the fold carries, refreshed on every
   // lifecycle check: no event, no seq. Replaces the row and updates the
-  // reducer's state.session in place, then publishes immediately with
-  // events: [] so a status flip reaches viewers within a tick rather than
-  // at the next event.
+  // reducer's state.session in place always, but publishes only once
+  // caught up: before that, the reducer just snapshotted is exactly what
+  // the catch-up tick's own publish will carry, so an extra publish here
+  // would push a partial, not-yet-caught-up fold to every socket.
   public updateSession(session: Session): void {
     this.session = session;
     this.reducer.setSession(sessionAsRawRecord(session));
-    this.publish([]);
+    if (this.caughtUp) {
+      this.publish([]);
+    }
   }
 
   private scheduleTick(delayMs: number, generation: number): void {
