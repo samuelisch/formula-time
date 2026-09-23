@@ -88,11 +88,23 @@ describe("domain package", () => {
     expect(eventsPage.status).toBe("finished");
 
     const raceFile: RaceFile = {
-      schema: 1,
+      schema: 2,
       exported_at: "2026-06-01T02:30:00.000Z",
-      session: { session_key: "42" },
+      session: {
+        session_key: "42",
+        name: "Spanish Grand Prix",
+        country: "Spain",
+        circuit_key: 1,
+        date_start: "2026-06-01T00:00:00.000Z",
+        date_end: "2026-06-01T02:00:00.000Z",
+        total_laps: 66,
+        status: "finished",
+        meeting_name: "Spanish Grand Prix",
+        circuit_short_name: "Catalunya",
+        location: "Barcelona",
+      },
       events: [],
     };
-    expect(raceFile.schema).toBe(1);
+    expect(raceFile.schema).toBe(2);
   });
 });
