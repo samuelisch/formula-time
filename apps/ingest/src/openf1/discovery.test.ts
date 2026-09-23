@@ -140,21 +140,45 @@ describe("SessionDiscovery.refreshSessions", () => {
     expect(countStat).toHaveBeenCalledWith("errors");
   });
 
-  test("a row whose upsert throws is skipped and logged; the rest of the snapshot still upserts", async () => {
+  test("a row whose fields can't even be computed (invalid date) is skipped and logged without reaching onSession; the rest of the snapshot still upserts", async () => {
     const bad: RawRecord = { session_key: "not-a-number", session_name: "Race", date_start: "nope", date_end: "nope" };
     const { fetcher } = fakeFetcher({ sessions: [bad, SESSION] });
-    const onSession = vi.fn(async (row: RawRecord) => {
-      if (row === bad) throw new Error("upsertSession: session_key is not a valid integer");
-    });
+    const onSession = vi.fn();
     const logs: string[] = [];
     const discovery = makeDiscovery(fetcher, { onSession, log: (message: string) => logs.push(message) });
 
     const result = await discovery.refreshSessions(START);
 
-    expect(onSession).toHaveBeenCalledTimes(2);
+    // sessionFieldsFromRaw throws on bad's invalid date_start before
+    // onSession is even called — the comparison needs the fields, so a
+    // malformed row is caught there instead of inside the write.
+    expect(onSession).toHaveBeenCalledTimes(1);
+    expect(onSession).toHaveBeenCalledWith(SESSION, START, expect.any(Map));
     expect(result?.upserted.has(bad)).toBe(false);
     expect(result?.upserted.has(SESSION)).toBe(true);
     expect(logs.some((l) => l.startsWith("rest: session row skipped"))).toBe(true);
+  });
+
+  test("a row whose onSession call itself throws (write failure) is skipped, logged, and not cached — retried next tick", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [SESSION] });
+    let shouldFail = true;
+    const onSession = vi.fn(async () => {
+      if (shouldFail) throw new Error("db down");
+    });
+    const logs: string[] = [];
+    const discovery = makeDiscovery(fetcher, { onSession, log: (message: string) => logs.push(message) });
+
+    const first = await discovery.refreshSessions(START);
+    expect(onSession).toHaveBeenCalledTimes(1);
+    expect(first?.upserted.has(SESSION)).toBe(false);
+    expect(discovery.isKnownSession(11361)).toBe(false);
+    expect(logs.some((l) => l.startsWith("rest: session row skipped"))).toBe(true);
+
+    shouldFail = false;
+    const second = await discovery.refreshSessions(START + 60_000);
+    expect(onSession).toHaveBeenCalledTimes(2);
+    expect(second?.upserted.has(SESSION)).toBe(true);
+    expect(discovery.isKnownSession(11361)).toBe(true);
   });
 
   test("counts its two fetches as polls, so they land in the lane's one takeStats()", async () => {
@@ -165,6 +189,46 @@ describe("SessionDiscovery.refreshSessions", () => {
     await discovery.refreshSessions(START);
 
     expect(countStat.mock.calls.filter((c) => c[0] === "polls")).toHaveLength(2);
+  });
+});
+
+describe("SessionDiscovery unchanged-row skip", () => {
+  test("two ticks with identical rows call onSession once per row on the first tick and zero times on the second", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [SESSION] });
+    const onSession = vi.fn();
+    const discovery = makeDiscovery(fetcher, { onSession });
+
+    await discovery.refreshSessions(START);
+    expect(onSession).toHaveBeenCalledTimes(1);
+
+    await discovery.refreshSessions(START); // same nowMs: every field is identical
+    expect(onSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("a status change on one row (upcoming -> live) calls onSession once for that row", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [SESSION] });
+    const onSession = vi.fn();
+    const discovery = makeDiscovery(fetcher, { onSession });
+
+    await discovery.refreshSessions(START - 2 * WINDOW); // upcoming
+    expect(onSession).toHaveBeenCalledTimes(1);
+
+    await discovery.refreshSessions(START); // now inside the window: live
+    expect(onSession).toHaveBeenCalledTimes(2);
+    expect(onSession).toHaveBeenLastCalledWith(SESSION, START, expect.any(Map));
+  });
+
+  test("a session upserted on tick 1 remains a known session on tick 2, even though the unchanged write is skipped", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [SESSION] });
+    const onSession = vi.fn();
+    const discovery = makeDiscovery(fetcher, { onSession });
+
+    await discovery.refreshSessions(START);
+    expect(discovery.isKnownSession(11361)).toBe(true);
+
+    await discovery.refreshSessions(START);
+    expect(onSession).toHaveBeenCalledTimes(1);
+    expect(discovery.isKnownSession(11361)).toBe(true);
   });
 });
 
@@ -382,8 +446,11 @@ describe("SessionDiscovery meeting names", () => {
     expect(onSession).toHaveBeenNthCalledWith(1, SESSION, START - 2 * WINDOW, new Map([[1293, "Italian Grand Prix"]]));
 
     shouldFail = true;
-    await discovery.refreshSessions(START - 2 * WINDOW);
-    expect(onSession).toHaveBeenNthCalledWith(2, SESSION, START - 2 * WINDOW, new Map([[1293, "Italian Grand Prix"]]));
+    // A later tick, inside the session's live window: the status field
+    // changes, so the row is not skipped as unchanged, and the second
+    // onSession call proves the meetings map survived the failed fetch.
+    await discovery.refreshSessions(START);
+    expect(onSession).toHaveBeenNthCalledWith(2, SESSION, START, new Map([[1293, "Italian Grand Prix"]]));
   });
 });
 

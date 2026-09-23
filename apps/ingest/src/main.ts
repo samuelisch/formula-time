@@ -178,6 +178,24 @@ async function logRecordingRoot(): Promise<void> {
 
 await logRecordingRoot();
 
+// One line before the lanes start: an operator reads the service's
+// effective configuration from this line alone, without diffing env vars
+// against defaults. Credentials are never logged, only whether they are
+// present (`sponsored`). `build` is not added here: pino's base fields
+// already carry it on every line, this one included.
+logger.info(
+  {
+    live_source: config.liveSource,
+    live_log_dir: config.liveLogDir,
+    mqtt_enabled: config.mqttEnabled,
+    rest_tick_ms: config.restTickMs,
+    log_level: logger.level,
+    year: new Date().getUTCFullYear(),
+    sponsored: Boolean(config.openf1Login && config.openf1Password),
+  },
+  "ingest: config",
+);
+
 restLane.start();
 mqttLane?.start();
 writer.run();

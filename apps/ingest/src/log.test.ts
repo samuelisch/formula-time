@@ -63,6 +63,23 @@ describe("createLogger", () => {
     expect(parsed["skipped"]).toBe(1);
   });
 
+  it("a caller's fields must not repeat a base binding field (build), or the line carries the key twice", () => {
+    const { lines, stream } = collector();
+    const logger = createLogger({ destination: stream });
+
+    // apps/ingest/src/main.ts's startup "ingest: config" line: `build`
+    // comes only from the base binding, never as one of the call's own
+    // fields, since pino appends fields alongside base bindings rather
+    // than merging them — a repeated key would write the key twice.
+    logger.info(
+      { live_source: "api", mqtt_enabled: false, rest_tick_ms: 2200, sponsored: false },
+      "ingest: config",
+    );
+
+    expect(lines).toHaveLength(1);
+    expect((lines[0]?.match(/"build":/g) ?? []).length).toBe(1);
+  });
+
   it("LOG_LEVEL=warn silences info", () => {
     const original = process.env["LOG_LEVEL"];
     process.env["LOG_LEVEL"] = "warn";

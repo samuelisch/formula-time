@@ -8,7 +8,12 @@ import type { RecordRows } from "./enqueue.js";
 import type { Fetcher, RawRecord } from "./types.js";
 import { CIRCUITS } from "../circuits.js";
 import type { LaneLog } from "../log.js";
-import { isRaceSession } from "../writer/sessions.js";
+import { isRaceSession, sameSessionFields, sessionFieldsFromRaw } from "../writer/sessions.js";
+import type { SessionFields } from "../writer/sessions.js";
+
+// The window the coverage check calls "soon": a race inside it without a
+// lap count logs at error level instead of info.
+const COVERAGE_SOON_MS = 14 * 24 * 60 * 60 * 1000;
 
 // The window the coverage check calls "soon": a race inside it without a
 // lap count logs at error level instead of info.
@@ -56,9 +61,10 @@ export interface SessionDiscoveryOptions {
   /** How long a `sessions?year=` snapshot stays fresh — the lane's discovery cadence. */
   intervalMs: number;
   /**
-   * Sessions upsert — called for every race session row this sees.
-   * `meetingNames` is this tick's `meeting_key -> meeting_name` map, for
-   * `sessionFieldsFromRaw`'s join.
+   * Sessions upsert — called for every race session row whose fields
+   * changed since the last successful upsert, and for every row on the
+   * first discovery. `meetingNames` is this tick's `meeting_key ->
+   * meeting_name` map, for `sessionFieldsFromRaw`'s join.
    */
   onSession?: ((session: RawRecord, nowMs: number, meetingNames: ReadonlyMap<number, string>) => void | Promise<void>) | undefined;
   /** The lane's recorder wrapper, used only for the followed session's own `meetings` row. */
@@ -95,6 +101,10 @@ export class SessionDiscovery {
   // queued: `events.session_key` is a FK, one such row fails the writer's
   // whole batch, and the writer requeues that batch at the front forever.
   private readonly knownSessionKeys = new Set<number>();
+  // The SessionFields last successfully upserted per session_key — the
+  // basis for skipping a redundant write. Set only after onSession
+  // resolves, so a failed upsert is retried next tick with nothing cached.
+  private readonly lastFieldsByKey = new Map<number, SessionFields>();
   // The followed session's own meetings row is recorded at most once per
   // session_key — this Set is that "already fired" marker.
   private readonly meetingRowRecordedFor = new Set<number>();
@@ -201,25 +211,39 @@ export class SessionDiscovery {
     // Refreshed alongside the sessions snapshot, once per tick.
     await this.refreshMeetingNames(years);
 
-    // Only race sessions are captured (isRaceSession): a practice,
-    // qualifying or sprint row is never upserted or added to
-    // `knownSessionKeys`, so a drivers row tagged to it is dropped
-    // downstream as unknownSession. `upserted` tracks which rows'
-    // onSession succeeded this tick, so the lane never selects a
-    // session whose row failed to write.
+    // Only race sessions are captured (isRaceSession). `upserted` tracks
+    // which rows are safe to select this tick — written now, or already
+    // known unchanged since the last write — so the lane never selects a
+    // session whose row has never landed. See README: Session upsert.
     const upserted = new Set<RawRecord>();
     for (const row of rows) {
       if (!isRaceSession(row)) continue;
+      const key = Number(row["session_key"]);
+      const validKey = Number.isFinite(key);
       try {
+        // Computed before the write, with the same inputs the write uses,
+        // so the comparison reflects exactly what would be written —
+        // sessionFieldsFromRaw derives `status` from `nowMs`.
+        const fields = sessionFieldsFromRaw(row, nowMs, this.meetingNameByKey);
+        const cached = validKey ? this.lastFieldsByKey.get(key) : undefined;
+        if (cached && sameSessionFields(fields, cached)) {
+          // Unchanged since the last successful upsert: the write is
+          // skipped, but the row is still known.
+          upserted.add(row);
+          if (validKey) this.knownSessionKeys.add(key);
+          continue;
+        }
         await this.onSession?.(row, nowMs, this.meetingNameByKey);
         upserted.add(row);
-        const key = Number(row["session_key"]);
-        if (Number.isFinite(key)) this.knownSessionKeys.add(key);
+        if (validKey) {
+          this.knownSessionKeys.add(key);
+          this.lastFieldsByKey.set(key, fields);
+        }
       } catch (error) {
-        // One malformed row (bad session_key, bad date) must not throw out
-        // of this loop and starve selection or the Friday entry-list check
-        // every discovery tick — sessions.ts's upsertSession is what
-        // actually validates and throws; this is where ingest survives it.
+        // One malformed row (bad session_key, bad date) or a failed write
+        // must not throw out of this loop and starve selection or the
+        // Friday entry-list check every discovery tick, and must not be
+        // cached, so it is retried next tick.
         this.log(`rest: session row skipped: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
