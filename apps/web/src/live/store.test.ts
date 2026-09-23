@@ -2,7 +2,7 @@ import type { DriverState, RaceEvent, RawRecord } from "@formula-time/domain";
 import { describe, expect, it } from "vitest";
 import { appendEvents, createTimeline, foldAt, type Timeline } from "../replay/timeline.ts";
 import { createLiveStore, headAxisOf, timelineMatchesSession } from "./store.ts";
-import type { LivePush } from "./types.ts";
+import type { StatePush } from "./types.ts";
 
 const TIMELINE_SESSION: RawRecord = {
   session_key: 9999,
@@ -40,7 +40,7 @@ function racePush(overrides: {
   sentAt: number;
   seq?: string;
   drivers?: Record<string, DriverState>;
-}): LivePush {
+}): StatePush {
   return {
     type: "state",
     seq: overrides.seq ?? String(overrides.sentAt),
@@ -68,7 +68,7 @@ function racePush(overrides: {
   };
 }
 
-function frame(sourceTimeIso: string, sentAt: number): LivePush {
+function frame(sourceTimeIso: string, sentAt: number): StatePush {
   return racePush({ sourceTime: sourceTimeIso, sentAt });
 }
 

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { emptyBuffer } from "./buffer.ts";
 import { useLiveStore } from "./store.ts";
-import type { LivePush } from "./types.ts";
+import type { StatePush } from "./types.ts";
 import { ConnectionPill } from "./ConnectionPill.tsx";
 
 function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>> = {}): void {
@@ -20,7 +20,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>>
   });
 }
 
-function displayedWithSession(session: Record<string, unknown> | null, sessionStatus?: string | null): LivePush {
+function displayedWithSession(session: Record<string, unknown> | null, sessionStatus?: string | null): StatePush {
   return {
     type: "state",
     seq: "1",

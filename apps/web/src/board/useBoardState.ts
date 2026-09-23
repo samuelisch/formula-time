@@ -16,16 +16,16 @@ import { leaderLap, runStatus } from "@formula-time/domain";
 import { createContext, createElement, useContext, useMemo, useState, type ReactNode } from "react";
 
 import { sessionStatusOf, useDisplayed, type SessionStatusValue } from "../live/selectors.ts";
-import { axisOf, type LivePush } from "../live/types.ts";
+import { axisOf, type StatePush } from "../live/types.ts";
 
 interface BoardSource {
-  push: LivePush | null;
+  push: StatePush | null;
 }
 
 const BoardSourceContext = createContext<BoardSource | null>(null);
 
 export interface BoardSourceProviderProps {
-  push: LivePush | null;
+  push: StatePush | null;
   children: ReactNode;
 }
 
@@ -35,8 +35,8 @@ export function BoardSourceProvider({ push, children }: BoardSourceProviderProps
   return createElement(BoardSourceContext.Provider, { value }, children);
 }
 
-/** The `LivePush`-shaped value board components render: the mounted provider's push, or the live store's displayed push when no provider is mounted. */
-export function useBoardPush(): LivePush | null {
+/** The `StatePush`-shaped value board components render: the mounted provider's push, or the live store's displayed push when no provider is mounted. */
+export function useBoardPush(): StatePush | null {
   const provided = useContext(BoardSourceContext);
   const live = useDisplayed();
   return provided !== null ? provided.push : live;
@@ -117,7 +117,7 @@ export function useBoardSessionStatus(): SessionStatusValue | null {
  * push) and `BoardPage`'s timeline-loader latch (the live push, never the
  * displayed one) apply exactly the same rule to whichever push they read.
  */
-export function isRacingPush(push: LivePush | null): boolean {
+export function isRacingPush(push: StatePush | null): boolean {
   if (push === null) return false;
   const status = sessionStatusOf(push.state.session);
   if (status === "live") return true;
@@ -215,7 +215,7 @@ function wallClockMillis(): number {
  * pruned once `now` is more than `POSITION_CUE_TTL_MS` past the push that
  * set it.
  */
-function advancePositionCueState(previous: PositionCueState, push: LivePush, now: number): PositionCueState {
+function advancePositionCueState(previous: PositionCueState, push: StatePush, now: number): PositionCueState {
   const axisMillis = axisOf(push);
   const isNewSession = previous.sessionKey !== push.session_key;
   const isBackwards = !isNewSession && previous.axisMillis !== null && axisMillis < previous.axisMillis;
@@ -255,7 +255,7 @@ function deltasOf(cueState: PositionCueState): Record<number, number> {
 
 interface PositionCueSnapshot {
   /** The push this snapshot's `cueState` was folded from, so a later render can tell whether a new push has arrived. */
-  push: LivePush | null;
+  push: StatePush | null;
   cueState: PositionCueState;
 }
 

@@ -14,7 +14,7 @@ import { emptyBuffer } from "./buffer.ts";
 import { sessionStatusOf } from "./selectors.ts";
 import { useLiveStore } from "./store.ts";
 import { PAGE_LIMIT, RETRY_BACKOFF_MS, useSessionTimeline } from "./useSessionTimeline.ts";
-import type { LivePush } from "./types.ts";
+import type { StatePush } from "./types.ts";
 
 // Some regression tests need to observe (and, for one test, briefly
 // pause) `appendEvents` calls on the shared `Timeline` -- so
@@ -91,8 +91,8 @@ function minimalRaceState(): RaceState {
 }
 
 /** A push as it would arrive on the live store, carrying `events` (and optionally `rebuilt`). */
-function streamPush(seq: string, events: RaceEvent[], rebuilt?: boolean): LivePush {
-  const push: LivePush = {
+function streamPush(seq: string, events: RaceEvent[], rebuilt?: boolean): StatePush {
+  const push: StatePush = {
     type: "state",
     seq,
     sent_at: Date.now(),
@@ -107,7 +107,7 @@ function streamPush(seq: string, events: RaceEvent[], rebuilt?: boolean): LivePu
 }
 
 /** Same as `streamPush`, but with the session's own `status` field set -- for the `statusRef` race regression below, where a caller derives `status` from the live store the same way a real page's `useSessionStatus()` would. */
-function streamPushWithStatus(seq: string, status: SessionStatus, rebuilt?: boolean): LivePush {
+function streamPushWithStatus(seq: string, status: SessionStatus, rebuilt?: boolean): StatePush {
   const push = streamPush(seq, []);
   push.state = { ...push.state, session: { status } };
   if (rebuilt !== undefined) push.rebuilt = rebuilt;

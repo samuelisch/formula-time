@@ -33,9 +33,8 @@ Issue label: `web`. An agent working here picks `ready` issues labelled
   `DeltaPush`, `StatusFrame`, `SessionStatus`, `RaceIndexEntry`,
   `RaceEventsPage`, `RaceFile`) live in `packages/domain/src/wire.ts`, same
   as the poll shapes already do -- `live/types.ts` and `races/api.ts`
-  import and, where a name ripples through many files, re-export them
-  under this app's own name (`live/types.ts`'s `LivePush` is `StatePush`);
-  neither file declares its own copy.
+  import and re-export the wire names unchanged (`StatePush`, `DeltaPush`,
+  ...); neither file declares its own copy or alias.
 - One `EventSource` per tab carries race state, poll state, tallies, and
   the heartbeat, opened in delta format (ADR-0013, `?format=delta`): a
   `state` frame seeds or replaces the held push outright, a `delta` frame

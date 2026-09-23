@@ -29,7 +29,7 @@ import { useEffect } from "react";
 import { apiFetch, apiUrl } from "../api.ts";
 import { applyDelta } from "./deltas.ts";
 import { useLiveStore } from "./store.ts";
-import type { DeltaPush, LivePush } from "./types.ts";
+import type { DeltaPush, StatePush } from "./types.ts";
 
 const TICK_INTERVAL_MS = 250;
 
@@ -61,7 +61,7 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
       apiFetch("/api/live/snapshot")
         .then(async (res) => {
           if (!res.ok) throw new Error(`GET /api/live/snapshot: ${res.status}`);
-          const push = (await res.json()) as LivePush;
+          const push = (await res.json()) as StatePush;
           const held = useLiveStore.getState().live;
           if (held !== null && !seqIsNewer(push.seq, held.seq)) {
             // A state frame already landed and moved `live` past this
@@ -84,7 +84,7 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
     };
 
     const handleState = (event: MessageEvent<string>): void => {
-      const push = JSON.parse(event.data) as LivePush;
+      const push = JSON.parse(event.data) as StatePush;
       if (pendingGap) {
         push.rebuilt = true;
         pendingGap = false;

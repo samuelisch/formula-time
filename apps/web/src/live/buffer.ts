@@ -2,11 +2,11 @@
 // reference -- nothing in this app writes through a stored push; every
 // reader either reads it or builds a new object from it. The entry count /
 // age cap below is the memory bound.
-import type { LivePush } from "./types.ts";
+import type { StatePush } from "./types.ts";
 
 export interface BufferedPush {
   at: number;
-  push: LivePush;
+  push: StatePush;
 }
 
 /** Ascending by `at`. */

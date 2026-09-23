@@ -4,9 +4,9 @@ import { describe, expect, it } from "vitest";
 import { createTimeline } from "../replay/timeline.ts";
 import { emptyAnchors } from "./anchors.ts";
 import { emptyBuffer } from "./buffer.ts";
-import { useLivePush, useLiveSessionKey, useLiveSessionStatus, useRewindMode, useSessionStatus, useTimeline } from "./selectors.ts";
+import { useLiveSessionKey, useLiveSessionStatus, useRewindMode, useSessionStatus, useStatePush, useTimeline } from "./selectors.ts";
 import { useLiveStore } from "./store.ts";
-import type { LivePush } from "./types.ts";
+import type { StatePush } from "./types.ts";
 
 function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>> = {}): void {
   useLiveStore.setState({
@@ -25,7 +25,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useLiveStore.getState>>
   });
 }
 
-function pushWithSession(session: Record<string, unknown> | null): LivePush {
+function pushWithSession(session: Record<string, unknown> | null): StatePush {
   return {
     type: "state",
     seq: "1",
@@ -141,15 +141,15 @@ describe("useLiveSessionKey / useLiveSessionStatus", () => {
   });
 });
 
-describe("useLivePush", () => {
+describe("useStatePush", () => {
   it("reads the store's live push", () => {
     resetStore();
-    const { result } = renderHook(() => useLivePush());
+    const { result } = renderHook(() => useStatePush());
     expect(result.current).toBeNull();
 
     const push = pushWithSession({ status: "live" });
     resetStore({ live: push });
-    const { result: withPush } = renderHook(() => useLivePush());
+    const { result: withPush } = renderHook(() => useStatePush());
     expect(withPush.current).toBe(push);
   });
 });

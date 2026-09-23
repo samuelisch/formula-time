@@ -6,12 +6,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { numberField, stringField } from "../lib/format.ts";
-import type { LivePush } from "../live/types.ts";
+import type { StatePush } from "../live/types.ts";
 import { foldAt, type FoldedRace, type LapMarker } from "./foldRace.ts";
 import { createPlaybackClock, type PlaybackClock } from "./playbackClock.ts";
 
 export interface ReplayPlayback {
-  push: LivePush | null;
+  push: StatePush | null;
   sourceMs: number;
   isPlaying: boolean;
   startSourceMs: number;
@@ -23,7 +23,7 @@ export interface ReplayPlayback {
   jumpToStart(): void;
 }
 
-function pushFor(folded: FoldedRace, sourceMs: number): LivePush {
+function pushFor(folded: FoldedRace, sourceMs: number): StatePush {
   const state = foldAt(folded, sourceMs);
   return {
     type: "state",
@@ -119,7 +119,7 @@ export function useReplayPlayback(folded: FoldedRace | null): ReplayPlayback {
     seek(startSourceMs);
   }, [seek, startSourceMs]);
 
-  const push = useMemo<LivePush | null>(() => {
+  const push = useMemo<StatePush | null>(() => {
     if (folded === null) return null;
     return pushFor(folded, sourceMs);
   }, [folded, sourceMs]);

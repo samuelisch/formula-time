@@ -2,7 +2,7 @@
 // the same push shape (polls, alignment, replay).
 import type { DriverState, RaceState } from "@formula-time/domain";
 
-import type { LivePush } from "../live/types.ts";
+import type { StatePush } from "../live/types.ts";
 
 /** A driver with every field defaulted to its "no data yet" value; pass only what a test cares about. */
 export function makeDriver(overrides: Partial<DriverState> & { driver_number: number }): DriverState {
@@ -87,8 +87,8 @@ export function makeState(overrides: Partial<RaceState> = {}): RaceState {
   };
 }
 
-/** Wraps `makeState()` in the wire-shaped `LivePush` that board components read via `BoardSourceProvider`. */
-export function makePush(overrides: Partial<LivePush> = {}, stateOverrides: Partial<RaceState> = {}): LivePush {
+/** Wraps `makeState()` in the wire-shaped `StatePush` that board components read via `BoardSourceProvider`. */
+export function makePush(overrides: Partial<StatePush> = {}, stateOverrides: Partial<RaceState> = {}): StatePush {
   return {
     type: "state",
     seq: "1",

@@ -3,18 +3,18 @@
 // owns the gap-recovery fetch this function's `null` result signals for.
 import { applyPatch } from "@formula-time/domain";
 
-import type { DeltaPush, LivePush } from "./types.ts";
+import type { DeltaPush, StatePush } from "./types.ts";
 
 /**
  * `null` before any push is held, or when `frame.base_seq` does not equal
  * `held.seq` -- a gap the caller resolves with `GET /api/live/snapshot`,
  * never by applying the patch against a state it does not describe.
  */
-export function applyDelta(held: LivePush | null, frame: DeltaPush): LivePush | null {
+export function applyDelta(held: StatePush | null, frame: DeltaPush): StatePush | null {
   if (held === null || frame.base_seq !== held.seq) {
     return null;
   }
-  const next: LivePush = {
+  const next: StatePush = {
     type: "state",
     seq: frame.seq,
     sent_at: frame.sent_at,

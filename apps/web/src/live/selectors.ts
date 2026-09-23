@@ -8,7 +8,7 @@ import type { Timeline } from "../replay/timeline.ts";
 import type { Anchors } from "./anchors.ts";
 import { span } from "./buffer.ts";
 import { timelineMatchesSession, useLiveStore } from "./store.ts";
-import type { Connection, LivePush, RewindMode } from "./types.ts";
+import type { Connection, RewindMode, StatePush } from "./types.ts";
 
 export function useConnection(): Connection {
   return useLiveStore((state) => state.connection);
@@ -28,7 +28,7 @@ export function useDisplayed() {
 }
 
 /** The newest push (the live edge), or null before the first one -- never the rewound `displayed` push. */
-export function useLivePush(): LivePush | null {
+export function useStatePush(): StatePush | null {
   return useLiveStore((state) => state.live);
 }
 
@@ -66,7 +66,7 @@ export interface SessionMeta {
   session: RawRecord | null;
 }
 
-function sessionMetaOf(displayed: LivePush | null): SessionMeta {
+function sessionMetaOf(displayed: StatePush | null): SessionMeta {
   return {
     sessionKey: displayed?.session_key ?? null,
     totalLaps: displayed?.total_laps ?? null,
