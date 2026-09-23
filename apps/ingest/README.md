@@ -136,15 +136,19 @@ drivers are events; a swap arrives as a new row).
 
 ## Session upsert
 
-Discovery upserts every `sessions` row it sees, keyed by `session_key`.
-The row's Grand Prix name isn't on the session record itself — it lives on
-OpenF1's `meetings` rows — so callers join it in via a `meetingNames` map
-built separately: `SessionDiscovery` fetches `meetings?year=` once per
-discovery tick — twice, for the current year and the next, during UTC
-December's season rollover — and the loader and `fetch-race` fetch
-`meetings?meeting_key=` once per session. A `meeting_key` missing from
-that map, or no fetch made at all, leaves `meetingName` null rather than
-guessing.
+Discovery writes a `sessions` row, keyed by `session_key`, the first time
+it sees it and on every field change after that; a row whose computed
+`SessionFields` (`writer/sessions.ts`: `sessionFieldsFromRaw`, compared by
+`sameSessionFields`) are unchanged since the last write is skipped — the
+row still counts as known. A status change (`upcoming` → `live` →
+`finished`) is a field change and always writes. The row's Grand Prix name
+isn't on the session record itself — it lives on OpenF1's `meetings` rows
+— so callers join it in via a `meetingNames` map built separately:
+`SessionDiscovery` fetches `meetings?year=` once per discovery tick —
+twice, for the current year and the next, during UTC December's season
+rollover — and the loader and `fetch-race` fetch `meetings?meeting_key=`
+once per session. A `meeting_key` missing from that map, or no fetch made
+at all, leaves `meetingName` null rather than guessing.
 
 A rerun must not blank out a naming column (`meetingName`,
 `circuitShortName`, `location`) that an earlier run already found.
@@ -375,6 +379,7 @@ unavailable field.
 | `ingest: OPENF1_LOGIN/OPENF1_PASSWORD not set; running unauthenticated ...` | info | No OpenF1 credentials; the process still starts, historical/unauthenticated use only | — |
 | `ingest: LIVE_SOURCE=... — replaying a recording instead of OpenF1.` | info | `LIVE_SOURCE` names a directory, not `api`; the file fetcher is used instead of the network | — |
 | `ingest: MQTT_ENABLED but no OpenF1 credentials/live source; MQTT lane not started.` | info | `MQTT_ENABLED` is true but there's nothing to authenticate or connect with | — |
+| `ingest: config` | info | Logged once, before the lanes start: the service's effective configuration. Credentials are never logged, only whether they're present (`sponsored`) | `live_source`, `live_log_dir`, `mqtt_enabled`, `rest_tick_ms`, `log_level`, `year`, `sponsored`, `build` |
 | `ingest: started ...` | info | Boot complete: REST lane tick, whether MQTT is running, writer running | — |
 | `ingest: no lap count for session_key=... circuit_key=... (..., ...); polls will not open` | error/info | Logged once, after the first successful discovery: an upcoming race session's `circuit_key` has no entry in `CIRCUITS`, so `total_laps` stays null and the api never opens polls for it. `error` when `date_start` is within 14 days, else `info` | `session_key`, `circuit_key`, `days_until` |
 | `ingest: season coverage <covered>/<total> upcoming races have a lap count` | info | Logged once, right after the lines above: the summary of this season's coverage | — |

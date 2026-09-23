@@ -29,7 +29,7 @@ export interface SessionsDb {
   };
 }
 
-interface SessionFields {
+export interface SessionFields {
   name: string;
   country: string;
   circuitKey: number;
@@ -40,6 +40,28 @@ interface SessionFields {
   meetingName: string | null;
   circuitShortName: string | null;
   location: string | null;
+}
+
+/**
+ * True when two `SessionFields` snapshots would write the same row: every
+ * key compared, `Date` fields by `getTime()`, everything else by `===`. A
+ * null-to-value change in a naming field counts as a difference. Discovery
+ * uses this to skip a redundant upsert for a row unchanged since the last
+ * one that landed.
+ */
+export function sameSessionFields(a: SessionFields, b: SessionFields): boolean {
+  return (
+    a.name === b.name &&
+    a.country === b.country &&
+    a.circuitKey === b.circuitKey &&
+    a.dateStart.getTime() === b.dateStart.getTime() &&
+    a.dateEnd.getTime() === b.dateEnd.getTime() &&
+    a.totalLaps === b.totalLaps &&
+    a.status === b.status &&
+    a.meetingName === b.meetingName &&
+    a.circuitShortName === b.circuitShortName &&
+    a.location === b.location
+  );
 }
 
 // OpenF1 serves live data from 30 minutes before `date_start` to 30 minutes
