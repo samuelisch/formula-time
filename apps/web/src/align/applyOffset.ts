@@ -9,29 +9,11 @@ import type { TimeTarget } from "../transport/TimeTarget.ts";
 
 /**
  * Routes one anchored observation's computed offset through the
- * `TimeTarget` seam instead of a raw `setDelayMs`. `ms` is exactly what
- * `applyReading` passes to `setDelayMs`, always `Math.max(0, offsetMs)`,
- * and `offsetMs` is `OffsetTracker.offsetMs()` (`core.ts`): `observedWall −
- * anchorSourceMs`. That is a constant mapping between the viewer's wall
- * clock and the data's source-time axis -- true whether the anchor is
- * seconds old (live) or days old (a replay recording) -- so the position to
- * show is always `sourceMs = nowWallMs − offsetMs`, on both platforms. One
- * branch, no anchor needed here.
- *
- * `now` must be the SAME wall clock `observedWall` itself was computed
- * from (the caller closes over one `nowWallMs = Date.now()` for both), not
- * a fresh `Date.now()` call here -- otherwise the two calls' sub-ms drift
- * leaks into the position.
- *
- * Live: `seekTo(atMs)` resolves to `setDelayMs(now() − atMs)` (floored at
- * 0), so seeking to `now() − ms` sets the delay to exactly `ms`.
- *
- * Replay: seeks the playback clock to `nowWallMs − offsetMs`, which lands
- * at the anchor's own source time (plus whatever small residual `now`
- * differs from `observedWall`) -- not `anchorMs + ms`, which is wrong
- * end to end for a historic anchor (`ms` is then days, not a lead) and
- * clamps to the end of the recording. Playback always resumes, never
- * pauses.
+ * `TimeTarget` seam instead of a raw `setDelayMs`. `now` must be the same
+ * wall clock the offset's `observedWall` was computed from, not a fresh
+ * `Date.now()` here, or the two calls' sub-ms drift leaks into the
+ * position. One branch serves both live and replay.
+ * See README: Alignment.
  */
 export function applyOffsetToTarget(target: TimeTarget, ms: number, now: () => number = Date.now): void {
   target.seekTo(now() - ms);
