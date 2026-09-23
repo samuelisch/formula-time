@@ -74,6 +74,31 @@ Friday fetch, and returns as soon as one of them makes a request —
 there before it ever reaches the rotation, so the budget rule above is what
 the code does, not a summary of intent.
 
+## Session upsert
+
+Discovery upserts every `sessions` row it sees, keyed by `session_key`.
+The row's Grand Prix name isn't on the session record itself — it lives on
+OpenF1's `meetings` rows — so callers join it in via a `meetingNames` map
+built separately: `RestLane` fetches `meetings?year=` once per discovery
+tick, and the loader and `fetch-race` fetch `meetings?meeting_key=` once
+per session. A `session_key` missing from that map, or no fetch made at
+all, leaves `meetingName` null rather than guessing.
+
+A rerun must not blank out a naming column (`meetingName`,
+`circuitShortName`, `location`) that an earlier run already found.
+Prisma's `update` leaves a column untouched only when its key is absent
+from the update object entirely — present and `null` sets it to null — so
+the upsert omits those three keys, rather than setting them to `null`,
+whenever the freshly computed value is `null`. That makes reruns
+additive. `create` keeps a literal `null`, since a brand-new row
+legitimately has no value yet.
+
+`upsertSession` validates the row (`session_key`, `date_start`,
+`date_end`) before writing: a malformed field throws before the database
+call, so the caller (`RestLane.discoverOnce()`) can skip that one row and
+keep upserting the rest, instead of one bad row stopping the whole
+discovery tick.
+
 ## Configuration
 
 | Variable | Default | Meaning |

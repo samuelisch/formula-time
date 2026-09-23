@@ -121,13 +121,8 @@ function validDate(raw: RawRecord, key: string): Date {
 }
 
 /**
- * `meetingNames` joins on the raw row's own `meeting_key`: the session row
- * never carries the Grand Prix name itself (`meeting_name` lives on
- * OpenF1's `meetings` rows), so callers fetch that separately and hand in
- * the map (RestLane: once per discovery tick, `meetings?year=`; the loader
- * and fetch-race: once per session, `meetings?meeting_key=`). A missing
- * entry (no fetch made, or the meeting_key wasn't found) leaves
- * `meetingName` null rather than guessing.
+ * `meetingNames` joins on the raw row's own `meeting_key`: the session
+ * row carries no Grand Prix name of its own. See README: Session upsert.
  */
 export function sessionFieldsFromRaw(
   raw: RawRecord,
@@ -154,11 +149,10 @@ export function sessionFieldsFromRaw(
 
 export interface UpsertSessionOptions {
   /**
-   * Forces `status` instead of deriving it from `nowMs` vs. the session's
-   * window: the loader upserts a past recording's session as
-   * `finished` regardless of the ±30min live window `computeSessionStatus`
-   * would otherwise apply. One `upsertSession` with a status override,
-   * not a second upsert function.
+   * Forces `status` instead of deriving it from `nowMs` and the live
+   * window: the loader upserts a past recording as `finished` regardless
+   * of what `computeSessionStatus` would compute. One `upsertSession`,
+   * not a second function, carries the override.
    */
   status?: SessionStatus;
   /** Forwarded to `sessionFieldsFromRaw` — see its doc comment. */
@@ -166,17 +160,9 @@ export interface UpsertSessionOptions {
 }
 
 /**
- * A rerun whose source has no answer for a naming column (no meetings map
- * entry this tick, a raw row with no `circuit_short_name`/`location`) must
- * not blank out a value an earlier run already found — `null` here means
- * "this run doesn't know", not "this row has none". Prisma's `update`
- * leaves a column untouched when its key is absent from the update object
- * entirely (as opposed to present and `null`, which sets it to null), so
- * omitting these three keys — not merely setting them to `null` — when the
- * computed value is `null` is what makes a rerun additive instead of
- * overwriting a known value with an unknown one. `create` keeps the
- * literal `null` unchanged — a brand-new row legitimately has no value yet
- * until some run's map/row supplies one.
+ * A rerun must not blank out a naming column an earlier run already
+ * found: omits it from the update object rather than nulling it, so
+ * `update` leaves it untouched. See README: Session upsert.
  */
 function updateFieldsPreservingNaming(
   fields: SessionFields,
@@ -191,15 +177,10 @@ function updateFieldsPreservingNaming(
 }
 
 /**
- * Upserts the `sessions` row for a raw OpenF1 `sessions` record. `nowMs`
- * drives the `upcoming` / `live` / `finished` status
- * unless `opts.status` overrides it.
- *
- * Validates first (`sessionKeyOf`, `sessionFieldsFromRaw`): a malformed
- * `session_key`, `date_start`, or `date_end` throws a descriptive error
- * before `db.session.upsert()` is ever called, rather than writing a
- * corrupt row. The caller (`RestLane.discoverOnce()`) catches this per row
- * so one bad session doesn't stop the others from being upserted.
+ * Upserts the `sessions` row for a raw OpenF1 `sessions` record; `nowMs`
+ * drives `upcoming`/`live`/`finished` unless `opts.status` overrides it.
+ * Validates first, so a malformed row throws before any write and the
+ * caller can skip just that row. See README: Session upsert.
  */
 export async function upsertSession(
   db: SessionsDb,
