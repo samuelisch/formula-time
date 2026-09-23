@@ -3,162 +3,49 @@
 Issue label: `web`. An agent working here picks `ready` issues labelled
 `web` (`gh issue list --label ready --label web --search "sort:created-asc"`) and nothing else.
 
-## What this app owns
+## Purpose
 
-- Vite + React. Built assets are static, hosted on Netlify (interim
-  `*.netlify.app`, target the apex of a custom domain); the api answers
-  on its own origin (ADR-0008). `public/_redirects` is the SPA fallback,
-  `public/_headers` the asset cache policy plus the Content Security Policy
-  and other security headers -- its CSP's `connect-src` carries a build-time
-  placeholder that `vite.config.ts`'s csp-headers plugin fills in from
-  `VITE_API_URL`, so the api's origin is declared in that one place, never a
-  second literal. `VITE_API_URL` is the api's origin at build time; unset
-  means relative URLs, which is the dev setup: the dev server
-  (`vite.config.ts`) proxies `/health` and `/api` to the api on port 3000
-  (`/live` and `/polls` are SPA routes, not proxied -- issue #72). Every
-  request goes through `src/api.ts`, never a hand-built URL.
-- `index.html`'s `<meta name="build">` carries the running build's commit
-  SHA (ADR-0021); `vite.config.ts` resolves it itself from
-  `VITE_GIT_SHA` (explicit override), falling back to `COMMIT_REF`
-  (Netlify's own build-time variable) or `GITHUB_SHA` (GitHub Actions),
-  else `"unknown"` -- no per-platform build-command configuration is
-  needed. `release.yml`'s smoke job reads this to confirm a release
-  actually deployed the released commit.
-- Imports the RaceState type, wire schemas, and the reducer from
-  `@formula-time/domain`. Never copies them. The reducer runs in the
-  browser to fold finished races, served as one immutable export per
-  session (ADR-0009) and rendered by `ReplayPage` at `/races/:session_key`
-  (`src/app/router.tsx`); it must stay identical to the server's.
-- Wire shapes (the push and index shapes the api builds: `StatePush`,
-  `DeltaPush`, `StatusFrame`, `SessionStatus`, `RaceIndexEntry`,
-  `RaceEventsPage`, `RaceFile`) live in `packages/domain/src/wire.ts`, same
-  as the poll shapes already do -- `live/types.ts` and `races/api.ts`
-  import and re-export the wire names unchanged (`StatePush`, `DeltaPush`,
-  ...); neither file declares its own copy or alias.
-- One `EventSource` per tab carries race state, poll state, tallies, and
-  the heartbeat, opened in delta format (ADR-0013, `?format=delta`): a
-  `state` frame seeds or replaces the held push outright, a `delta` frame
-  is folded against it (`src/live/deltas.ts`'s `applyDelta`), and a gap
-  (the delta's `base_seq` not matching the held push's `seq`) fetches `GET
-  /api/live/snapshot` once to resume. The browser does not validate the SSE
-  payload; it trusts its own server. Votes are a plain `POST`.
-- Alignment is entirely client-side: OCR of the lap counter and
-  lights-out detection (`src/align/`) produce a personal offset applied
-  straight to `setDelayMs` on the live store -- no server seek, no trim
-  loop; the render is a pure function of the delay against the push ring
-  buffer (now − offset). `TransportBar` (`src/transport/`) is the primary
-  UI for nudging the delay; auto-align (`AlignPanel`/`useAligner`) is
-  experimental. `tesseract.js` (the OCR library) is a dependency loaded with a dynamic
-  `import()` in `src/align/capture.ts` so ordinary viewers never download
-  it; the worker script, WASM core and `eng` language data are vendored into
-  `public/ocr/` by `scripts/vendor-ocr.mjs` (`pnpm --filter @formula-time/web
-  vendor:ocr`) and served from this origin -- `createOcrWorker` pins
-  `workerPath`/`corePath`/`langPath` there so the engine never loads from a
-  CDN at runtime. From version 6 on, `recognize()` returns only the
-  output formats explicitly requested (default `{ text: true }`, no
-  `data.lines`); a caller that needs line geometry passes
-  `{ text: true, blocks: true }` and reads `data.blocks[].paragraphs[].lines[]`.
-- Spoiler safety: a delayed viewer never sees a tally or a result before
-  their own lap reaches the lock lap.
-- Scope rule: the UI stays plain until the delivery layer is proven. No
-  feature that does not serve the timing board, polls, or alignment.
-- The `frontend-design` plugin is available for visual decisions; it does
-  not override the scope rule above.
+Vite + React static bundle, hosted on Netlify; the api answers on its own
+origin (ADR-0008). What it renders and why is `README.md`, not this file.
+
+## Where the facts are
+
+| Fact | File |
+|---|---|
+| Push flow, the three modes, the two seams, routes, data sources, alignment policy | `README.md` |
+| Hosting, the build-time commit SHA (`index.html`'s `<meta name="build">`), the release smoke check | `vite.config.ts`, `.github/workflows/release.yml` |
+| Wire shapes (`StatePush`, `DeltaPush`, ...) | `packages/domain/src/wire.ts`, re-exported unchanged by `src/live/types.ts` and `src/races/api.ts` |
+| The reducer that folds a replay | `@formula-time/domain`'s `race_state.ts`, run by `src/replay/foldRace.ts` |
+| OCR vendoring and the dynamic `import()` that keeps it out of the ordinary bundle | `src/align/capture.ts`, `scripts/vendor-ocr.mjs`, `public/ocr/` |
+| Test setup: vitest projects, Playwright, the e2e fixture | `vitest.config.ts`, `playwright.config.ts`, `e2e/fixtures/11361-slice/` (regenerated by `scripts/trim-recording.mjs`) |
+
+## Rules that are not in the README
+
+- Every request goes through `src/api.ts`, never a hand-built URL.
+- One `EventSource`, opened only in `src/live/useLiveStream.ts`, mounted once in `Shell`.
+- The push stream never sits in TanStack Query; Query is only for `/api/polls` and the vote mutation.
+- Components read the store only through the selector hooks (`src/live/selectors.ts`) and the board only through the board seam (`src/board/useBoardState.ts`).
+- The transport bar reads only through the time-target seam (`src/transport/TimeTarget.ts`).
+- Spoiler safety: everything renders from the displayed push, never the live edge.
+- Scope rule: the UI stays plain until the delivery layer is proven; no feature that does not serve the timing board, polls, or alignment.
+- Accessibility: every interactive control is a real, keyboard-reachable element with a visible `:focus-visible` ring; a modal traps Tab and restores focus on close; a cue that uses colour also carries a glyph or text; motion respects `prefers-reduced-motion`.
+- The CSP's `connect-src` placeholder (`public/_headers`) is filled from `VITE_API_URL` at build by `vite.config.ts`'s csp-headers plugin -- the api's origin is declared in that one place, never a second literal.
+- Comments follow root `AGENTS.md`'s rule: six lines at most; anything longer is a paragraph in this app's README, named.
 
 ## Conventions
 
-- ESM everywhere: relative imports end in `.js` even from `.ts` files
-  (NodeNext).
-- One TypeScript at the root; `tsc -b` builds this package; `pnpm
-  typecheck` at the root must pass.
-- Unit tests are `*.test.ts` next to the source, vitest, in-memory fakes
-  only. Integration tests (`*.integration.test.ts`, need Postgres) do not
-  apply here — this app has no database access. Playwright (chromium only,
-  `apps/web/e2e/`, `apps/web/playwright.config.ts`) is e2e: `pnpm test:e2e`
-  (root or this package) runs it against the rehearse-race stack, brought
-  up by `scripts/e2e-stack.sh` for Playwright's `webServer` option, which
-  defaults `RECORDING` to the committed fixture `apps/web/e2e/fixtures/11361-slice/`
-  (`fixtures.ts`) -- the Italian GP trimmed to lights out − 3 min through
-  lights out + 25 min, laps 1-4. `scripts/trim-recording.mjs` regenerates
-  it from a full local recording; each spec still skips when the fixture
-  is absent, as a guard against a broken checkout. The `e2e` CI job runs
-  it too, only when a PR touches `apps/web/**` or `packages/domain/**`,
-  and is not yet required for merge.
-- `pnpm lint` (ESLint, root `eslint.config.js`, ADR-0017) runs over this
-  app too, zero warnings allowed, same gate as `pnpm typecheck` and
-  `pnpm test:unit`.
-- `@formula-time/domain` is browser-safe: its tsconfig enforces
-  `types: []` and `lib: ["ES2022"]`, so it cannot import `node:*`. Types
-  and the reducer live there; identity hashing does not, and never gets
-  imported here.
-- Config is read from the platform secret store, never from files in the
-  image: `DATABASE_URL`, `OPENF1_LOGIN`, `OPENF1_PASSWORD`, `PORT`,
-  `LIVE_SOURCE`. This app touches none of them directly.
-- Vocabulary: *fold* (reduce over the event log), *projector* (the class)
-  / *authority* (the role, exactly one), *push* (one serialized RaceState
-  + tallies sent to every socket), *lock* (poll state before resolve; not
-  "close"). This app folds on the client but is never the authority.
-- Live state lives in the zustand store (`src/live/store.ts`), not in
-  TanStack Query -- a push stream updating several times a second is not
-  request/response data. TanStack Query is only for `/api/polls` and the
-  vote mutation. Components read the store through the narrow selector
-  hooks in `src/live/selectors.ts` (`useConnection`, `useDisplayed`,
-  `useDelay`, ...), never the whole store, so a render depends only on the
-  slice it uses.
-- The delay axis is `Date.parse(state.latest_source_time)`, falling back
-  to `sent_at` when null (`axisOf` in `src/live/types.ts`) -- the POC's
-  alignment anchor, so an offset measured against the broadcast applies
-  directly. The push ring buffer (`src/live/buffer.ts`) caps at 60
-  entries or 15 000ms of span, whichever hits first, oldest evicted -- it
-  serves only the short rewind; the timeline (`src/replay/timeline.ts`)
-  serves anything older. `delayMs === 0` renders the live edge with zero
-  buffer work.
-- `src/live/useLiveStream.ts` is the only place in the app that
-  constructs an `EventSource`; it is mounted once in `Shell`. No other
-  component or hook opens its own connection.
-- `src/transport/TimeTarget.ts` is the seam `TransportBar` drives against,
-  with `useLiveTimeTarget` (the live store's delay) and
-  `useReplayTimeTarget` (a replay's playback clock) as its two
-  implementations, so one control surface serves both. Live seeks and
-  nudges move on the source axis through the store's own
-  `seekToAxis`/`nudgeDelay` (`headAxisOf` in `src/live/store.ts`).
-  `src/transport/raceStart.ts`'s `jumpToRaceStart` is the one shared
-  race-start seek, used by the transport bar's button and the replay
-  page's start notice.
-- The board seam: every board component reads through the hooks in
-  `src/board/useBoardState.ts` (`useBoardPush`, `useBoardDriver`,
-  `useBoardDriverOrder`, `useBoardRaceControl`, `useBoardSessionMeta`,
-  `useBoardSessionStatus`, `useBoardIsReplay`, ...), never the live store
-  directly, so the same component renders a live push and a folded replay
-  push. `ReplayPage` mounts `Board` under `BoardSourceProvider`; `BoardPage`
-  mounts it on the live store.
-- The connection pill (`src/live/ConnectionPill.tsx`) lives on the live
-  page (`BoardPage`) only; a replay has no live connection to show.
-- `src/app/headerStore.ts` lets a page override the shell header's session
-  line while it is mounted, clearing the override on unmount; otherwise the
-  header derives its line from the live store.
-- `src/replay/timeline.ts`'s `Timeline` is the incremental fold --
-  keyframes, lap markers, `foldAt` for scrubbing -- shared by the replay
-  path (`src/replay/foldRace.ts`, the whole event log in one shot) and the
-  live path (`src/live/useSessionTimeline.ts`, built page by page while a session
-  is still live). The live page mounts `src/live/LiveTimelineLoader.tsx` to
-  hand that timeline to the live store, whose `reselect` (`src/live/store.ts`)
-  folds from it once a viewer rewinds past the push ring buffer
-  (`mode: "timeline"`, `polls: []`). A reconnect resumes `useSessionTimeline`
-  from the head seq into the same timeline; only a `rebuilt` push re-backfills
-  it from zero. `src/replay/replayStart.ts`'s
-  `replayStartMs` cuts a replay's playback and scrub bar to the formation
-  lap -- `date_start` on time, `FORMATION_WINDOW_MS` before the measured
-  lights-out when delayed -- instead of the recording's first row.
-- Styling is CSS Modules (`*.module.css` next to the component); the dark
-  palette lives as CSS variables in `src/index.css`.
-- Unit tests are `*.test.ts(x)` next to the source. The root
-  `vitest.config.ts` runs this app's tests as the `web` project (jsdom +
-  React Testing Library, `src/test/setup.ts`); everything else runs as
-  the `node` project. `src/test/fakeEventSource.ts` is the EventSource
-  test double -- inject it via `useLiveStream({ EventSourceImpl })`.
-- Accessibility: every interactive control is a real, keyboard-reachable
-  element with a visible `:focus-visible` ring (`src/index.css`); a modal
-  traps Tab and restores focus on close (`src/components/focusTrap.ts`);
-  a cue that uses colour also carries a glyph or text, never colour alone;
-  and motion respects `prefers-reduced-motion`.
+- ESM everywhere: relative imports end in `.js` even from `.ts` files (NodeNext).
+- One TypeScript at the root; `tsc -b` builds this package; `pnpm typecheck` at the root must pass.
+- `@formula-time/domain` is browser-safe (`types: []`, `lib: ["ES2022"]`, no `node:*`); identity hashing lives there but is never imported here.
+- Unit tests are `*.test.ts(x)` next to the source, vitest, in-memory fakes only; the root `vitest.config.ts` runs this app as the `web` project (jsdom + React Testing Library, `src/test/setup.ts`). `src/test/fakeEventSource.ts` is the `EventSource` test double.
+- Playwright (chromium only, `apps/web/e2e/`) is e2e: `pnpm test:e2e` runs against the rehearse-race stack (`scripts/e2e-stack.sh`), defaulting `RECORDING` to the committed fixture; each spec skips when it is absent. The `e2e` CI job runs only when `apps/web/**` or `packages/domain/**` changed, and is not yet required for merge.
+- `pnpm lint` (ESLint, root `eslint.config.js`, ADR-0017), zero warnings, the same gate as typecheck and unit.
+- Styling is CSS Modules (`*.module.css` next to the component); the dark palette lives as CSS variables in `src/index.css`.
+- The connection pill (`src/live/ConnectionPill.tsx`) lives on `BoardPage` only; a replay has no live connection to show.
+- `src/app/headerStore.ts` lets a page override the shell header's session line while it is mounted, clearing the override on unmount; otherwise the header derives its line from the live store.
+- `src/transport/raceStart.ts`'s `jumpToRaceStart` is the one shared race-start seek, used by the transport bar's button and the replay page's start notice.
+- Config is read from the platform secret store, never from files in the image; this app touches none of it directly.
+- `tesseract.js` is loaded with a dynamic `import()` in `src/align/capture.ts` so ordinary viewers never download it. From version 6 on, `recognize()` returns only the output formats explicitly requested (default `{ text: true }`); a caller that needs line geometry passes `{ text: true, blocks: true }`.
+- The `frontend-design` plugin is available for visual decisions; it does not override the scope rule above.
+
+See [`../../docs/glossary.md`](../../docs/glossary.md) for the vocabulary this app uses.
