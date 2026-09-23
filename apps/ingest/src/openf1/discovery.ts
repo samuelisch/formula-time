@@ -6,8 +6,13 @@
 
 import type { RecordRows } from "./enqueue.js";
 import type { Fetcher, RawRecord } from "./types.js";
+import { CIRCUITS } from "../circuits.js";
 import type { LaneLog } from "../log.js";
 import { isRaceSession } from "../writer/sessions.js";
+
+// The window the coverage check calls "soon": a race inside it without a
+// lap count logs at error level instead of info.
+const COVERAGE_SOON_MS = 14 * 24 * 60 * 60 * 1000;
 
 export const OPENF1_BASE = "https://api.openf1.org/v1";
 
@@ -99,6 +104,10 @@ export class SessionDiscovery {
   // Friday's 30-minute retry would never fire. The lane refreshes on this
   // cadence from its poll loop instead.
   private nextSessionsRefreshAt = 0;
+  // The season coverage lines fire once, at the first successful
+  // refreshSessions (startup, or the first retry after a startup
+  // failure) — never again, and never reset.
+  private coverageChecked = false;
 
   public constructor(opts: SessionDiscoveryOptions) {
     this.fetcher = opts.fetcher;
@@ -216,7 +225,51 @@ export class SessionDiscovery {
     }
 
     this.lastSessions = rows;
+    if (!this.coverageChecked) {
+      this.coverageChecked = true;
+      this.checkSeasonCoverage(rows, nowMs);
+    }
     return { rows, upserted };
+  }
+
+  /**
+   * Logs each upcoming race session whose circuit_key has no lap count in
+   * `CIRCUITS` (writer/sessions.ts: `total_laps` stays null, so the api
+   * never opens polls for it), then a summary line — once, at the first
+   * successful discovery. `refreshSessions` guards this to run only then.
+   */
+  private checkSeasonCoverage(rows: RawRecord[], nowMs: number): void {
+    const upcoming = rows.filter((row) => {
+      if (!isRaceSession(row)) return false;
+      const start = Date.parse(String(row["date_start"] ?? ""));
+      return !Number.isNaN(start) && start > nowMs;
+    });
+    let covered = 0;
+    for (const row of upcoming) {
+      const circuitKey = Number(row["circuit_key"] ?? NaN);
+      if (Number.isFinite(circuitKey) && circuitKey in CIRCUITS) {
+        covered += 1;
+        continue;
+      }
+      const start = Date.parse(String(row["date_start"] ?? ""));
+      const msUntil = start - nowMs;
+      const level = msUntil <= COVERAGE_SOON_MS ? "error" : "info";
+      const sessionKey = row["session_key"];
+      const circuitShortName = row["circuit_short_name"];
+      const dateStart = row["date_start"];
+      this.log(
+        `ingest: no lap count for session_key=${String(sessionKey)} circuit_key=${circuitKey} (${String(circuitShortName)}, ${String(dateStart)}); polls will not open`,
+        {
+          level,
+          fields: {
+            session_key: typeof sessionKey === "number" || typeof sessionKey === "string" ? sessionKey : String(sessionKey),
+            circuit_key: circuitKey,
+            days_until: Math.floor(msUntil / (24 * 60 * 60 * 1000)),
+          },
+        },
+      );
+    }
+    this.log(`ingest: season coverage ${covered}/${upcoming.length} upcoming races have a lap count`);
   }
 
   /**
