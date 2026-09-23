@@ -51,6 +51,12 @@ writer of `polls`, `votes` and `exports`.
 - The viewer cookie's attributes come from one helper,
   `viewerCookieOptions()` (`polls/viewer-identity.ts`), so every place
   that sets or reads the cookie agrees.
+- `SIGTERM` (a redeploy) or a local `SIGINT` stop the timers, the session
+  lifecycle, the fan-out heartbeat and the exporter, close the Fastify
+  server so an in-flight reply (a vote's acknowledgement) still lands,
+  disconnect Postgres, then exit — with a 10 s deadline armed before any
+  of that so a hung close or disconnect never waits on the platform's own
+  kill signal.
 
 ## Conventions
 

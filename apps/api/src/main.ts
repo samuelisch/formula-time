@@ -126,7 +126,11 @@ await app.register(racesRoutes, { prefix: "/api", db, exporter, dir: exportDir }
 let sessionWatcher: ReturnType<typeof setInterval> | null = null;
 let statsTimer: ReturnType<typeof setInterval> | null = null;
 
-process.on("SIGTERM", () => {
+async function shutdown(): Promise<void> {
+  // A hung server close or db.$disconnect() -- a slow Postgres, e.g. --
+  // must never leave the exit waiting on the platform's own kill signal.
+  setTimeout(() => process.exit(1), 10_000).unref();
+
   if (sessionWatcher !== null) {
     clearInterval(sessionWatcher);
   }
@@ -137,8 +141,17 @@ process.on("SIGTERM", () => {
   lifecycle!.stop();
   fanout.stopHeartbeat();
   exporter.stop();
-  void db.$disconnect().then(() => process.exit(0));
-});
+  // Fastify drains in-flight replies -- a vote whose insert is mid-commit
+  // still gets its acknowledgement -- before this resolves; a hijacked SSE
+  // socket is dropped by its own "close" listener (http/routes/live.ts) calling
+  // fanout.remove, not by this call.
+  await app.close();
+  await db.$disconnect();
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => void shutdown());
+process.on("SIGINT", () => void shutdown());
 
 // Listen first: Railway's healthcheck is /health (.railway/railway.ts), and
 // it must succeed on a fresh, session-less database rather than block
