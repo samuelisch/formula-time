@@ -27,7 +27,8 @@
     "db:generate": "pnpm --filter @formula-time/db db:generate",
     "db:migrate:dev": "scripts/with-db-env.sh pnpm --filter @formula-time/db db:migrate:dev",
     "db:migrate:deploy": "scripts/with-db-env.sh pnpm --filter @formula-time/db db:migrate:deploy",
-    "docs:adr-index": "node scripts/adr-index.mjs"
+    "docs:adr-index": "node scripts/adr-index.mjs",
+    "check:exact-pins": "node scripts/check-exact-pins.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -42,5 +43,10 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.70.0",
     "vitest": "5.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "deepmerge-ts": "8.0.2"
+    }
   }
 }

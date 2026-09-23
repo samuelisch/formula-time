@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
@@ -73,6 +74,21 @@ function cspHeadersPlugin(apiOrigin: string | undefined): Plugin {
   };
 }
 
+// @formula-time/domain's `exports` point at dist/, so a build started from a
+// test would need `tsc -b` first. Vitest sets VITEST in every worker,
+// including the one that calls a real `vite build()` in
+// src/build-meta.node.test.ts and src/_headers.node.test.ts, so a test-time
+// build reads the domain package from its source and a missing or stale
+// packages/domain/dist can never fail a test. A dev server and a production
+// build see no VITEST, get no alias, and keep resolving the built package
+// through its `exports` exactly as before. Exported so a test can assert
+// both branches.
+const domainSrc = fileURLToPath(new URL("../../packages/domain/src/index.ts", import.meta.url));
+
+export function domainAlias(env: NodeJS.ProcessEnv): Record<string, string> {
+  return env.VITEST ? { "@formula-time/domain": domainSrc } : {};
+}
+
 // Dev server proxies the api's routes to the app service (ADR-0002); every
 // api call goes through `/api` (src/api.ts) or `/health` (the platform
 // probe). `/live` and `/polls` are SPA routes (Shell's nav, RacesPage's
@@ -81,6 +97,9 @@ function cspHeadersPlugin(apiOrigin: string | undefined): Plugin {
 // Production serves the built assets from the platform CDN or the app.
 export default defineConfig({
   plugins: [react(), buildMetaPlugin(buildSha), cspHeadersPlugin(apiOriginForCsp)],
+  resolve: {
+    alias: domainAlias(process.env),
+  },
   server: {
     port: webPort,
     proxy: {

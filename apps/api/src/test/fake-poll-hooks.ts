@@ -1,11 +1,9 @@
-// Typed fake for the poll module's lifecycle hooks (projector/serve-session.ts's
-// PollHooks). `onState()` resolves one microtask later by default -- never
-// synchronously -- per the AGENTS.md test rule: a fake that resolves
-// synchronously cannot test ordering. A test that needs to hold more than
-// one fold in flight at once (to prove a later tick's onState() being
-// requested before an earlier one resolves doesn't leak into the earlier
-// tick's push) constructs it with `manualOnState: true` and drives
-// resolution itself with `resolveNext()`, FIFO, one call per pending fold.
+// Typed fake for the poll module's lifecycle hooks (serve-session.ts's
+// PollHooks). `onState()` resolves one microtask later by default, never
+// synchronously (a synchronous fake cannot test ordering). A test that
+// needs more than one fold in flight constructs it with
+// `manualOnState: true` and drives resolution itself with
+// `resolveNext()`, FIFO, one call per pending fold.
 import { vi } from "vitest";
 
 import type { PollHooks } from "../projector/serve-session.js";

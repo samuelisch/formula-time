@@ -1,24 +1,9 @@
-// Returns a Fastify plugin registering the two poll routes, relative to
-// whatever prefix the caller applies. Owns nothing beyond routing:
-// PollModule (poll-module.ts) is the only writer of `polls` and `votes`
-// (apps/api/AGENTS.md, ADR-0001 §2 invariant 5).
-//
-// Owner decision: every client-facing route lives under the `/api` prefix.
-// The routes here stay relative (`/vote`, `/polls`); the caller supplies
-// the prefix at registration: `app.register(registerPolls(module), {
-// prefix: "/api" })`, so the public paths are `POST /api/vote` and
-// `GET /api/polls`. `/health` is not this module's and stays at the root.
-//
-// `@fastify/cookie` is registered inside this plugin (not main.ts).
-// Because `@fastify/cookie` uses `fastify-plugin`, its decorators
-// (`reply.setCookie`) are exposed to this plugin's own instance rather than
-// creating a nested encapsulation, so `fastify.post`/`fastify.get` below can
-// use them regardless of the prefix applied at registration.
-//
-// `@fastify/rate-limit` is registered the same way, with `global: false`:
-// that adds the hook to this instance without limiting any route by
-// default, so only `/vote` (via its own `config.rateLimit`) is limited --
-// `/polls` and `/races/:session_key/polls` below stay unlimited.
+// Fastify plugin registering the two poll routes under the caller's
+// prefix (every client-facing route lives under `/api`). PollModule is
+// the only writer of `polls` and `votes` (ADR-0001 §2 invariant 5).
+// `@fastify/cookie` and `@fastify/rate-limit` (`global: false`, so only
+// `/vote` is limited) are registered here, not main.ts, so their
+// decorators and hooks reach only this plugin's routes.
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import type { FastifyError, FastifyInstance, FastifyPluginAsync } from "fastify";
@@ -79,10 +64,10 @@ export function registerPolls(module: PollModule, db: PrismaClient): FastifyPlug
         config: { rateLimit: { max: 60, timeWindow: "1 minute" } },
       },
       async (request, reply) => {
-        // SameSite=None (below) dropped the CSRF guard Lax gave for free, so
-        // the vote route checks Origin itself, against the same allowlist
-        // the cors plugin uses (ADR-0015). Checked before touching viewer
-        // identity or the poll module: a disallowed origin gets nothing else.
+        // SameSite=None (below) carries no CSRF guard, so the vote route
+        // checks Origin itself, against the same allowlist the cors plugin
+        // uses (ADR-0015). Checked before touching viewer identity or the
+        // poll module: a disallowed origin gets nothing else.
         const allowedOrigins = parseAllowedOrigins(process.env.CORS_ORIGIN);
         if (!originAllowed(request.headers.origin, allowedOrigins)) {
           reply.code(403);

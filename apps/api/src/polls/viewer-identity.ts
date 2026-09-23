@@ -1,6 +1,5 @@
-// Lifted from the POC (poc/ts/viewer_identity.ts), unchanged in behaviour.
-// The cookie value itself is computed here; it is set through Fastify's
-// reply in routes.ts (`@fastify/cookie`), not by writing headers directly.
+// The cookie value is computed here; it is set through Fastify's reply in
+// routes.ts (`@fastify/cookie`), not by writing headers directly.
 import { randomUUID } from "node:crypto";
 
 export function parseCookies(header: string | undefined): Record<string, string> {
@@ -26,11 +25,10 @@ export interface ViewerCookieOptions {
 
 // Split origins (ADR-0008, amended by ADR-0015) need SameSite=None so the
 // cookie travels cross-origin between the Netlify bundle and the Railway
-// api. A browser drops a SameSite=None cookie that is not Secure, and dev
-// runs over plain http, so dev keeps SameSite=Lax and secure: false. This
-// is the one place the attributes are decided: routes.ts passes the result
-// straight to reply.setCookie, and resolveViewerId below formats the same
-// values into its own raw fallback string, so the two can never drift.
+// api; a SameSite=None cookie also needs Secure, which dev (plain http)
+// can't set, so dev keeps SameSite=Lax and secure: false. The one place
+// these attributes are decided -- routes.ts and resolveViewerId's raw
+// fallback both read from here, so they can never drift.
 export function viewerCookieOptions(env: string | undefined): ViewerCookieOptions {
   const production = env === "production";
   return {

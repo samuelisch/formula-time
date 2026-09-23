@@ -66,16 +66,29 @@ run_case "git commitlog is not a match" 'git commitlog' nofire
 run_case "echo of git commit is not a command start" 'echo "git commit"' nofire
 run_case "git commit chained after another command" 'pnpm test && git commit -m x' fire
 
-# --- the gate runs lint between typecheck and the unit tests, and a failing
-# lint blocks the commit before the unit tests run ---
+# --- the gate runs check:exact-pins before typecheck, lint between typecheck
+# and the unit tests, and a failing step blocks the commit before the next
+# one runs ---
 
 rm -f "$MARKER_FILE" "$CALLS_FILE"
 jq -cn --arg cmd 'git commit -m x' '{tool_input:{command:$cmd}}' | (cd "$repo_root" && "$hook") >/dev/null 2>&1
 calls=$(tr '\n' ' ' < "$CALLS_FILE")
-if [ "$calls" = "typecheck lint test:unit " ]; then
-  echo "PASS: the gate runs lint between typecheck and the unit tests"
+if [ "$calls" = "check:exact-pins typecheck lint test:unit " ]; then
+  echo "PASS: the gate runs check:exact-pins before typecheck, then lint between typecheck and the unit tests"
 else
-  echo "FAIL: the gate called ($calls), expected 'typecheck lint test:unit '"
+  echo "FAIL: the gate called ($calls), expected 'check:exact-pins typecheck lint test:unit '"
+  fail=1
+fi
+
+rm -f "$MARKER_FILE" "$CALLS_FILE"
+export FAIL_CMD=check:exact-pins
+jq -cn --arg cmd 'git commit -m x' '{tool_input:{command:$cmd}}' | (cd "$repo_root" && "$hook") >/dev/null 2>&1
+unset FAIL_CMD
+calls=$(tr '\n' ' ' < "$CALLS_FILE")
+if [ "$calls" = "check:exact-pins " ]; then
+  echo "PASS: a failing check:exact-pins blocks the commit before typecheck runs"
+else
+  echo "FAIL: expected 'check:exact-pins ' (typecheck never called) but got ($calls)"
   fail=1
 fi
 
@@ -84,10 +97,10 @@ export FAIL_CMD=lint
 jq -cn --arg cmd 'git commit -m x' '{tool_input:{command:$cmd}}' | (cd "$repo_root" && "$hook") >/dev/null 2>&1
 unset FAIL_CMD
 calls=$(tr '\n' ' ' < "$CALLS_FILE")
-if [ "$calls" = "typecheck lint " ]; then
+if [ "$calls" = "check:exact-pins typecheck lint " ]; then
   echo "PASS: a failing lint blocks the commit before the unit tests run"
 else
-  echo "FAIL: expected 'typecheck lint ' (unit tests never called) but got ($calls)"
+  echo "FAIL: expected 'check:exact-pins typecheck lint ' (unit tests never called) but got ($calls)"
   fail=1
 fi
 

@@ -80,6 +80,23 @@ frame at all: `runDetector()` publishes the rebuilt fold itself, with
 `events: []` and `rebuilt: true`, in the tick that ran the detector
 (`projector/projector.ts`).
 
+## Fan-out
+
+Each `deflate()` call writes to the shared deflate stream and flushes with
+`Z_FULL_FLUSH`, so its result is one independently decodable raw-deflate
+block with no dependency on any later write to that stream. The heartbeat
+frame is a constant, so its gzip block is the same bytes every time;
+`Fanout` compresses it once at construction and replays that cached block
+on every heartbeat rather than deflating it fresh, which is exactly as
+valid since the block is independently decodable. A forced rebuild
+(ADR-0032) always delivers a full `state` push rather than a delta:
+`diffState` computes a full structural diff between the previous and
+current state, so a patch would in fact already span the skipped tick's
+changes correctly, but it cannot carry back that tick's own `events` rows
+(ADR-0014's deep-rewind log) — which is why the push must instead be
+`rebuilt: true`. This reuses the same fallback path a keyframe tick
+already takes.
+
 ## Polls
 
 Open: the first fold that has both drivers and a lap total opens two
@@ -97,12 +114,29 @@ that locks between a fast in-memory reject and the write still can't take
 a vote — and it is acknowledged to the caller only after that insert
 commits (`polls/vote-path.ts`).
 
+`RETURNING option_id` also settles a race between two concurrent votes
+from the same viewer: Postgres decides which option is stored last by
+commit order, not by which of two racing promises resolves first in this
+process, so the in-memory tally is set from the value the statement
+returns rather than from the caller's own argument. `PollModule.vote`
+additionally serializes votes per viewer so the two concerns don't
+compound.
+
 A viewer is an HttpOnly `viewer_id` cookie, `SameSite=None; Secure` in
 production (needed for the cookie to cross the split origins) and
 `SameSite=Lax`, not `Secure`, everywhere else (`polls/viewer-identity.ts`).
 `POST /api/vote` also checks `Origin` against the `CORS_ORIGIN` allowlist,
 and is rate-limited to 60 votes a minute per IP (`polls/viewer-identity.ts`,
 `polls/routes.ts`).
+
+Fastify's `trustProxy` is always the private address ranges
+(`http/trust-proxy.ts`'s `TRUST_PROXY`), never `true` (ADR-0024). Railway
+terminates TLS at its own edge and reaches this container only over its
+internal network, so the raw TCP peer is always a private address;
+trusting exactly those ranges stops address resolution at the first hop
+that is not itself private, so a client cannot fabricate extra
+`X-Forwarded-For` hops to dodge the per-IP rate limit the way
+`trustProxy: true` would allow.
 
 ## Routes
 
@@ -138,6 +172,22 @@ ticks. An already-exported session is re-exported the same way once
 `events` holds a row received after the export's `exported_at` — the etag
 the historical-race route sends is `"<session_key>-<exported_at ms>"`, so a
 re-export changes it (`export/exporter.ts`).
+
+The exporter runs its own 5 s tick, independent of the projector's tick,
+and never overlaps ticks: one that starts while a previous pass is still
+running returns immediately (ADR-0001 §2 invariant 2). The database is the
+record and disk only a cache: when an exported session's row exists but
+its file is missing (Railway's disk is ephemeral), `GET
+/api/races/:session_key` regenerates the file from the row's stored
+`exported_at`, so the file, the row and the etag can never diverge
+(ADR-0009 §3).
+
+One query per tick finds both candidate kinds in a single `UNION ALL`: new
+candidates need only check for a missing `exports` row; stale candidates
+are found with an `EXISTS` against `events`, narrowed to one session's
+rows by `events_session_key_source_time_idx`'s leading column — a few
+short per-session scans, since `exports` holds only already-exported
+sessions, not a table-wide scan.
 
 `export/prune-exports.ts` is a one-off maintenance command, not part of
 the running service: `node apps/api/dist/export/prune-exports.js` inside

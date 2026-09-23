@@ -62,7 +62,17 @@ Read `docs/` before doing anything. What each part holds:
   `recordings/` (gitignored) is `test.skipIf(!existsSync(dir))`. `db:up`/`db:down`/`db:migrate:*`/
   `test:integration` derive a per-worktree compose project and Postgres port
   from `scripts/db-env.sh` (`docs/operations.md` "Local ports"), so
-  concurrent worktrees never share a database.
+  concurrent worktrees never share a database. `vitest.config.ts` and
+  `vitest.integration.config.ts` alias `@formula-time/domain` to its `src/`,
+  and `apps/web/vite.config.ts` does the same when and only when `VITEST` is
+  set, so under vitest the domain package is read from source and a missing or stale
+  `packages/domain/dist` fails neither `pnpm test:unit` nor
+  `pnpm test:integration` — including the two `apps/web/src/*.node.test.ts`
+  files that run a real `vite build`. `@formula-time/db` stays on `dist` by
+  design (its `exports` point at its generated Prisma client), so `tsc -b`
+  (or `pnpm build`) is still a precondition for any test that imports it at
+  runtime. A dev server and a production build get no alias and resolve
+  `@formula-time/domain` from `dist` as before.
 - `docs/` is gitignored on purpose (drafts), except `docs/decisions-adr/`,
   `docs/retros/`, `docs/architecture.md`, `docs/glossary.md` and
   `docs/operations.md`, which are tracked — do not change `.gitignore`
@@ -80,6 +90,9 @@ Read `docs/` before doing anything. What each part holds:
   blame and the PR hold that history. A comment is at most six lines;
   anything longer is a paragraph in that app's README, and the comment
   names the section.
+- Every `dependencies` and `devDependencies` specifier is an exact version,
+  never a caret, tilde, or other range (`.npmrc` sets `save-exact=true`);
+  `scripts/check-exact-pins.mjs` enforces it in the hook and in CI.
 
 ## Context by function
 

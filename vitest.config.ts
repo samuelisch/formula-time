@@ -1,4 +1,15 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+
+// @formula-time/domain's package.json `exports` point at dist/, so tests
+// would otherwise need `tsc -b` before every run. Vitest resolves the
+// package from source instead; a domain change is visible to a test
+// immediately, and a stale or missing dist can never mask a test result.
+// This alias is vitest-only: `pnpm build` and the app builds still resolve
+// the package through its `exports`, i.e. from dist. apps/web/vite.config.ts
+// carries the matching alias, gated on VITEST, for the builds that a test
+// starts itself.
+const domainSrc = fileURLToPath(new URL("./packages/domain/src/index.ts", import.meta.url));
 
 // Unit tests: every *.test.ts across the workspace, in-memory fakes only.
 // Split into three projects: apps/web needs a jsdom environment and React
@@ -9,6 +20,11 @@ import { defineConfig } from "vitest/config";
 // globals, so it needs the plain node environment despite living in
 // apps/web.
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@formula-time/domain": domainSrc,
+    },
+  },
   test: {
     projects: [
       {

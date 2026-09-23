@@ -1,7 +1,7 @@
 // The wire shapes the api builds and the web reads over HTTP and SSE,
-// declared once (issue: a review rule, not the compiler, used to keep the
-// api's builders and the web's copies in step). Types only -- no runtime
-// code, per the package's own browser-safe rule.
+// declared once so the api's builders and the web's copies cannot drift
+// (enforced by review, not the compiler). Types only -- no runtime code,
+// per the package's own browser-safe rule.
 import type { JsonPatchOp } from "./patch.js";
 import type { PollPublic } from "./polls.js";
 import type { RaceState } from "./race-state.js";
@@ -20,24 +20,17 @@ export interface StatePush {
   total_laps: number | null;
   state: RaceState;
   polls: PollPublic[];
-  /**
-   * The `RaceEvent` rows the projector applied in the tick that produced
+  /** The `RaceEvent` rows the projector applied in the tick that produced
    * this push, in `seq` order; `[]` on a tick with none, including the
-   * join snapshot -- the state is the fold, the events are already in the
-   * log a client backfills via `GET /api/races/:session_key/events`.
-   * Optional so a push from an older api build still parses.
-   */
+   * join snapshot. Optional so a push from an older api build still
+   * parses. */
   events?: RaceEvent[];
-  /**
-   * Set when the server rebuilt `RaceState` from the fold after a
-   * late-commit alarm; or a deflate error made the fan-out skip a frame,
-   * so the next push it actually delivers carries this instead (that
-   * skipped tick's `events` reached no one); or a push was rejected before
-   * it ever reached the fan-out, so the next push built carries this for
-   * the same reason; or the client's own delta-stream gap detection marks
-   * the push that resolves it -- all four mean the same thing to a
-   * client's deep-rewind timeline: discard it and re-backfill.
-   */
+  /** Set when the server rebuilt `RaceState` after a late-commit alarm,
+   * or the fan-out skipped a frame, or a push was rejected upstream of
+   * the fan-out (ADR-0032's third and fourth causes), or the client's
+   * own gap detection marks the push that resolves it -- all mean the
+   * same thing to a client's deep-rewind timeline: discard it and
+   * re-backfill. See apps/api/README.md: One tick. */
   rebuilt?: boolean;
 }
 

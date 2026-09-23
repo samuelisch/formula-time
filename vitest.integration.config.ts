@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 // Integration tests: *.integration.test.ts, run against the real Postgres
@@ -11,7 +12,17 @@ import { defineConfig } from "vitest/config";
 const dbPort = process.env.DB_PORT ?? "5433";
 const defaultDatabaseUrl = `postgres://formula:formula@localhost:${dbPort}/formula_time`;
 
+// Same source resolution as vitest.config.ts: @formula-time/domain's
+// `exports` point at dist/, so without this alias integration tests would
+// also need `tsc -b` before every run.
+const domainSrc = fileURLToPath(new URL("./packages/domain/src/index.ts", import.meta.url));
+
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@formula-time/domain": domainSrc,
+    },
+  },
   test: {
     include: ["packages/*/src/**/*.integration.test.ts", "apps/*/src/**/*.integration.test.ts"],
     fileParallelism: false,
