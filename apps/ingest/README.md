@@ -208,10 +208,14 @@ because it is fed the same payloads, in the same per-endpoint order, that
 produced them. The `sessions` table does not keep every field a live
 OpenF1 `sessions` row carries — no `session_type`, `year`, `gmt_offset`,
 `country_key`, `country_code`, `is_cancelled`, or `meeting_key` column
-exists — so a dump's `session.json` omits them too; this is enough for
-the loader either way, and only `meeting_name` is permanently
-unrecoverable from a dump (it depends on `meeting_key`, resolved once at
-load time and not stored back onto the row).
+exists — so a dump's `session.json` omits them too. This is enough for
+the loader either way: `sessionFieldsFromRaw` reads `session_name` for
+the session's name and falls back to `session_type` only when
+`session_name` is missing, and a dump's `session.json` always supplies
+`session_name` directly, so that fallback never triggers for a dumped
+recording. Only `meeting_name` is permanently unrecoverable from a dump
+(it depends on `meeting_key`, resolved once at load time and not stored
+back onto the row).
 
 `raw/<endpoint>.jsonl` is written paged by `seq`, appending each page's
 rows immediately so a whole race is never held in memory at once; within
