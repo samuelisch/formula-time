@@ -192,7 +192,7 @@ describe("PollModule.onState — opening templates", () => {
   });
 
   it("does not open polls when totalLaps is null, and logs once", async () => {
-    const log = { info: vi.fn() };
+    const log = { info: vi.fn(), error: vi.fn() };
     const localDb = makeFakeDb();
     const localModule = new PollModule({ db: localDb as unknown as PrismaClient, log });
     await localModule.start({ sessionKey: SESSION_KEY, totalLaps: null, country: "Dutch", meetingName: null });
@@ -209,7 +209,7 @@ describe("PollModule.onState — opening templates", () => {
   });
 
   it("updateSession lets a total_laps that arrives late open polls on the next tick, no restart", async () => {
-    const log = { info: vi.fn() };
+    const log = { info: vi.fn(), error: vi.fn() };
     const localDb = makeFakeDb();
     const localModule = new PollModule({ db: localDb as unknown as PrismaClient, log });
     await localModule.start({ sessionKey: SESSION_KEY, totalLaps: null, country: "Dutch", meetingName: null });
