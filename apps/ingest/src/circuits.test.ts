@@ -3,10 +3,10 @@ import { CIRCUITS, totalLapsForCircuit } from "./circuits.js";
 
 // Every 2026 race session's circuit_key seen in production
 // (`GET https://api.openf1.org/v1/sessions?year=2026&session_name=Race`,
-// fetched 2026-09-11), excluding circuit_key 12 (session 11731), which is
-// deliberately left out of CIRCUITS as an unresolved data anomaly.
+// fetched 2026-09-11, circuit_key 12 added 2026-09-23).
 const CIRCUIT_KEYS_2026_RACE_SESSIONS = [
   10, // Australia (Melbourne)
+  12, // Malaysia (Kuala Lumpur)
   49, // China (Shanghai)
   46, // Japan (Suzuka)
   63, // Bahrain (Sakhir)
