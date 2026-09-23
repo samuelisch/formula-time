@@ -46,9 +46,8 @@ export interface LogOptions {
 
 /**
  * The `log(message, opts?)` callback every lane and the writer accept. A
- * bare `log(message)` keeps defaulting to `level: "info"` with no extra
- * fields, so every call site written before this option existed stays
- * valid. `main.ts` wires each instance to `logger[level]({ lane, ...fields,
+ * bare `log(message)` defaults to `level: "info"` with no extra fields.
+ * `main.ts` wires each instance to `logger[level]({ lane, ...fields,
  * ...countFields(message) }, message)`.
  */
 export type LaneLog = (message: string, opts?: LogOptions) => void;
