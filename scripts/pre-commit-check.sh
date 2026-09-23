@@ -121,23 +121,16 @@ if [ ! -d "node_modules/.pnpm" ] || [ "pnpm-lock.yaml" -nt "node_modules/.pnpm" 
   exit 1
 fi
 
-# Prettier only over the files this commit actually touches (added, copied,
-# modified or renamed), not the whole tree: a repo-wide `format:check` would
-# also fail on pre-existing files this commit never asked the author to
-# clean up. No extension list is maintained here — Prettier itself decides
-# what it has an opinion on via `--ignore-unknown` (a file type it does not
-# format, e.g. a .png, is a silent no-op rather than an error), and a file
-# .prettierignore excludes (docs/decisions-adr, *.md, pnpm-lock.yaml, ...)
-# is a silent no-op too, since Prettier's own ignore file governs regardless
-# of how a path was passed in. The existence check below runs `git diff`
-# without `-z` (its output is only tested for emptiness, so newline
-# separation is fine); the real file list use `-z`/`xargs -0` throughout so
-# a staged filename containing a space is not mis-split.
+# Prettier only over the files this commit actually touches, never the
+# whole tree, and with no extension list to maintain — see README.md "The
+# format check" for why (Prettier's own --ignore-unknown and .prettierignore
+# decide scope) and why the existence check below skips `-z` while the real
+# file list does not.
 run_format_check() {
   if [ -z "$(git diff --cached --name-only --diff-filter=ACMR)" ]; then
     return 0
   fi
-  git diff --cached --name-only -z --diff-filter=ACMR | xargs -0 pnpm prettier --check --ignore-unknown
+  git diff --cached --name-only -z --diff-filter=ACMR | xargs -0 pnpm prettier --check --ignore-unknown --
 }
 
 pnpm check:exact-pins && pnpm typecheck && pnpm lint && run_format_check && pnpm test:unit && scripts/check-adr-immutable.sh

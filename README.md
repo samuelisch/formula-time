@@ -83,3 +83,33 @@ dated. New decisions are appended.
 
 `AGENTS.md` holds the rules every agent and contributor follows. Each app's
 own `AGENTS.md` (`apps/<name>/AGENTS.md`) adds that app's local conventions.
+
+### The format check
+
+`scripts/pre-commit-check.sh`'s `run_format_check` runs Prettier only over
+the files a commit actually adds, copies, modifies or renames — never the
+whole tree — so the hook never fails on a pre-existing file the commit
+never touched. It keeps no extension list: every staged path goes through
+`prettier --check --ignore-unknown`, so Prettier itself decides what it has
+an opinion on (a type it does not format, e.g. a `.png`, is a silent
+no-op), and a path `.prettierignore` excludes (`docs/decisions-adr`, `*.md`,
+`pnpm-lock.yaml`, `.github/`, `.railway/`, ...) is a silent no-op there too,
+since Prettier's own ignore file governs regardless of how a path reached
+it. The file list itself is read with `git diff --cached --name-only -z
+--diff-filter=ACMR` and piped through `xargs -0`, so a staged filename
+containing a space is never mis-split; a separate, non-`-z` `git diff` call
+only tests for emptiness (skip the check when nothing is staged), since
+that output never needs to survive a trip through a shell variable intact.
+CI's `pnpm format:check` (ADR-0044) runs the same check over the whole
+tree, catching anything that slipped past the hook — a direct push, a
+merge commit.
+
+`scripts/pre-commit-check.test.sh` covers this with a stub `pnpm` on
+`PATH` (so no test ever runs a real Prettier check) against two kinds of
+fixture: an isolated repo under `mktemp -d`, built by the shared
+`make_repo` helper, for cases that only need the gate's call order (e.g.
+"nothing staged skips the check"); and, for the two cases that stage a
+real file whose extension matters (one `.ts`, one `.html` — the html
+allowlist gap found in review), a scratch file staged directly in the
+real repo checkout and reset afterward, since a real filename reads
+better as a regression test than a fixture's empty stand-in.

@@ -106,18 +106,10 @@ fi
 
 # --- prettier --check runs on staged files, between lint and the unit
 # tests, and only when the commit actually stages a file Prettier handles.
-# `make_repo` (below) builds an isolated fixture repo under mktemp -d, with
-# its own pnpm-lock.yaml, a stub node_modules/.pnpm so the "missing install"
-# branch never fires, and a stub check-adr-immutable.sh so the full gate
-# chain runs to completion; the stub pnpm on PATH intercepts every `pnpm`
-# call regardless of which repo the hook runs in, so a genuine prettier
-# install is never needed. The two cases that stage a real file Prettier
-# would genuinely reformat run against $repo_root's own git index instead
-# (staging and unstaging a scratch file directly, not via `trap`, since a
-# new `trap ... EXIT` here would clobber the stub_dir cleanup trap set
-# above) — only because a real file with real content reads better as a
-# regression test than a fixture's empty stand-in; the stub pnpm still
-# intercepts the actual `prettier --check` call either way.
+# See README.md "The format check" for why these two cases stage a
+# scratch file in $repo_root directly (not via `trap`, which would
+# clobber the stub_dir cleanup trap set above) rather than a make_repo
+# fixture, and why that's still safe with only a stub pnpm on PATH.
 
 # Real git repos under mktemp -d, independent of the real main checkout or
 # any real worktree, each with its own pnpm-lock.yaml and (except the
