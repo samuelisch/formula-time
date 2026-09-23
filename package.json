@@ -14,6 +14,8 @@
     "test:e2e": "pnpm --filter @formula-time/web test:e2e",
     "test": "pnpm typecheck && pnpm test:unit && pnpm test:integration",
     "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "dev:domain": "tsc -b packages/domain --watch",
     "dev:api": "scripts/with-db-env.sh pnpm --filter @formula-time/api dev",
     "dev:ingest": "pnpm --filter @formula-time/ingest dev",

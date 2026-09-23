@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
+import eslintConfigPrettier from "eslint-config-prettier";
 
 // The plugin's own "recommended" flat config sets rules-of-hooks to error
 // and treats every other rule it ships (exhaustive-deps plus the React 19
@@ -45,4 +46,7 @@ export default tseslint.config(
     },
     rules: reactHooksRules,
   },
+  // Last: turns off every ESLint stylistic rule Prettier also has an
+  // opinion on, so the two never disagree over the same line.
+  eslintConfigPrettier,
 );
