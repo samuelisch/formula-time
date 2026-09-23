@@ -181,6 +181,17 @@ discovery tick.
 | `pnpm ingest:dump -- <session_key> [--out <dir>] [--force]` | Reads a session's `sessions` row and `events` rows back out of Postgres into the recording layout `ingest:load` reads | An unknown `session_key`; an `--out` directory already holding `polls.jsonl` unless `--force` is passed |
 | `pnpm sim` | Drips a recording through the REST lane's file-fetcher path at a chosen speed, no network involved | An `--out-root` directory that already looks like a real recording (holds `polls.jsonl`) |
 
+The drip simulator impersonates the recorder: it writes `session.json` and
+appends raw rows into a fresh directory at the pace they originally
+arrived (`received_at`), optionally time-compressed, so
+`LIVE_SOURCE=<out-root>` makes the REST lane's file fetcher
+(`file-fetcher.ts` "root mode") experience the recorded race as live.
+
+```
+race day: OpenF1 -> ingest (rest-lane + recorder) -> files -> ingest (LIVE_SOURCE) -> ...
+sim:      recording -> simulator -> files -> ingest (LIVE_SOURCE) -> ...
+```
+
 ## What the log lines mean
 
 | Line | Level | Meaning | Fields |

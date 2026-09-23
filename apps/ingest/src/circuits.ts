@@ -1,14 +1,9 @@
-// Static `circuit_key` -> total race laps map, keyed by `circuit_key`; an
-// unknown `circuit_key` maps to `null`.
-//
-// OpenF1's `circuit_key` is not documented as a fixed public table, so rather
-// than guess ids from memory this only fills entries verified against a real
-// OpenF1 session payload already captured in this repo (POC live recordings)
-// or the `sessions` endpoint, and the lap count for each is the scheduled
-// race distance from an official source (formula1.com), never a figure
-// recalled from memory — a source citation and retrieval date sit beside
-// every entry. Everything else is left out and resolves to `null` at the
-// call site.
+// Static `circuit_key` -> total race laps map; an unknown key maps to
+// `null`. Every entry is verified against a real OpenF1 payload (this
+// repo's POC recordings or the `sessions` endpoint) with its lap count
+// from an official source (formula1.com), never recalled from memory —
+// a citation and retrieval date sit beside each one. Everything else is
+// left out.
 export const CIRCUITS: Record<number, { name: string; totalLaps: number }> = {
   // 2026 Bahrain GP (session_key 11261, cancelled, but still on the
   // calendar as a circuit_key seen in production): circuit_key 63, "Sakhir".
@@ -61,9 +56,9 @@ export const CIRCUITS: Record<number, { name: string; totalLaps: number }> = {
   // ("Number of Laps: 78"), retrieved 2026-09-11.
   22: { name: "Monte Carlo", totalLaps: 78 },
   // 2026 Barcelona-Catalunya GP (session_key 11307, circuit_key 15,
-  // "Catalunya") — no longer named "Spanish Grand Prix" from 2026, that
-  // name moved to Madring (circuit_key 153, above). Official race
-  // distance: https://www.formula1.com/en/racing/2026/barcelona-catalunya
+  // "Catalunya") — the Spanish Grand Prix name belongs to Madring
+  // (circuit_key 153, above) from 2026. Official race distance:
+  // https://www.formula1.com/en/racing/2026/barcelona-catalunya
   // ("Number of Laps: 66"), retrieved 2026-09-11.
   15: { name: "Catalunya", totalLaps: 66 },
   // 2026 Austrian GP (session_key 11315, circuit_key 19, "Spielberg").

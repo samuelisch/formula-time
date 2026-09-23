@@ -1,17 +1,7 @@
-// Drip simulator: replays a live-recorder recording (or a real ingest
-// recording under `LIVE_LOG_DIR`) as if the race were happening now. Lifted
-// from `../f1-live-events-poc/poc/live-recorder/simulator.ts`:
-// it impersonates the recorder — writing session.json and appending raw
-// rows into a fresh directory at the pace they originally arrived
-// (`received_at`), optionally time-compressed — so the unmodified ingest
-// REST lane (via `LIVE_SOURCE=<out-root>`, `file-fetcher.ts` "root mode")
-// experiences the recorded race as live.
-//
-//   race day: OpenF1 -> ingest (rest-lane + recorder) -> files -> ingest (LIVE_SOURCE) -> ...
-//   sim:      recording -> simulator -> files -> ingest (LIVE_SOURCE) -> ...
-//
-// ADR-0001 rule this keeps: only ingest talks to OpenF1. The simulator
-// reads a file and touches no network.
+// Drip simulator: replays a recording as if the race were happening now,
+// so the unmodified ingest REST lane (`LIVE_SOURCE=<out-root>`)
+// experiences it as live. ADR-0001: only ingest talks to OpenF1 — the
+// simulator reads a file and touches no network. See README: Commands.
 
 import { appendFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
