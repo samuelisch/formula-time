@@ -48,11 +48,92 @@ built; only the first join and a `rebuilt` push start it over from seq 0
   `useBoardDriverCount`, `useBoardLeaderLap`, `useBoardSessionMeta`,
   `useBoardSessionStatus`, `isRacingPush`, `useBoardIsRacing`,
   `useBoardDriverOrder`, `useBoardDriver`, `useBoardRunStatus`, and
-  `useBoardPositionDeltas`.
+  `useBoardPositionDeltas`. Polls read through this seam too
+  (`polls/usePolls.ts`): `Shell` holds the live connection open on every
+  route, and a replay's push carries `polls: []`, so a replay never shows
+  or opens today's live polls. `useBoardState.ts` is a plain `.ts` file,
+  so `BoardSourceProvider` is built with `createElement` rather than JSX.
 - **The time-target seam** (`src/transport/TimeTarget.ts`): `range()`,
   `displayedAt()`, `seekTo()`, `nudge()`, `anchors()`, `playback()`, and
   `notice()`, plus `syncOffsetMs()` and `rewindMode()`. `useLiveTimeTarget`
   and `useReplayTimeTarget` are its two implementations.
+
+## Board layout
+
+`src/board/Board.tsx` is the pure timing board -- a two-row toolbar (row 1:
+lap counter, source clock, caller-supplied controls; row 2: the shared
+transport bar, full width), the driver-detail `side` slot, race-control and
+weather cards in a grid, and the full driver table.
+
+- **DOM order vs. visual position.** `side` sits in DOM order right after
+  the toolbar -- above the cards and the table -- because that is also its
+  visual position below the ~860px breakpoint (`Board.module.css`): a
+  full-width card directly under the toolbar. Above the breakpoint,
+  `grid-template-areas` repositions `side` next to the table in a final
+  row without moving it in the DOM, so reading/tab order stays "toolbar,
+  side, cards, table" at every width; only the visual arrangement changes.
+  One `grid` on `.board`, not two copies of `side`.
+- **Split from `BoardPage`.** The split is by composition, not a flag: the
+  live route's own furniture (the finished/upcoming banner, polls, and
+  align controls) reads the live session and belongs to `BoardPage`, which
+  wraps `Board`. `ReplayPage` mounts `Board` directly with the transport
+  bar in the `transport` slot, so a replay can never pick up a live-only
+  control by accident.
+- **Two-row toolbar.** Split because the shared `TransportBar` (row 2)
+  needs the full width for its slider; row 1 holds the short controls that
+  stay put beside the lap counter.
+- **Racing detection** (`src/board/useBoardState.ts`'s `isRacingPush`).
+  The fold is the authority on whether racing has begun, not the session
+  row: the row can lag a status flip by one lifecycle check, so this also
+  reads `race_control.session_status` and the leader's lap as a second
+  signal alongside the row's own `status`. True when the row already says
+  "live", or -- short of that -- when the row is not "finished" and either
+  race control has recorded `SESSION STARTED` or the leader's lap is 1 or
+  more; "finished" always wins, never overridden by a leftover racing
+  signal. A pure function, not a hook, so both `useBoardIsRacing` (the
+  displayed push) and `BoardPage`'s timeline-loader latch (the live push)
+  apply exactly the same rule.
+- **Stable driver identity** (`src/board/useBoardState.ts`'s
+  `useBoardDriver`). Returns the same object reference across pushes for
+  an unchanged driver, so a memoised `DriverRow` (default shallow prop
+  comparison) skips re-rendering for every driver a push didn't touch.
+  Stored in state (not a ref) and updated during render via React's
+  "adjust state during render" pattern -- setting state while rendering is
+  safe and causes React to redo the render immediately with the new
+  state, before anything commits or paints.
+- **Position-cue expiry and rewind reset** (`src/board/useBoardState.ts`'s
+  `advancePositionCueState`). Folds one push into the previous cue state,
+  given the current wall-clock time: the baseline resets silently (no
+  cue) on a new session or whenever the push's axis (`axisOf()`, the same
+  anchor alignment uses) goes backwards, which is what a replay
+  rewind/scrub looks like -- the one rule that keeps a delayed or
+  scrubbing viewer from seeing a cue for a "change" that is really just
+  the playhead moving backwards. A cue is pruned once `now` is more than
+  `POSITION_CUE_TTL_MS` past the push that set it.
+- **Position-delta fold timing** (`src/board/useBoardState.ts`'s
+  `useBoardPositionDeltas`). Position deltas since the previous push,
+  keyed by driver number: positive means the driver gained places,
+  negative means it lost them, and a driver absent from the result has no
+  live cue. The fold (`advancePositionCueState`) runs during render via
+  React's "adjust state during render" pattern rather than a ref or an
+  effect, so the cue expiry it computes is checked each time a push
+  arrives, not on a per-row timer -- a cue can outlive its TTL by up to
+  one push interval if pushes are sparse, an acceptable trade for not
+  running a timer per driver row.
+- **Row memoisation** (`src/board/DriverRow.tsx`). `useBoardDriver()`
+  returns the previous reference when a driver's data hasn't changed
+  since the last push, so a push that touches one driver re-renders only
+  that driver's row. `selected` and `onSelect` arrive as props from one
+  shared `useDriverSelection()` call in `TimingTable`, rather than each
+  row calling the hook itself: every row calling `useSearchParams()`
+  directly would re-render all of them on any selection change (the
+  URL/location context notifies every subscriber, not just the row whose
+  own `selected` value changed), defeating the point of this
+  memoisation. `delta` is likewise a plain number prop (not read from a
+  hook here), so the same shallow comparison also skips a row whose cue
+  did not change; it also drives a subtle row highlight (not just the
+  small cue cell), fading with the arrow since both come from the same
+  `delta`.
 
 ## Routes
 

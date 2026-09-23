@@ -1,10 +1,9 @@
 // The driver detail side panel: reads only `useBoardDriver()` and
 // `useBoardSessionMeta()` through the board seam, so it renders a live push
 // and a folded replay push identically, and `useDriverSelection()` for
-// which driver (and Escape to clear) -- never the live store or the URL
-// directly. Mounted unconditionally in `Board`'s `side` slot; renders
-// nothing when no driver is selected or the selection is not in the current
-// push (e.g. a stale `?driver=` after a session change).
+// which driver (and Escape to clear). Mounted unconditionally in `Board`'s
+// `side` slot; renders nothing when no driver is selected or the selection
+// is not in the current push.
 import { useEffect } from "react";
 import type { RunStatus } from "@formula-time/domain";
 

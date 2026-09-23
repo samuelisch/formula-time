@@ -1,16 +1,9 @@
 // Board components read the push to render through this module, never the
-// live store directly (ADR-0009 amendment): the same components must render
-// a historical race the browser folded from an export file, not only the
-// live feed. `BoardSourceProvider` supplies that push explicitly on the
-// replay page (`pages/ReplayPage.tsx`); with no provider mounted, the hooks
-// fall back to the live store's `useDisplayed()`
-// (apps/web/src/live/selectors.ts). The live `BoardPage` mounts no
-// provider. Polls read through this seam too (`polls/usePolls.ts`): `Shell`
-// holds the live connection open on every route, and a replay's push
-// carries `polls: []`, so a replay never shows or opens today's live polls.
-//
-// A plain .ts file (not .tsx), so `BoardSourceProvider` is built with
-// `createElement` rather than JSX.
+// live store directly (ADR-0009 amendment): the same components render a
+// historical race the browser folded from an export file, not only the
+// live feed. `BoardSourceProvider` supplies that push on the replay page;
+// with no provider, the hooks fall back to `useDisplayed()`.
+// See README: The two seams.
 import type { DriverState, RaceState, RunStatus } from "@formula-time/domain";
 import { leaderLap, runStatus } from "@formula-time/domain";
 import { createContext, createElement, useContext, useMemo, useState, type ReactNode } from "react";
@@ -104,18 +97,10 @@ export function useBoardSessionStatus(): SessionStatusValue | null {
 
 /**
  * Whether a push should render as racing. The fold is the authority on
- * whether racing has begun, not the session row: the row can lag a status
- * flip by one lifecycle check, so this reads `race_control.session_status`
- * and the leader's lap as a second signal alongside the row's own
- * `status`. True when the row already says "live", or -- short of that --
- * when the row is not "finished" and either race control has recorded
- * `SESSION STARTED` or the leader's lap is 1 or more. "finished" always
- * wins: a row that has caught up to the end of the race is never
- * overridden by a leftover racing signal.
- *
- * A pure function, not a hook, so both `useBoardIsRacing` (the displayed
- * push) and `BoardPage`'s timeline-loader latch (the live push, never the
- * displayed one) apply exactly the same rule to whichever push they read.
+ * whether racing has begun, not the session row -- true when the row says
+ * "live", or when it's not "finished" and either race control recorded
+ * `SESSION STARTED` or the leader's lap is 1 or more.
+ * See README: Board layout.
  */
 export function isRacingPush(push: StatePush | null): boolean {
   if (push === null) return false;
@@ -152,13 +137,10 @@ interface DriverCache {
 }
 
 /**
- * One driver's state, stable by value: an unchanged driver returns the same
- * object reference across pushes, so a memoised `DriverRow` (default
- * shallow prop comparison) skips re-rendering for every driver a push did
- * not touch. Stored in state (not a ref) and updated during render via
- * React's "adjust state during render" pattern -- setting state while
- * rendering is safe and causes React to redo this render immediately with
- * the new state, before anything is committed or painted.
+ * One driver's state, stable by value: an unchanged driver returns the
+ * same object reference, so a memoised `DriverRow` skips re-rendering
+ * drivers a push didn't touch.
+ * See README: Board layout.
  */
 export function useBoardDriver(driverNumber: number): DriverState | null {
   const push = useBoardPush();
@@ -206,14 +188,10 @@ function wallClockMillis(): number {
 }
 
 /**
- * Folds one push into the previous cue state, given the current wall-clock
- * time: the baseline resets silently (no cue) on a new session or whenever
- * the push's axis (`axisOf()`, the same anchor alignment uses) goes
- * backwards, which is what a replay rewind/scrub looks like -- that is the
- * one rule that keeps a delayed or scrubbing viewer from seeing a cue for a
- * "change" that is really just the playhead moving backwards. A cue is
- * pruned once `now` is more than `POSITION_CUE_TTL_MS` past the push that
- * set it.
+ * Folds one push into the previous cue state: the baseline resets
+ * silently on a new session or when the push's axis goes backwards (a
+ * replay rewind/scrub), so scrubbing never shows a stale cue.
+ * See README: Board layout.
  */
 function advancePositionCueState(previous: PositionCueState, push: StatePush, now: number): PositionCueState {
   const axisMillis = axisOf(push);
@@ -260,18 +238,10 @@ interface PositionCueSnapshot {
 }
 
 /**
- * Position deltas since the previous push, keyed by driver number: positive
- * means the driver gained places, negative means it lost them, and a driver
- * absent from the result has no live cue.
- *
- * The fold (`advancePositionCueState`) runs during render via React's
- * "adjust state during render" pattern (setting state while rendering,
- * guarded so it only fires once per push, causes React to redo this render
- * immediately with the new state before anything commits or paints) rather
- * than a ref or an effect -- so the cue expiry it computes is checked each
- * time a push arrives, not on a per-row timer: a cue can outlive its TTL by
- * up to one push interval if pushes are sparse, an acceptable trade for not
- * running a timer per driver row.
+ * Position deltas since the previous push, keyed by driver number:
+ * positive is a gain, negative a loss; a driver absent from the result has
+ * no live cue. The fold runs during render, not a ref or an effect.
+ * See README: Board layout.
  */
 export function useBoardPositionDeltas(): Record<number, number> {
   const push = useBoardPush();
