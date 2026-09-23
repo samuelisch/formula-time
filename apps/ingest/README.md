@@ -376,6 +376,8 @@ unavailable field.
 | `ingest: LIVE_SOURCE=... — replaying a recording instead of OpenF1.` | info | `LIVE_SOURCE` names a directory, not `api`; the file fetcher is used instead of the network | — |
 | `ingest: MQTT_ENABLED but no OpenF1 credentials/live source; MQTT lane not started.` | info | `MQTT_ENABLED` is true but there's nothing to authenticate or connect with | — |
 | `ingest: started ...` | info | Boot complete: REST lane tick, whether MQTT is running, writer running | — |
+| `ingest: no lap count for session_key=... circuit_key=... (..., ...); polls will not open` | error/info | Logged once, after the first successful discovery: an upcoming race session's `circuit_key` has no entry in `CIRCUITS`, so `total_laps` stays null and the api never opens polls for it. `error` when `date_start` is within 14 days, else `info` | `session_key`, `circuit_key`, `days_until` |
+| `ingest: season coverage <covered>/<total> upcoming races have a lap count` | info | Logged once, right after the lines above: the summary of this season's coverage | — |
 | `ingest: last 60s` | info | One line per minute combining both lanes' and the writer's counters | `rest_polls`, `rest_rows`, `rest_errors`, `rest_unjoined`, `mqtt_messages`, `mqtt_rows`, `mqtt_dropped`, `mqtt_unjoined`, `mqtt_foreign`, `writer_inserted`, `writer_skipped`, `writer_failures`, `queue_depth`, `session_key` |
 | `ingest: recording root ... is writable (uid=...)` | info | Startup probe: the jsonl recording directory is writable | — |
 | `ingest: recording root ... is NOT writable ...` | error | Startup probe: recordings will not be written | — |
