@@ -14,7 +14,7 @@ export interface PlaybackClock {
    * idle before it. A no-op (but still re-baselines) once already at the end.
    */
   play(nowMs?: number): void;
-  /** Freezes the current position; a later `tick` no longer advances it. */
+  /** Freezes the current position; a later `tick` stops advancing it. */
   pause(): void;
   /**
    * Jumps directly to `targetSourceMs`, clamped to `[startSourceMs, endSourceMs]`,

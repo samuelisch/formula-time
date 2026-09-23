@@ -100,7 +100,7 @@ export function useCapture(options: UseCaptureOptions): CaptureState {
   const stoppedRef = useRef(true);
   // Bumped on every start()/stop(): start()'s async setup chain checks this
   // after each await and abandons itself (releasing whatever it already
-  // acquired) the moment it no longer matches -- a Stop mid-setup, or a
+  // acquired) the moment it stops matching -- a Stop mid-setup, or a
   // Stop-then-Start that starts a second chain before the first settles.
   const startGenRef = useRef(0);
 
