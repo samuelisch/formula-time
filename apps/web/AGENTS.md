@@ -23,7 +23,7 @@ origin (ADR-0008). What it renders and why is `README.md`, not this file.
 
 - Every request goes through `src/api.ts`, never a hand-built URL.
 - One `EventSource`, opened only in `src/live/useLiveStream.ts`, mounted once in `Shell`.
-- The push stream never sits in TanStack Query; Query is only for `/api/polls` and the vote mutation.
+- TanStack Query holds request/response data only -- the races index, the export file, polls by race, the vote mutation (the files named in the README's data-sources table); the push stream never goes through it.
 - Components read the store only through the selector hooks (`src/live/selectors.ts`) and the board only through the board seam (`src/board/useBoardState.ts`).
 - The transport bar reads only through the time-target seam (`src/transport/TimeTarget.ts`).
 - Spoiler safety: everything renders from the displayed push, never the live edge.
