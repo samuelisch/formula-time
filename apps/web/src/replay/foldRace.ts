@@ -1,11 +1,9 @@
 // The browser-side fold (ADR-0009 §5): builds the whole race timeline once
 // so scrubbing and playback never re-read the network. The incremental
 // fold itself -- keyframes, `foldAt`, dedupe, the null-source truncation
-// rule -- lives in `timeline.ts`, shared with the live path
-// (`apps/web/src/live/useSessionTimeline.ts`), which builds the same kind of
-// `Timeline` page by page while a session is still live. See that module's
-// header for the design notes; this file is now a thin wrapper: fold the
-// whole event log in one `appendEvents` call and attach the final state.
+// rule -- lives in `timeline.ts`, shared with the live path. This file
+// folds the whole event log in one `appendEvents` call.
+// See README: Timeline fold.
 import type { RawRecord, RaceEvent, RaceState, SessionWire } from "@formula-time/domain";
 
 import {
@@ -28,11 +26,10 @@ export interface FoldedRace extends Timeline {
 }
 
 /**
- * Folds `rawEvents` (in `seq` order, deduped by `event_id`) onto `rawSession`
- * into a `FoldedRace`: the final state, keyframes for scrubbing, and lap
- * markers for the transport bar. Pure given its inputs; the only side
- * effect is yielding to the event loop between chunks (`timeline.ts`'s
- * `appendEvents`).
+ * Folds `rawEvents` (in `seq` order, deduped by `event_id`) onto
+ * `rawSession` into a `FoldedRace`: the final state, keyframes for
+ * scrubbing, and lap markers for the transport bar. Pure given its
+ * inputs; the only side effect is yielding to the event loop.
  */
 export async function foldRace(
   rawEvents: RaceEvent[],

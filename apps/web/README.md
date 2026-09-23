@@ -58,6 +58,89 @@ built; only the first join and a `rebuilt` push start it over from seq 0
   `notice()`, plus `syncOffsetMs()` and `rewindMode()`. `useLiveTimeTarget`
   and `useReplayTimeTarget` are its two implementations.
 
+## Timeline fold
+
+`src/replay/timeline.ts`'s `Timeline` is the incremental fold shared by
+the replay path (`foldRace.ts`) and the live path
+(`live/useSessionTimeline.ts`): a running fold over an event log --
+keyframes, lap markers, and the first/last source times seen -- built
+either in one shot (`foldRace`: create then `appendEvents` with the whole
+file) or across many `appendEvents` calls as pages arrive from
+`GET /api/races/:session_key/events` while a session is still live.
+
+- **Keyframe cadence and scrubbing.** A keyframe is taken every
+  `KEYFRAME_EVENT_INTERVAL` events or every `KEYFRAME_SOURCE_TIME_MS` of
+  source time, whichever comes first. Scrubbing to a target source time
+  (`foldAt`) finds the nearest keyframe at or before that time and replays
+  only the events after it, so a scrub never re-folds the whole timeline.
+- **Chunked folding, not a worker.** A ~28k-event race must not block the
+  UI thread noticeably. Chosen strategy: chunked yields with
+  `setTimeout(0)`, not a Web Worker -- the whole point of folding in the
+  browser is to reuse `RaceStateReducer` unchanged (ADR-0009 §5 "must stay
+  identical to the server's"); a worker would need events serialised
+  across `postMessage` and a second Vite worker entry/tsconfig, for a fold
+  that (chunked) never blocks a frame for more than `CHUNK_SIZE` events'
+  worth of reducer work -- a few milliseconds. `foldAt` (the scrub path)
+  stays synchronous: it only ever replays up to one keyframe interval's
+  worth of events.
+- **Dedup.** `RaceStateReducer`'s own duplicate-event detection
+  (`seenEventIds`) is private reducer state, not part of `RaceState` -- it
+  is not in a keyframe's snapshot. `appendEvents` dedupes by `event_id`
+  against every event already in the timeline (first occurrence, in `seq`
+  order, wins) before applying anything, so no duplicate ever reaches a
+  reducer -- a scrub that rebuilds a reducer from a keyframe snapshot never
+  re-applies one, matching a single continuous fold.
+- **Null-source truncation rule** (`truncationBoundary`). "The state at
+  `targetSourceMs`" applies events in `seq` order up to, but not
+  including, the first event whose `source_time` is non-null and exceeds
+  the target; every null-source event before that boundary applies, none
+  after it does. `foldAt` and (in `foldRace.test.ts`) the
+  full-fold-truncated reference both call `truncationBoundary`, so the two
+  can never disagree about where the cut falls.
+- **Reconstructing the live fold position.** `appendEvents` does not keep
+  a persistent `RaceStateReducer` across calls -- doing so would make
+  `Timeline` carry hidden, unclonable state, and the live path
+  (`live/useSessionTimeline.ts`) hands a `Timeline` to React state after
+  every page. Instead each call rebuilds the reducer from the *last*
+  keyframe already recorded and replays the (bounded, at most one keyframe
+  interval's worth of) events since it -- exactly what `foldAt` already
+  does for a scrub. `Timeline` therefore stays a plain,
+  structurally-inspectable value: the same shape as `FoldedRace` minus
+  `finalState` (`foldRace.ts` defines `FoldedRace` as
+  `Timeline & { finalState }`), so `foldAt` accepts either one unchanged.
+- **Lap-marker recording** (`recordLapMarker`). Records a candidate start
+  time for a lap in place on the sorted marker list: creates the marker on
+  the first non-null `source_time` seen for that lap, and lowers an
+  existing marker's time in place when a later-arriving row for the same
+  lap turns out earlier -- never raises it, since the earliest row already
+  seen is the lap's start. A lap lower than every marker recorded so far
+  is inserted in its sorted position rather than assumed to append at the
+  end. A lap's start is only known from a `laps` row that actually carries
+  a `date_start`: the first lap-1 row for each driver arrives with a null
+  `source_time` while the field is still on the formation lap, so gating
+  on the leader's current lap stamps the marker with whatever unrelated
+  event happened to be last, long before lights out. Recording straight
+  from `laps` rows keeps the marker tied to the lap it actually describes.
+- **Session-row schema normalization** (`normalizedSessionRow`). A
+  schema-1 file (ADR-0041) carries `session_key` as a JSON number, unlike
+  a schema-2 file or the live push, both already a string -- so an old
+  cached file's fold would otherwise disagree with a live one (ADR-0009
+  §5). A schema-2 row passes through unchanged.
+- **`appendEvents`.** Appends `rawEvents` onto `timeline` in place
+  (mutating its arrays) and returns it: dedupes by `event_id` against
+  everything already on the timeline (and within this same batch), applies
+  each new event through a reducer resumed from the last keyframe, and
+  keeps keyframes/lap markers exactly as a single full fold would.
+  Chunked: yields to the event loop every `CHUNK_SIZE` applied events, so
+  appending a large page (or the whole file, from `foldRace`) never blocks
+  the UI thread for long.
+- **`foldAt`.** The race state at `targetSourceMs`: the nearest earlier
+  keyframe, cloned, with the events after it re-applied up to
+  `truncationBoundary`. Synchronous -- bounded by one keyframe interval's
+  worth of events, never the whole timeline. `timeline.events` is already
+  deduped (by `appendEvents`), so no duplicate `event_id` can reach the
+  fresh reducer built here.
+
 ## Board layout
 
 `src/board/Board.tsx` is the pure timing board -- a two-row toolbar (row 1:
