@@ -173,6 +173,78 @@ describe("parseAdrFile", () => {
     expect(parsed?.amends.sort()).toEqual(["0007", "0034"]);
   });
 
+  it("does not let a negation word inside one target's parenthetical suppress the next target's bare mention", () => {
+    // The negation check must not slice a raw character window across a
+    // sentence boundary: "is unchanged" describes ADR-0011's own
+    // parenthetical, not ADR-0022, which follows in its own sentence.
+    const content = [
+      "# ADR-0099 — Placeholder for a negation-bleed regression",
+      "",
+      "- **Status:** Proposed (accepted when this PR merges)",
+      "- **Date:** 2026-09-23",
+      "- **Owner:** Samuel Chan",
+      "- **Amends:** ADR-0011 (this earlier decision is unchanged by the point",
+      "  made here). ADR-0022 (a genuinely new target).",
+      "",
+      "## Context",
+      "",
+      "Some context paragraph with no trigger word.",
+      "",
+    ].join("\n");
+    const parsed = parseAdrFile("0099-placeholder.md", content);
+    expect(parsed?.amends.sort()).toEqual(["0011", "0022"]);
+  });
+
+  it("drops a bare mention with no parentheses when its own sentence says it is untouched or not amended", () => {
+    const untouched = [
+      "# ADR-0098 — Placeholder for a bare-sentence negation",
+      "",
+      "- **Status:** Proposed (accepted when this PR merges)",
+      "- **Date:** 2026-09-23",
+      "- **Owner:** Samuel Chan",
+      "- **Amends:** ADR-0013 is untouched.",
+      "",
+      "## Context",
+      "",
+      "Some context paragraph with no trigger word.",
+      "",
+    ].join("\n");
+    expect(parseAdrFile("0098-placeholder.md", untouched)?.amends).toEqual([]);
+
+    const notAmended = [
+      "# ADR-0097 — Placeholder for a bare-sentence negation",
+      "",
+      "- **Status:** Proposed (accepted when this PR merges)",
+      "- **Date:** 2026-09-23",
+      "- **Owner:** Samuel Chan",
+      "- **Amends:** ADR-0013 is not amended.",
+      "",
+      "## Context",
+      "",
+      "Some context paragraph with no trigger word.",
+      "",
+    ].join("\n");
+    expect(parseAdrFile("0097-placeholder.md", notAmended)?.amends).toEqual([]);
+  });
+
+  it("keeps a mention in a later sentence even when an earlier sentence in the same field is negated", () => {
+    const content = [
+      "# ADR-0096 — Placeholder for a negated sentence followed by a real target",
+      "",
+      "- **Status:** Proposed (accepted when this PR merges)",
+      "- **Date:** 2026-09-23",
+      "- **Owner:** Samuel Chan",
+      "- **Amends:** ADR-0013 is untouched. ADR-0022 gains the new column.",
+      "",
+      "## Context",
+      "",
+      "Some context paragraph with no trigger word.",
+      "",
+    ].join("\n");
+    const parsed = parseAdrFile("0096-placeholder.md", content);
+    expect(parsed?.amends).toEqual(["0022"]);
+  });
+
   it("takes both targets from an Amends field whose field text has two sentences, each a bare ADR mention", () => {
     // Reproduces docs/decisions-adr/0042-request-log-diet-poll-write-error-level-refresh-caught-up.md's
     // Amends field: two sentences, each "ADR-NNNN (explanation)." -- both
