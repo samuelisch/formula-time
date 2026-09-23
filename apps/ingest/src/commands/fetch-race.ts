@@ -361,7 +361,7 @@ if (isMain) {
 
   // Auth as the REST lane does — OPENF1_LOGIN/PASSWORD when set,
   // unauthenticated otherwise (works for historical data outside live
-  // windows; see README: OpenF1 facts).
+  // windows; see README: What the log lines mean).
   const auth = new OpenF1Auth(credentialsFromEnv());
   const authenticated = createOpenF1Fetcher(auth);
   const retried = withRetry(authenticated);
