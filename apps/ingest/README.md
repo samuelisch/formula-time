@@ -95,9 +95,9 @@ legitimately has no value yet.
 
 `upsertSession` validates the row (`session_key`, `date_start`,
 `date_end`) before writing: a malformed field throws before the database
-call, so the caller (`RestLane.discoverOnce()`) can skip that one row and
-keep upserting the rest, instead of one bad row stopping the whole
-discovery tick.
+call, so the caller (`SessionDiscovery.refreshSessions()`) can skip that
+one row and keep upserting the rest, instead of one bad row stopping the
+whole discovery tick.
 
 ## Configuration
 
