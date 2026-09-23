@@ -1,47 +1,9 @@
-// The exporter (ADR-0009 §2, HLD §7 "Export"): "Export = once, when
-// status = finished and exported_at IS NULL; idempotent; retried by the
-// same check. No separate job." ADR-0009 amends the check to "no `exports`
-// row" (`sessions.exported_at` is dropped) but keeps the mechanics: on its
-// own 5s tick, write the immutable file once and record it.
-//
-// "Table ownership holds. ADR-0004 and HLD §4 give every table exactly one
-// writer, and ingest owns `sessions`. So the api does not write `sessions`:
-// the export record lives in a fifth table, `exports` ... written only by
-// the api." (ADR-0009 §2) -- this module is that writer.
-//
-// "Disk is a cache, the database is the record." (ADR-0009 §3) -- when a
-// request finds an `exports` row but the file missing, the api regenerates
-// it "same code path, same embedded `exported_at`". That is why
-// `exportSession(sessionKey, exportedAt)` is exported standalone: `runOnce`
-// calls it with a freshly computed timestamp before inserting the row;
-// the historical-race route calls it again, later, with the row's stored
-// timestamp, and never touches the row itself.
-//
-// Own 5s timer, independent of `projector/serve-session.ts`: `start()`/`stop()`
-// manage a `setInterval`, `unref`'d so it never keeps the process alive.
-// Ticks never overlap -- a tick that starts while a previous `runOnce` is
-// still awaiting returns immediately, the same "never more than one pass of
-// work in flight" shape as the projector's own tick (ADR-0001 §2 invariant 2).
-//
-// Precondition on top of ADR-0009 §2's "export once when finished" (refines
-// it, does not contradict it -- §2 never says every finished session has
-// timing data): "A finished session is exported only when it has at least
-// one event whose endpoint is not `drivers` (that is, timing data to
-// replay). A session with no timing events is skipped, logged once per
-// process as `export skipped <key>: no timing events`, and re-checked on
-// later ticks so a late load still exports it." A practice/qualifying
-// session whose only ingest activity was the `drivers` endpoint (or none at
-// all) has nothing for the browser fold to replay, so it never gets an
-// `exports` row and never shows up in `GET /api/races`.
-//
-// A finished session is stale when it already has an `exports` row but
-// `events` holds a row received after that row's `exported_at` -- a reload
-// wrote newer events than the file reflects. A stale session is re-exported
-// exactly like a new one: compute `exported_at = now()` once, read the
-// events by `seq`, write the file atomically, then update the row's
-// `exported_at` and `path` in one statement, so the two can never diverge.
-// Logged as `export re-exported <key>`, distinct from a first-time export
-// (silent, the same as before) and from `export failed`.
+// The exporter (ADR-0009): sole writer of the `exports` table. A finished
+// session with at least one non-`drivers` event and no `exports` row is
+// exported once, atomically; one with only `drivers` events is skipped and
+// re-checked later; an already-exported session is re-exported once
+// `events` gains a row after its `exported_at`. Runs its own 5s tick,
+// non-overlapping. See README: Exports.
 import { createWriteStream } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
@@ -162,19 +124,10 @@ export function createExporter(opts: ExporterOptions): Exporter {
   }
 
   async function runOnce(): Promise<void> {
-    // One query per tick, regardless of viewer count (ADR-0001 §2 invariant
-    // 2), two halves unioned. New candidates: `finished` sessions with no
-    // `exports` row -- no need to look at `events` at all, since a missing
-    // row alone makes a session a candidate. Stale candidates: `finished`
-    // sessions that do have an `exports` row, where `events` holds at least
-    // one row received after that row's `exported_at` -- an `EXISTS` per
-    // `exports` row, not a `GROUP BY` aggregate over the whole table.
-    // `exports` holds only finished, already-exported sessions (a few
-    // rows), so this is a few short, per-session scans, not a table-wide
-    // one. `events_session_key_source_time_idx` (`session_key, source_time`)
-    // narrows each scan to that session's rows via its leading column; it
-    // does not cover `received_at` itself, so within one session's rows the
-    // `EXISTS` still has to check `received_at` row by row.
+    // One query per tick, regardless of session or viewer count (ADR-0001
+    // §2 invariant 2): new candidates (finished, no `exports` row) and
+    // stale candidates (finished, `events` gained a row after
+    // `exported_at`) unioned in one statement. See README: Exports.
     const candidates = await db.$queryRaw<
       Array<{ session_key: string; exported_at: Date | null; path: string | null }>
     >`

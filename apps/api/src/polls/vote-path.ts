@@ -1,32 +1,9 @@
-// Why the status check lives inside the write, not before it.
-//
-// If the route read "status is open" and then inserted, the poll could lock
-// between those two steps and a late vote would be counted. So the
-// in-memory status check in `PollModule.vote` is only a fast reject; the
-// truth is this one conditional upsert. A returned row means the vote
-// counted; no row means the poll was not open at commit time.
-//
-// RETURNING option_id also settles a second race: two concurrent votes
-// from the *same* viewer. Postgres decides which option is stored last by
-// commit order, not by which of two racing JS promises happens to resolve
-// first on this process — so the in-memory tally is set from the value
-// this statement returns, never from the caller's own `optionId` argument
-// (CI caught the drift this produces if memory is set optimistically).
-// `PollModule.vote` additionally serializes votes per viewer so the two
-// concerns don't compound.
-//
-// The statement, verbatim:
-//
-//   INSERT INTO votes (poll_id, viewer_id, option_id, voted_at)
-//   SELECT $1, $2::uuid, $3, now()
-//   WHERE EXISTS (SELECT 1 FROM polls WHERE poll_id = $1 AND status = 'open')
-//   ON CONFLICT (poll_id, viewer_id) DO UPDATE
-//     SET option_id = EXCLUDED.option_id, voted_at = EXCLUDED.voted_at
-//   RETURNING option_id
-//
-// Below, via `db.$queryRaw` (tagged template — the parameters are bound,
-// never interpolated); the template's placeholders are Prisma's `$1`/`$2`/`$3`
-// equivalents for `pollId`/`viewerId`/`optionId`.
+// The status check lives inside the write: a separate read-then-insert
+// could let the poll lock between the two steps and still count a late
+// vote, so the truth is this one conditional upsert -- a returned row
+// means the vote counted. The tally is set from the option_id this
+// statement returns, never the caller's argument, since Postgres decides
+// a same-viewer race by commit order. See README: Polls.
 import type { PrismaClient } from "@formula-time/db";
 
 /** The option_id Postgres actually stored, or null if the poll was not open at commit time (no row). */
