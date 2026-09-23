@@ -1,10 +1,8 @@
 // Startup probe for the jsonl recording root. RAILWAY_RUN_UID=0
-// (.railway/railway.ts, ADR-0036) is what lets the ingest process write
-// under a Railway volume Railway mounts root:root; this probe is what
-// reports when that write will not land, at boot, instead of thirty
-// minutes into a race (ADR-0034: a disk problem must never stop a lane).
-// fs operations are injected so unit tests use fakes only, never a real
-// tmpdir (apps/ingest/AGENTS.md: unit tests are in-memory fakes only).
+// (.railway/railway.ts, ADR-0036) lets ingest write under a Railway
+// volume Railway mounts root:root; this probe reports when that write
+// will not land, at boot, instead of thirty minutes into a race
+// (ADR-0034: a disk problem must never stop a lane).
 
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -63,12 +61,10 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 }
 
 /**
- * Checks that `dir` is writable, creating it if needed, and — only when an
- * operator explicitly named an absolute directory — that it actually sits
- * on a mounted volume rather than the container's own ephemeral disk. An
- * operator who sets an absolute LIVE_LOG_DIR is naming a specific location;
- * if that location shares a device with `/` it is the root filesystem,
- * which Railway discards on every deploy.
+ * Checks that `dir` is writable, creating it if needed, and — only when
+ * an operator named an absolute directory — that it sits on a mounted
+ * volume rather than the container's own ephemeral disk, which Railway
+ * discards on every deploy.
  */
 export async function checkRecordingRoot({
   dir,

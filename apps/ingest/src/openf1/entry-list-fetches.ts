@@ -1,13 +1,5 @@
-// The three drivers fetches and their retry state, from the ingest README's
-// `## The entry list` (apps/ingest/README.md), verbatim:
-//
-// | Fetch | When | Retry | Stops when | Fallback |
-// |---|---|---|---|---|
-// | Selection fetch | `drivers?session_key=` immediately at session selection | Every 5 min | ≥ 1 row returned | The static list, emitted once |
-// | Pre-race refresh | 5 min before `date_start`, same `session_key` fetch, once | Next tick, only if the fetch itself threw | Done after one successful attempt (a zero-row response still counts as done) | None |
-// | Friday fetch | `drivers?meeting_key=`, once the meeting's first session has started, only while that meeting's race session is known and its window hasn't closed | Every 30 min | ≥ 1 row returned | None |
-// | Budget rule | At most one drivers fetch per tick, taken before the rotation poll | — | — | — |
-// | Static list | `openf1/entry-list.ts`, season-bound (`ENTRY_LIST_2026`); logs its season once at startup | — | — | — |
+// The three drivers fetches and their retry state. See README: The
+// entry list.
 
 import { LIVE_WINDOW_MS, OPENF1_BASE } from "./discovery.js";
 import type { CountStat } from "./discovery.js";
@@ -72,12 +64,10 @@ export class EntryListFetches {
   }
 
   /**
-   * The lane has selected a new session: reset the selection state and make
-   * the first attempt immediately (`entryListNextRetryAt = nowMs`). A
-   * restart re-running this is harmless — the payload's own `session_key`
-   * makes the event id unique per session, and `event.createMany`'s
-   * skipDuplicates drops the repeat. Returns whether it fetched, so the
-   * caller can charge the tick's one-drivers-fetch budget.
+   * The lane selected a new session: reset selection state and attempt
+   * immediately. A restart re-running this is harmless — the event id is
+   * unique per session, and `skipDuplicates` drops the repeat. Returns
+   * whether it fetched, to charge the tick's budget.
    */
   public async onSessionSelected(sessionKey: number, nowMs: number): Promise<boolean> {
     this.entryListSessionKey = sessionKey;
@@ -88,11 +78,10 @@ export class EntryListFetches {
   }
 
   /**
-   * Runs at most one due fetch — selection retry, then pre-race refresh,
-   * then Friday — for the poll loop to call BEFORE it spends the tick's one
-   * request on the rotation: never more than one drivers fetch per tick,
-   * and never inside the same tick as a rotation poll. Returns whether it
-   * made a request. See README: The entry list.
+   * Runs at most one due fetch — selection retry, then pre-race
+   * refresh, then Friday — before the tick's rotation poll: never more
+   * than one drivers fetch per tick. Returns whether it made a request.
+   * See README: The entry list.
    */
   public async runDue(session: RawRecord | null, sessions: RawRecord[], nowMs: number): Promise<boolean> {
     if (await this.trySelectionFetch(nowMs)) return true;
@@ -102,13 +91,10 @@ export class EntryListFetches {
   }
 
   /**
-   * Fetches `drivers?session_key=<selected>`, tags each row by its
-   * own `session_key`, asserting it equals the selected key (a mismatch is
-   * still written, tagged to the session it names, and counted `foreign` —
-   * never dropped). Zero rows or a failure: emit the static
-   * ENTRY_LIST_2026 fallback once, then keep retrying every 5 minutes until
-   * the fetch returns >= 1 row, at which point those rows are emitted too
-   * (the writer's dedup makes the overlap with the fallback harmless).
+   * Fetches `drivers?session_key=<selected>`; a mismatched row is still
+   * written, tagged to the session it names, and counted `foreign`. Zero
+   * rows or a failure emits the static fallback once, then retries every
+   * 5 minutes until a fetch returns rows.
    */
   private async trySelectionFetch(nowMs: number): Promise<boolean> {
     if (this.entryListSessionKey === null || this.entryListSatisfied) return false;
@@ -156,11 +142,9 @@ export class EntryListFetches {
   }
 
   /**
-   * 5 minutes before `date_start`, the same `session_key` fetch
-   * as the selection fetch, once — retried next tick (not the 5-minute
-   * selection cadence) only when the fetch itself throws. A zero-row
-   * response still counts as done (nothing to add, but the attempt
-   * succeeded).
+   * 5 minutes before `date_start`, the same fetch as the selection
+   * fetch, once — retried next tick, not the 5-minute cadence, only if
+   * the fetch itself throws. A zero-row response still counts as done.
    */
   private async tryPreRaceRefresh(session: RawRecord, nowMs: number): Promise<boolean> {
     const key = Number(session["session_key"]);
@@ -197,12 +181,10 @@ export class EntryListFetches {
   }
 
   /**
-   * On discovery of a meeting whose first session's
-   * `date_start` has passed and whose race session is already in the
-   * `sessions` table, fetch `drivers?meeting_key=<meeting>` once per
-   * meeting, retried every 30 minutes while it returns zero rows or fails.
-   * Checks every known meeting but performs at most one fetch per call (the
-   * budget rule) — the first meeting found due wins; the rest wait.
+   * Fetches `drivers?meeting_key=<meeting>` once a meeting's first
+   * session has started and its race session is known, retried every 30
+   * minutes while empty or failing. Checks every known meeting but
+   * performs at most one fetch per call — the first found due wins.
    */
   public async checkFridayFetch(sessions: RawRecord[], nowMs: number): Promise<boolean> {
     const byMeeting = new Map<number, RawRecord[]>();

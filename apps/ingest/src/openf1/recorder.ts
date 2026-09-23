@@ -1,10 +1,7 @@
-// Adapted from `../f1-live-events-poc/poc/live-recorder/recorder.ts`'s file
-// writes. "The jsonl recording is still written — it is the irreplaceable
-// artefact, not a stopgap." (apps/ingest/AGENTS.md). Writes under
-// `LIVE_LOG_DIR` (default `./live-logs`, gitignored), one directory per
-// session, matching the file fetcher's
-// `<dir>/<session_key>/{session.json, raw/<endpoint>.jsonl}` layout so a
-// recording made here can later replay through the same rest lane.
+// Writes the jsonl recording — the irreplaceable artefact, not a
+// stopgap (ADR-0034) — under `LIVE_LOG_DIR` (default `./live-logs`,
+// gitignored), one directory per session, matching the file fetcher's
+// `<dir>/<session_key>/{session.json, raw/<endpoint>.jsonl}` layout.
 
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";

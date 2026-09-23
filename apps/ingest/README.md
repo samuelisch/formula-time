@@ -56,6 +56,44 @@ The rotation counted from `POLL_ROTATION` on the branch matches the issue's
 "hot endpoints appear most often" description; no row above was copied from
 the issue text without checking it against this file.
 
+## MQTT connection lifecycle
+
+Every `connectImpl()` call claims a monotonic generation number before
+awaiting anything. If a second, independent `connectNow()`/`reconnectNow()`
+starts while the first is still awaiting a token, it claims a higher
+generation; the first attempt notices it has been superseded and bails out
+instead of racing to set `this.client` — the loser would otherwise open a
+live client that silently orphans, or clobbers a client someone else just
+opened. Every event listener closes over the generation its client was
+created with and ignores events once a newer client has replaced it, so an
+old client's own `end()`-triggered `close` can't schedule a second,
+redundant reconnect on top of one already in flight.
+
+The very first connect reuses whatever token `auth` already has cached
+(likely fetched by the REST lane already); every reconnect — broker-
+unreachable, auth-rejected, or the 50-minute proactive timer — forces a
+fresh token first.
+
+A rejected `auth.getToken()` is caught inside `connectNow()`, not left to
+reject an unawaited promise: `start()`, `reconnectNow()`, and the
+`close`/timer paths all call it via `void`, and an uncaught rejection
+there would surface as an unhandled promise rejection, capable of
+crashing the process under Node's default behavior. It is treated the
+same as a broker-unreachable close: logged, retried with backoff.
+
+Every `handleMessage()` call is tracked in `inFlightMessages` while it
+runs, so `stop()` can wait for one already in progress — a recording
+write already underway must land on disk before `main.ts`'s SIGTERM path
+drains the writer and calls `process.exit()`, or a row already queued but
+not yet recorded would be silently dropped from the jsonl file. The
+message listener queues synchronously before ever awaiting the recorder,
+then attaches its own `.then` handler in the same synchronous turn it is
+created — so a handler is never "unhandled" from Node's point of view no
+matter how long it then sits in `inFlightMessages`, and a rejection (a
+handler is expected never to reject) is logged immediately rather than
+saved up for `stop()` to discover, since a lane can run for hours between
+messages and a call to `stop()`.
+
 ## The entry list
 
 | Fetch | When | Retry | Stops when | Fallback |
@@ -73,6 +111,24 @@ Friday fetch, and returns as soon as one of them makes a request —
 `RestLane.pollOnce` (`openf1/rest-lane.ts`) spends the tick's one request
 there before it ever reaches the rotation, so the budget rule above is what
 the code does, not a summary of intent.
+
+Each `drivers` row is tagged to the `session_key` in its own payload,
+never to the session or meeting the fetch was made for — every OpenF1
+`drivers` row carries its own `session_key` and `meeting_key` fields.
+Rows are grouped by that key and each group runs through the normal
+`enqueueRows` path, so dedup and malformed handling stay identical to
+every other endpoint. A row naming a session `isKnownSession` doesn't
+recognize is dropped and counted `unknownSession`, never written: the FK
+on `events.session_key` would otherwise fail the writer's whole batch,
+which the writer then requeues forever. A row whose own key differs from
+the session the fetch targeted is still written, tagged to the session it
+names, and counted `foreign`.
+
+The static list (`openf1/entry-list.ts`, `ENTRY_LIST_2026`) is a
+season-bound snapshot, not a feed — a driver swap or livery change after
+`ENTRY_LIST_SEASON` won't reach it. `entry-list.test.ts` fails once the
+calendar year passes that value, so a stale roster is a red test, not a
+silent guess.
 
 ## Session upsert
 
