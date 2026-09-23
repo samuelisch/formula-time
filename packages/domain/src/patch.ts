@@ -1,13 +1,9 @@
 // Hand-written RFC 6902 JSON Patch for exactly one shape -- RaceState
-// (./race-state.ts) -- per ADR-0013 ("Wire" point 1). Never a generic
-// json-patch library: top-level scalars get whole-value replace, `drivers`
-// is keyed by number with per-field replace (a changed field's whole value
-// is the patch, not a further nested diff), `driver_order` / `race_control`
-// / `weather` / `anomalies` replace whole when changed. `applyPatch` is
-// pure -- it returns a new RaceState and never mutates its input -- so the
-// server's round-trip test, and the browser client that applies patches
-// from the delta stream, can both call it safely against a state they
-// still hold elsewhere.
+// (ADR-0013 "Wire" point 1). Never a generic json-patch library:
+// top-level scalars get whole-value replace, `drivers` is keyed by
+// number with per-field replace, and `driver_order`/`race_control`/
+// `weather`/`anomalies` replace whole when changed. `applyPatch` is pure:
+// it returns a new RaceState and never mutates its input.
 import type { DriverState, RaceState } from "./race-state.js";
 
 // `structuredClone` is a runtime global in both Node and every current
@@ -193,13 +189,11 @@ function applyOp(state: RaceState, op: JsonPatchOp): void {
       throw new Error(`applyPatch: driver "${key}" missing for field patch "${op.path}"`);
     }
     // `field` is a specific DriverState key but `op.value` (unknown, from
-    // the wire) can't be checked against that key's own type at compile
-    // time -- a per-field switch mirroring the top-level one above would
-    // need no cast, but here it would just be sixteen near-identical cases
-    // for one already-unsafe write (the patch's producer, diffState, is
-    // this same module, and is what actually keeps them in sync).
-    // `unknown` (not `any`) at least stops the value from silently
-    // widening at every other use of `driver`.
+    // the wire) can't be checked against it at compile time -- a
+    // per-field switch would need no cast, but would just be sixteen
+    // near-identical cases for one already-unsafe write. `unknown` (not
+    // `any`) at least stops the value from silently widening at every
+    // other use of `driver`.
     (driver as Record<keyof DriverState, unknown>)[field] = op.value;
     return;
   }
