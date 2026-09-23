@@ -29,7 +29,7 @@ export interface SessionsDb {
   };
 }
 
-interface SessionFields {
+export interface SessionFields {
   name: string;
   country: string;
   circuitKey: number;
@@ -40,6 +40,26 @@ interface SessionFields {
   meetingName: string | null;
   circuitShortName: string | null;
   location: string | null;
+}
+
+/**
+ * True when two `SessionFields` snapshots would write the same row:
+ * compared field by field, `Date` fields by `getTime()`, everything else
+ * by `===`. See README: Session upsert.
+ */
+export function sameSessionFields(a: SessionFields, b: SessionFields): boolean {
+  return (
+    a.name === b.name &&
+    a.country === b.country &&
+    a.circuitKey === b.circuitKey &&
+    a.dateStart.getTime() === b.dateStart.getTime() &&
+    a.dateEnd.getTime() === b.dateEnd.getTime() &&
+    a.totalLaps === b.totalLaps &&
+    a.status === b.status &&
+    a.meetingName === b.meetingName &&
+    a.circuitShortName === b.circuitShortName &&
+    a.location === b.location
+  );
 }
 
 // OpenF1 serves live data from 30 minutes before `date_start` to 30 minutes

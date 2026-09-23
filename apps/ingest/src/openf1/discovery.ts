@@ -6,8 +6,18 @@
 
 import type { RecordRows } from "./enqueue.js";
 import type { Fetcher, RawRecord } from "./types.js";
+import { CIRCUITS } from "../circuits.js";
 import type { LaneLog } from "../log.js";
-import { isRaceSession } from "../writer/sessions.js";
+import { isRaceSession, sameSessionFields, sessionFieldsFromRaw } from "../writer/sessions.js";
+import type { SessionFields } from "../writer/sessions.js";
+
+// The window the coverage check calls "soon": a race inside it without a
+// lap count logs at error level instead of info.
+const COVERAGE_SOON_MS = 14 * 24 * 60 * 60 * 1000;
+
+// The window the coverage check calls "soon": a race inside it without a
+// lap count logs at error level instead of info.
+const COVERAGE_SOON_MS = 14 * 24 * 60 * 60 * 1000;
 
 export const OPENF1_BASE = "https://api.openf1.org/v1";
 
@@ -46,13 +56,15 @@ export type CountStat = (stat: "polls" | "rows" | "errors" | "unjoined", n?: num
 
 export interface SessionDiscoveryOptions {
   fetcher: Fetcher;
-  year: number;
+  /** Test override: pins the fetch year regardless of the clock. Production omits this (or passes `undefined`) and lets `yearOf` read the year off `nowMs` at each fetch. */
+  year?: number | undefined;
   /** How long a `sessions?year=` snapshot stays fresh — the lane's discovery cadence. */
   intervalMs: number;
   /**
-   * Sessions upsert — called for every race session row this sees.
-   * `meetingNames` is this tick's `meeting_key -> meeting_name` map, for
-   * `sessionFieldsFromRaw`'s join.
+   * Sessions upsert — called for every race session row whose fields
+   * changed since the last successful upsert, and for every row on the
+   * first discovery. `meetingNames` is this tick's `meeting_key ->
+   * meeting_name` map, for `sessionFieldsFromRaw`'s join.
    */
   onSession?: ((session: RawRecord, nowMs: number, meetingNames: ReadonlyMap<number, string>) => void | Promise<void>) | undefined;
   /** The lane's recorder wrapper, used only for the followed session's own `meetings` row. */
@@ -63,7 +75,7 @@ export interface SessionDiscoveryOptions {
 
 export class SessionDiscovery {
   private readonly fetcher: Fetcher;
-  private readonly year: number;
+  private readonly yearOverride: number | undefined;
   private readonly intervalMs: number;
   private readonly onSession: SessionDiscoveryOptions["onSession"];
   private readonly onRecorded: RecordRows;
@@ -89,6 +101,10 @@ export class SessionDiscovery {
   // queued: `events.session_key` is a FK, one such row fails the writer's
   // whole batch, and the writer requeues that batch at the front forever.
   private readonly knownSessionKeys = new Set<number>();
+  // The SessionFields last successfully upserted per session_key — the
+  // basis for skipping a redundant write. Set only after onSession
+  // resolves, so a failed upsert is retried next tick with nothing cached.
+  private readonly lastFieldsByKey = new Map<number, SessionFields>();
   // The followed session's own meetings row is recorded at most once per
   // session_key — this Set is that "already fired" marker.
   private readonly meetingRowRecordedFor = new Set<number>();
@@ -98,10 +114,14 @@ export class SessionDiscovery {
   // Friday's 30-minute retry would never fire. The lane refreshes on this
   // cadence from its poll loop instead.
   private nextSessionsRefreshAt = 0;
+  // The season coverage lines fire once, at the first successful
+  // refreshSessions (startup, or the first retry after a startup
+  // failure) — never again, and never reset.
+  private coverageChecked = false;
 
   public constructor(opts: SessionDiscoveryOptions) {
     this.fetcher = opts.fetcher;
-    this.year = opts.year;
+    this.yearOverride = opts.year;
     this.intervalMs = opts.intervalMs;
     this.onSession = opts.onSession;
     this.onRecorded = opts.onRecorded;
@@ -134,6 +154,23 @@ export class SessionDiscovery {
     return nowMs >= this.nextSessionsRefreshAt;
   }
 
+  /** The calendar year a fetch made at `nowMs` reads, UTC. */
+  private yearOf(nowMs: number): number {
+    return new Date(nowMs).getUTCFullYear();
+  }
+
+  /**
+   * The year(s) a discovery fetch reads this tick. In December (UTC month
+   * 11) both the current and the next year are fetched, so a January race
+   * is discovered before its Friday instead of only after the rollover.
+   * The constructor `year` override pins a single year and skips this.
+   */
+  private yearsToFetch(nowMs: number): number[] {
+    if (this.yearOverride !== undefined) return [this.yearOverride];
+    const year = this.yearOf(nowMs);
+    return new Date(nowMs).getUTCMonth() === 11 ? [year, year + 1] : [year];
+  }
+
   /**
    * `sessions?year=` plus the upsert of every race row: refreshes the
    * snapshot (every row returned, race or not) and `knownSessionKeys`
@@ -142,73 +179,162 @@ export class SessionDiscovery {
    */
   public async refreshSessions(nowMs: number): Promise<{ rows: RawRecord[]; upserted: Set<RawRecord> } | null> {
     this.nextSessionsRefreshAt = nowMs + this.intervalMs;
-    let sessions: unknown;
-    this.countStat("polls");
-    try {
-      sessions = await this.fetcher(`${OPENF1_BASE}/sessions?year=${this.year}`);
-    } catch (error) {
-      this.countStat("errors");
-      this.log(`rest: session discovery failed: ${error instanceof Error ? error.message : String(error)}`, {
-        level: "error",
-      });
-      return null;
+    const years = this.yearsToFetch(nowMs);
+    // A session cannot appear under two different years, but the fetches
+    // are concatenated from separate responses, so dedupe by session_key
+    // defensively rather than trust that.
+    const seenKeys = new Set<number>();
+    const rows: RawRecord[] = [];
+    for (const year of years) {
+      let sessions: unknown;
+      this.countStat("polls");
+      try {
+        sessions = await this.fetcher(`${OPENF1_BASE}/sessions?year=${year}`);
+      } catch (error) {
+        this.countStat("errors");
+        this.log(`rest: session discovery failed: ${error instanceof Error ? error.message : String(error)}`, {
+          level: "error",
+        });
+        return null;
+      }
+      if (!Array.isArray(sessions)) return null;
+      for (const row of sessions as RawRecord[]) {
+        const key = Number(row["session_key"]);
+        if (Number.isFinite(key)) {
+          if (seenKeys.has(key)) continue;
+          seenKeys.add(key);
+        }
+        rows.push(row);
+      }
     }
-    if (!Array.isArray(sessions)) return null;
-    const rows = sessions as RawRecord[];
 
     // Refreshed alongside the sessions snapshot, once per tick.
-    await this.refreshMeetingNames();
+    await this.refreshMeetingNames(years);
 
-    // Only race sessions are captured (isRaceSession): a practice,
-    // qualifying or sprint row is never upserted or added to
-    // `knownSessionKeys`, so a drivers row tagged to it is dropped
-    // downstream as unknownSession. `upserted` tracks which rows'
-    // onSession succeeded this tick, so the lane never selects a
-    // session whose row failed to write.
+    // Only race sessions are captured (isRaceSession). `upserted` tracks
+    // which rows are safe to select this tick — written now, or already
+    // known unchanged since the last write — so the lane never selects a
+    // session whose row has never landed. See README: Session upsert.
     const upserted = new Set<RawRecord>();
     for (const row of rows) {
       if (!isRaceSession(row)) continue;
+      const key = Number(row["session_key"]);
+      const validKey = Number.isFinite(key);
       try {
+        // Computed before the write, with the same inputs the write uses,
+        // so the comparison reflects exactly what would be written —
+        // sessionFieldsFromRaw derives `status` from `nowMs`.
+        const fields = sessionFieldsFromRaw(row, nowMs, this.meetingNameByKey);
+        const cached = validKey ? this.lastFieldsByKey.get(key) : undefined;
+        if (cached && sameSessionFields(fields, cached)) {
+          // Unchanged since the last successful upsert: the write is
+          // skipped, but the row is still known.
+          upserted.add(row);
+          if (validKey) this.knownSessionKeys.add(key);
+          continue;
+        }
         await this.onSession?.(row, nowMs, this.meetingNameByKey);
         upserted.add(row);
-        const key = Number(row["session_key"]);
-        if (Number.isFinite(key)) this.knownSessionKeys.add(key);
+        if (validKey) {
+          this.knownSessionKeys.add(key);
+          this.lastFieldsByKey.set(key, fields);
+        }
       } catch (error) {
-        // One malformed row (bad session_key, bad date) must not throw out
-        // of this loop and starve selection or the Friday entry-list check
-        // every discovery tick — sessions.ts's upsertSession is what
-        // actually validates and throws; this is where ingest survives it.
+        // One malformed row (bad session_key, bad date) or a failed write
+        // must not throw out of this loop and starve selection or the
+        // Friday entry-list check every discovery tick, and must not be
+        // cached, so it is retried next tick.
         this.log(`rest: session row skipped: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
     this.lastSessions = rows;
+    if (!this.coverageChecked) {
+      this.coverageChecked = true;
+      this.checkSeasonCoverage(rows, nowMs);
+    }
     return { rows, upserted };
   }
 
   /**
-   * `meetings?year=<current>`, once per discovery tick. See README:
-   * Session upsert. A fetch failure or non-array response leaves the
-   * previous tick's map in place instead of clearing it.
+   * Logs each upcoming race session whose circuit_key has no lap count in
+   * `CIRCUITS` (writer/sessions.ts: `total_laps` stays null, so the api
+   * never opens polls for it), then a summary line — once, at the first
+   * successful discovery. `refreshSessions` guards this to run only then.
    */
-  private async refreshMeetingNames(): Promise<void> {
-    let meetings: unknown;
-    this.countStat("polls");
-    try {
-      meetings = await this.fetcher(`${OPENF1_BASE}/meetings?year=${this.year}`);
-    } catch (error) {
-      this.countStat("errors");
-      this.log(`rest: meetings fetch failed: ${error instanceof Error ? error.message : String(error)}`, {
-        level: "error",
-      });
-      this.lastMeetingRows = [];
-      return;
+  private checkSeasonCoverage(rows: RawRecord[], nowMs: number): void {
+    const upcoming = rows.filter((row) => {
+      if (!isRaceSession(row)) return false;
+      const start = Date.parse(String(row["date_start"] ?? ""));
+      return !Number.isNaN(start) && start > nowMs;
+    });
+    let covered = 0;
+    for (const row of upcoming) {
+      const circuitKey = Number(row["circuit_key"] ?? NaN);
+      if (Number.isFinite(circuitKey) && circuitKey in CIRCUITS) {
+        covered += 1;
+        continue;
+      }
+      const start = Date.parse(String(row["date_start"] ?? ""));
+      const msUntil = start - nowMs;
+      const level = msUntil <= COVERAGE_SOON_MS ? "error" : "info";
+      const sessionKey = row["session_key"];
+      const circuitShortName = row["circuit_short_name"];
+      const dateStart = row["date_start"];
+      this.log(
+        `ingest: no lap count for session_key=${String(sessionKey)} circuit_key=${circuitKey} (${String(circuitShortName)}, ${String(dateStart)}); polls will not open`,
+        {
+          level,
+          fields: {
+            session_key: typeof sessionKey === "number" || typeof sessionKey === "string" ? sessionKey : String(sessionKey),
+            circuit_key: circuitKey,
+            days_until: Math.floor(msUntil / (24 * 60 * 60 * 1000)),
+          },
+        },
+      );
     }
-    if (!Array.isArray(meetings)) {
-      this.lastMeetingRows = [];
-      return;
+    this.log(`ingest: season coverage ${covered}/${upcoming.length} upcoming races have a lap count`);
+  }
+
+  /**
+   * `meetings?year=`, once per discovery tick per year in `years` (the
+   * same December-rollover years `refreshSessions` fetched). See README:
+   * Session upsert. A fetch failure or non-array response for any year
+   * aborts the refresh and leaves the previous tick's map in place
+   * instead of clearing it.
+   */
+  private async refreshMeetingNames(years: number[]): Promise<void> {
+    // A meeting cannot appear under two different years, but the fetches
+    // are concatenated from separate responses, so dedupe by meeting_key
+    // defensively rather than trust that (same rationale as refreshSessions).
+    const seenKeys = new Set<number>();
+    const rows: RawRecord[] = [];
+    for (const year of years) {
+      let meetings: unknown;
+      this.countStat("polls");
+      try {
+        meetings = await this.fetcher(`${OPENF1_BASE}/meetings?year=${year}`);
+      } catch (error) {
+        this.countStat("errors");
+        this.log(`rest: meetings fetch failed: ${error instanceof Error ? error.message : String(error)}`, {
+          level: "error",
+        });
+        this.lastMeetingRows = [];
+        return;
+      }
+      if (!Array.isArray(meetings)) {
+        this.lastMeetingRows = [];
+        return;
+      }
+      for (const meeting of meetings as RawRecord[]) {
+        const key = Number(meeting["meeting_key"]);
+        if (Number.isFinite(key)) {
+          if (seenKeys.has(key)) continue;
+          seenKeys.add(key);
+        }
+        rows.push(meeting);
+      }
     }
-    const rows = meetings as RawRecord[];
     this.lastMeetingRows = rows;
     const map = new Map<number, string>();
     for (const meeting of rows) {

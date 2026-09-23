@@ -127,7 +127,9 @@ export class RestLane {
     this.log = opts.onLog ?? ((): void => {});
     this.discovery = new SessionDiscovery({
       fetcher: this.fetcher,
-      year: opts.year ?? new Date().getUTCFullYear(),
+      // Test override only — SessionDiscovery reads the year off nowMs at
+      // each fetch (ADR-0043).
+      year: opts.year,
       intervalMs: this.discoveryIntervalMs,
       onSession: opts.onSession,
       onRecorded: this.recordRows,
@@ -166,9 +168,10 @@ export class RestLane {
   }
 
   /**
-   * One discovery tick: refresh the snapshot, upsert every session it sees,
-   * select the live one for the rotation, then the idle loop's own Friday
-   * check and the followed session's `meetings` row.
+   * One discovery tick: refresh the snapshot, upsert each race session row
+   * whose fields changed since it last landed, select the live one for
+   * the rotation, then the idle loop's own Friday check and the followed
+   * session's `meetings` row.
    */
   public async discoverOnce(): Promise<{ sessionCount: number; live: boolean }> {
     const nowMs = this.now();

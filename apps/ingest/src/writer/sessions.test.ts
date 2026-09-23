@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { RawRecord } from "../openf1/types.js";
-import { computeSessionStatus, isRaceSession, sessionFieldsFromRaw, upsertSession } from "./sessions.js";
+import { computeSessionStatus, isRaceSession, sameSessionFields, sessionFieldsFromRaw, upsertSession } from "./sessions.js";
 import type { SessionsDb } from "./sessions.js";
 
 function fakeDb(): SessionsDb & { rows: Map<string, unknown> } {
@@ -128,6 +128,49 @@ describe("sessionFieldsFromRaw naming fields", () => {
     const fields = sessionFieldsFromRaw(RAW_SESSION, START_MS + 60 * 1000);
     expect(fields.circuitShortName).toBeNull();
     expect(fields.location).toBeNull();
+  });
+});
+
+describe("sameSessionFields", () => {
+  const RAW_WITH_MEETING: RawRecord = {
+    ...RAW_SESSION,
+    meeting_key: 1293,
+    circuit_short_name: "Monza",
+    location: "Monza",
+  };
+  const meetingNames = new Map([[1293, "Italian Grand Prix"]]);
+
+  test("identical fields (same raw row, same nowMs) compare equal", () => {
+    const a = sessionFieldsFromRaw(RAW_WITH_MEETING, START_MS + 60 * 1000, meetingNames);
+    const b = sessionFieldsFromRaw(RAW_WITH_MEETING, START_MS + 60 * 1000, meetingNames);
+    expect(sameSessionFields(a, b)).toBe(true);
+  });
+
+  test("a status change (nowMs crossing the live window) compares unequal", () => {
+    const upcoming = sessionFieldsFromRaw(RAW_SESSION, START_MS - 60 * 60 * 1000);
+    const live = sessionFieldsFromRaw(RAW_SESSION, START_MS + 60 * 1000);
+    expect(sameSessionFields(upcoming, live)).toBe(false);
+  });
+
+  test("dates equal by getTime(), not by object identity", () => {
+    const a = sessionFieldsFromRaw(RAW_SESSION, START_MS + 60 * 1000);
+    const b = { ...a, dateStart: new Date(a.dateStart.getTime()), dateEnd: new Date(a.dateEnd.getTime()) };
+    expect(a.dateStart).not.toBe(b.dateStart);
+    expect(sameSessionFields(a, b)).toBe(true);
+  });
+
+  test("a null-to-value change in a naming field compares unequal", () => {
+    const withoutMeeting = sessionFieldsFromRaw(RAW_SESSION, START_MS + 60 * 1000);
+    const withMeeting = sessionFieldsFromRaw(RAW_WITH_MEETING, START_MS + 60 * 1000, meetingNames);
+    expect(withoutMeeting.meetingName).toBeNull();
+    expect(withMeeting.meetingName).toBe("Italian Grand Prix");
+    expect(sameSessionFields(withoutMeeting, withMeeting)).toBe(false);
+  });
+
+  test("a totalLaps change (different circuit_key) compares unequal", () => {
+    const a = sessionFieldsFromRaw(RAW_SESSION, START_MS + 60 * 1000);
+    const b = sessionFieldsFromRaw({ ...RAW_SESSION, circuit_key: 999 }, START_MS + 60 * 1000);
+    expect(sameSessionFields(a, b)).toBe(false);
   });
 });
 

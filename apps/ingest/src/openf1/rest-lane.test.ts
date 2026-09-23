@@ -149,24 +149,21 @@ describe("RestLane discovery", () => {
     expect(onSessionSelected).toHaveBeenCalledTimes(1);
   });
 
-  test("one onSession row throwing (a malformed session) does not stop the rest, or starve ensureLiveSession", async () => {
+  test("a malformed session (invalid date) fails before onSession is reached, and does not stop the rest or starve ensureLiveSession", async () => {
     const bad: RawRecord = { session_key: "not-a-number", session_name: "Race", date_start: "nope", date_end: "nope" };
     const { fetcher } = fakeFetcher({ sessions: [bad, SESSION], drivers: [{ driver_number: 1 }] });
-    const onSession = vi.fn(async (row: RawRecord) => {
-      if (row === bad) throw new Error("upsertSession: session_key is not a valid integer");
-    });
+    const onSession = vi.fn();
     const queue = new EventQueue<QueueItem>();
     const lane = new RestLane(queue, { fetcher, now: () => START, onSession, onLog: () => {} });
 
     const outcome = await lane.discoverOnce();
 
-    // Both rows were still handed to onSession, in order — the throw on the
-    // first didn't stop the loop.
-    expect(onSession).toHaveBeenCalledTimes(2);
-    expect(onSession).toHaveBeenNthCalledWith(1, bad, START, expect.any(Map));
-    expect(onSession).toHaveBeenNthCalledWith(2, SESSION, START, expect.any(Map));
-    // And ensureLiveSession() still ran on the good session despite the bad
-    // one throwing first.
+    // bad's own fields can't be computed (invalid date_start), so onSession
+    // is never reached for it — but the good row after it still upserts.
+    expect(onSession).toHaveBeenCalledTimes(1);
+    expect(onSession).toHaveBeenCalledWith(SESSION, START, expect.any(Map));
+    // ensureLiveSession() still ran on the good session despite the bad one
+    // failing first.
     expect(outcome.live).toBe(true);
     expect(lane.status()).toEqual({ active: true, sessionKey: 11361 });
   });

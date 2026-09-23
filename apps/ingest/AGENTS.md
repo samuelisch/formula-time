@@ -35,10 +35,16 @@ commands, log lines.
   per process (ADR-0010): the live service owns every session inside its
   live window; `ingest:load` and `ingest:fetch-race` own only sessions
   whose window has closed, and refuse a session that is still live.
-- A new season's circuits are added to `circuits.ts`'s `CIRCUITS` table,
-  and its entry list to `openf1/entry-list.ts`, before that season's first
-  race — a missing entry means `total_laps` stays null (no polls open for
-  that race) and the drivers fetch has no fallback to fall back to.
+- Before a season: `circuits.ts`'s `CIRCUITS` table gets every new
+  circuit's lap count added, with its source — a missing entry means
+  `total_laps` stays null and no polls open for that race.
+- Before a season: `openf1/entry-list.ts`'s static list and its
+  `ENTRY_LIST_SEASON` constant get refreshed — it's the live REST lane's
+  fallback when a drivers fetch returns nothing.
+- After the first deploy of a season: read the `ingest: season coverage`
+  line (`openf1/discovery.ts`) — anything short of `<total>/<total>`
+  names a race still missing a lap count, and the per-race lines above it
+  name which one.
 - `ingest:load`/`ingest:fetch-race` flip a loaded session to `finished`
   only after every one of its events has landed, never before: the
   exporter publishes the moment a session turns `finished` (ADR-0009 §2),

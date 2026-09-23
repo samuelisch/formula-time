@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 
-import { SessionDiscovery } from "./discovery.js";
+import { OPENF1_BASE, SessionDiscovery } from "./discovery.js";
 import type { CountStat } from "./discovery.js";
 import type { RawRecord } from "./types.js";
 
@@ -32,6 +32,7 @@ function fakeFetcher(responses: Record<string, unknown>): { fetcher: (url: strin
 function makeDiscovery(
   fetcher: (url: string) => Promise<unknown>,
   opts: {
+    year?: number;
     onSession?: (session: RawRecord, nowMs: number, meetingNames: ReadonlyMap<number, string>) => void | Promise<void>;
     onRecorded?: (sessionKey: number, endpoint: string, rows: RawRecord[]) => Promise<void>;
     countStat?: CountStat;
@@ -41,7 +42,7 @@ function makeDiscovery(
 ): SessionDiscovery {
   return new SessionDiscovery({
     fetcher,
-    year: 2026,
+    year: opts.year ?? 2026,
     intervalMs: opts.intervalMs ?? 60_000,
     onSession: opts.onSession,
     onRecorded: opts.onRecorded ?? (async (): Promise<void> => {}),
@@ -139,21 +140,45 @@ describe("SessionDiscovery.refreshSessions", () => {
     expect(countStat).toHaveBeenCalledWith("errors");
   });
 
-  test("a row whose upsert throws is skipped and logged; the rest of the snapshot still upserts", async () => {
+  test("a row whose fields can't even be computed (invalid date) is skipped and logged without reaching onSession; the rest of the snapshot still upserts", async () => {
     const bad: RawRecord = { session_key: "not-a-number", session_name: "Race", date_start: "nope", date_end: "nope" };
     const { fetcher } = fakeFetcher({ sessions: [bad, SESSION] });
-    const onSession = vi.fn(async (row: RawRecord) => {
-      if (row === bad) throw new Error("upsertSession: session_key is not a valid integer");
-    });
+    const onSession = vi.fn();
     const logs: string[] = [];
     const discovery = makeDiscovery(fetcher, { onSession, log: (message: string) => logs.push(message) });
 
     const result = await discovery.refreshSessions(START);
 
-    expect(onSession).toHaveBeenCalledTimes(2);
+    // sessionFieldsFromRaw throws on bad's invalid date_start before
+    // onSession is even called — the comparison needs the fields, so a
+    // malformed row is caught there instead of inside the write.
+    expect(onSession).toHaveBeenCalledTimes(1);
+    expect(onSession).toHaveBeenCalledWith(SESSION, START, expect.any(Map));
     expect(result?.upserted.has(bad)).toBe(false);
     expect(result?.upserted.has(SESSION)).toBe(true);
     expect(logs.some((l) => l.startsWith("rest: session row skipped"))).toBe(true);
+  });
+
+  test("a row whose onSession call itself throws (write failure) is skipped, logged, and not cached — retried next tick", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [SESSION] });
+    let shouldFail = true;
+    const onSession = vi.fn(async () => {
+      if (shouldFail) throw new Error("db down");
+    });
+    const logs: string[] = [];
+    const discovery = makeDiscovery(fetcher, { onSession, log: (message: string) => logs.push(message) });
+
+    const first = await discovery.refreshSessions(START);
+    expect(onSession).toHaveBeenCalledTimes(1);
+    expect(first?.upserted.has(SESSION)).toBe(false);
+    expect(discovery.isKnownSession(11361)).toBe(false);
+    expect(logs.some((l) => l.startsWith("rest: session row skipped"))).toBe(true);
+
+    shouldFail = false;
+    const second = await discovery.refreshSessions(START + 60_000);
+    expect(onSession).toHaveBeenCalledTimes(2);
+    expect(second?.upserted.has(SESSION)).toBe(true);
+    expect(discovery.isKnownSession(11361)).toBe(true);
   });
 
   test("counts its two fetches as polls, so they land in the lane's one takeStats()", async () => {
@@ -164,6 +189,226 @@ describe("SessionDiscovery.refreshSessions", () => {
     await discovery.refreshSessions(START);
 
     expect(countStat.mock.calls.filter((c) => c[0] === "polls")).toHaveLength(2);
+  });
+});
+
+describe("SessionDiscovery unchanged-row skip", () => {
+  test("two ticks with identical rows call onSession once per row on the first tick and zero times on the second", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [SESSION] });
+    const onSession = vi.fn();
+    const discovery = makeDiscovery(fetcher, { onSession });
+
+    await discovery.refreshSessions(START);
+    expect(onSession).toHaveBeenCalledTimes(1);
+
+    await discovery.refreshSessions(START); // same nowMs: every field is identical
+    expect(onSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("a status change on one row (upcoming -> live) calls onSession once for that row", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [SESSION] });
+    const onSession = vi.fn();
+    const discovery = makeDiscovery(fetcher, { onSession });
+
+    await discovery.refreshSessions(START - 2 * WINDOW); // upcoming
+    expect(onSession).toHaveBeenCalledTimes(1);
+
+    await discovery.refreshSessions(START); // now inside the window: live
+    expect(onSession).toHaveBeenCalledTimes(2);
+    expect(onSession).toHaveBeenLastCalledWith(SESSION, START, expect.any(Map));
+  });
+
+  test("a session upserted on tick 1 remains a known session on tick 2, even though the unchanged write is skipped", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [SESSION] });
+    const onSession = vi.fn();
+    const discovery = makeDiscovery(fetcher, { onSession });
+
+    await discovery.refreshSessions(START);
+    expect(discovery.isKnownSession(11361)).toBe(true);
+
+    await discovery.refreshSessions(START);
+    expect(onSession).toHaveBeenCalledTimes(1);
+    expect(discovery.isKnownSession(11361)).toBe(true);
+  });
+});
+
+describe("SessionDiscovery year selection", () => {
+  const RACE_2026: RawRecord = {
+    session_key: 50001,
+    session_name: "Race",
+    meeting_key: 1500,
+    circuit_key: 39,
+    date_start: "2026-12-10T13:00:00Z",
+    date_end: "2026-12-10T15:00:00Z",
+  };
+  const RACE_2027: RawRecord = {
+    session_key: 50002,
+    session_name: "Race",
+    meeting_key: 1501,
+    circuit_key: 39,
+    date_start: "2027-01-18T13:00:00Z",
+    date_end: "2027-01-18T15:00:00Z",
+  };
+
+  test("in December, fetches both the current and next year's sessions and meetings, and upserts race rows from both", async () => {
+    const nowMs = Date.parse("2026-12-15T00:00:00Z");
+    const calls: string[] = [];
+    const fetcher = async (url: string): Promise<unknown> => {
+      calls.push(url);
+      const parsed = new URL(url);
+      const endpoint = parsed.pathname.split("/").at(-1) ?? "";
+      if (endpoint === "sessions") return url.includes("year=2026") ? [RACE_2026] : [RACE_2027];
+      return [];
+    };
+    const onSession = vi.fn();
+    const discovery = new SessionDiscovery({
+      fetcher,
+      intervalMs: 60_000,
+      onSession,
+      onRecorded: async (): Promise<void> => {},
+      countStat: (): void => {},
+      log: (): void => {},
+    });
+
+    const result = await discovery.refreshSessions(nowMs);
+
+    expect(calls).toContain(`${OPENF1_BASE}/sessions?year=2026`);
+    expect(calls).toContain(`${OPENF1_BASE}/sessions?year=2027`);
+    expect(calls).toContain(`${OPENF1_BASE}/meetings?year=2026`);
+    expect(calls).toContain(`${OPENF1_BASE}/meetings?year=2027`);
+    expect(onSession).toHaveBeenCalledWith(RACE_2026, nowMs, expect.any(Map));
+    expect(onSession).toHaveBeenCalledWith(RACE_2027, nowMs, expect.any(Map));
+    expect(result?.rows).toHaveLength(2);
+  });
+
+  test("outside December, fetches only the current year", async () => {
+    const nowMs = Date.parse("2027-01-03T00:00:00Z");
+    const { fetcher, calls } = fakeFetcher({ sessions: [RACE_2027] });
+    const discovery = new SessionDiscovery({
+      fetcher,
+      intervalMs: 60_000,
+      onRecorded: async (): Promise<void> => {},
+      countStat: (): void => {},
+      log: (): void => {},
+    });
+
+    await discovery.refreshSessions(nowMs);
+
+    expect(calls.filter((u) => u.includes("/sessions?"))).toEqual([`${OPENF1_BASE}/sessions?year=2027`]);
+    expect(calls.filter((u) => u.includes("/meetings?"))).toEqual([`${OPENF1_BASE}/meetings?year=2027`]);
+  });
+
+  test("a constructor year override pins the fetch even in December", async () => {
+    const nowMs = Date.parse("2026-12-15T00:00:00Z");
+    const { fetcher, calls } = fakeFetcher({ sessions: [RACE_2026] });
+    const discovery = new SessionDiscovery({
+      fetcher,
+      year: 2026,
+      intervalMs: 60_000,
+      onRecorded: async (): Promise<void> => {},
+      countStat: (): void => {},
+      log: (): void => {},
+    });
+
+    await discovery.refreshSessions(nowMs);
+
+    expect(calls.filter((u) => u.includes("/sessions?"))).toEqual([`${OPENF1_BASE}/sessions?year=2026`]);
+    expect(calls.filter((u) => u.includes("/meetings?"))).toEqual([`${OPENF1_BASE}/meetings?year=2026`]);
+  });
+
+  test("counts each of December's two years as its own poll", async () => {
+    const nowMs = Date.parse("2026-12-15T00:00:00Z");
+    const { fetcher } = fakeFetcher({ sessions: [RACE_2026] });
+    const countStat = vi.fn();
+    const discovery = new SessionDiscovery({
+      fetcher,
+      intervalMs: 60_000,
+      onRecorded: async (): Promise<void> => {},
+      countStat,
+      log: (): void => {},
+    });
+
+    await discovery.refreshSessions(nowMs);
+
+    expect(countStat.mock.calls.filter((c) => c[0] === "polls")).toHaveLength(4);
+  });
+});
+
+describe("SessionDiscovery season coverage", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const COVERED: RawRecord = {
+    session_key: 60001,
+    session_name: "Race",
+    circuit_key: 39, // Monza — has a lap count in CIRCUITS
+    circuit_short_name: "Monza",
+    date_start: new Date(START + 100 * DAY_MS).toISOString(),
+    date_end: new Date(START + 100 * DAY_MS + 2 * 60 * 60 * 1000).toISOString(),
+  };
+  const UNCOVERED_SOON: RawRecord = {
+    session_key: 60002,
+    session_name: "Race",
+    circuit_key: 99999, // not in CIRCUITS
+    circuit_short_name: "Nowhere",
+    date_start: new Date(START + 12 * DAY_MS).toISOString(),
+    date_end: new Date(START + 12 * DAY_MS + 2 * 60 * 60 * 1000).toISOString(),
+  };
+  const UNCOVERED_LATER: RawRecord = {
+    session_key: 60003,
+    session_name: "Race",
+    circuit_key: 99998, // not in CIRCUITS
+    circuit_short_name: "Elsewhere",
+    date_start: new Date(START + 40 * DAY_MS).toISOString(),
+    date_end: new Date(START + 40 * DAY_MS + 2 * 60 * 60 * 1000).toISOString(),
+  };
+
+  test("logs one error line, one info line and the 1/3 summary; a second discovery logs nothing more", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [COVERED, UNCOVERED_SOON, UNCOVERED_LATER] });
+    const logs: Array<{ message: string; level: string | undefined }> = [];
+    const discovery = makeDiscovery(fetcher, {
+      log: (message: string, opts?: { level?: string }): void => {
+        logs.push({ message, level: opts?.level });
+      },
+    });
+
+    await discovery.refreshSessions(START);
+
+    const coverageLines = logs.filter((l) => l.message.startsWith("ingest: no lap count") || l.message.startsWith("ingest: season coverage"));
+    const errorLines = coverageLines.filter((l) => l.level === "error");
+    const infoLines = coverageLines.filter((l) => l.message.startsWith("ingest: no lap count") && l.level !== "error");
+    const summaryLines = coverageLines.filter((l) => l.message.startsWith("ingest: season coverage"));
+
+    expect(errorLines).toHaveLength(1);
+    expect(errorLines[0]?.message).toContain("session_key=60002");
+    expect(errorLines[0]?.message).toContain("circuit_key=99999");
+    expect(infoLines).toHaveLength(1);
+    expect(infoLines[0]?.message).toContain("session_key=60003");
+    expect(summaryLines).toEqual([{ message: "ingest: season coverage 1/3 upcoming races have a lap count", level: undefined }]);
+
+    logs.length = 0;
+    await discovery.refreshSessions(START + 60_000);
+
+    expect(logs.filter((l) => l.message.startsWith("ingest: no lap count") || l.message.startsWith("ingest: season coverage"))).toHaveLength(0);
+  });
+
+  test("a failed first discovery defers the check to the first success", async () => {
+    let shouldFail = true;
+    const fetcher = async (url: string): Promise<unknown> => {
+      if (url.includes("/sessions?")) {
+        if (shouldFail) throw new Error("network error");
+        return [UNCOVERED_SOON];
+      }
+      return [];
+    };
+    const logs: string[] = [];
+    const discovery = makeDiscovery(fetcher, { log: (message: string) => logs.push(message) });
+
+    expect(await discovery.refreshSessions(START)).toBeNull();
+    expect(logs.some((m) => m.startsWith("ingest: season coverage"))).toBe(false);
+
+    shouldFail = false;
+    await discovery.refreshSessions(START + 60_000);
+
+    expect(logs.some((m) => m.startsWith("ingest: season coverage"))).toBe(true);
   });
 });
 
@@ -201,8 +446,11 @@ describe("SessionDiscovery meeting names", () => {
     expect(onSession).toHaveBeenNthCalledWith(1, SESSION, START - 2 * WINDOW, new Map([[1293, "Italian Grand Prix"]]));
 
     shouldFail = true;
-    await discovery.refreshSessions(START - 2 * WINDOW);
-    expect(onSession).toHaveBeenNthCalledWith(2, SESSION, START - 2 * WINDOW, new Map([[1293, "Italian Grand Prix"]]));
+    // A later tick, inside the session's live window: the status field
+    // changes, so the row is not skipped as unchanged, and the second
+    // onSession call proves the meetings map survived the failed fetch.
+    await discovery.refreshSessions(START);
+    expect(onSession).toHaveBeenNthCalledWith(2, SESSION, START, new Map([[1293, "Italian Grand Prix"]]));
   });
 });
 
