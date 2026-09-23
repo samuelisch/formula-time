@@ -118,37 +118,66 @@ function adrMentionsFromText(text) {
   return mentions;
 }
 
-// A mention within this many characters of "untouched", "unchanged" or "not
-// amended" names what the amendment leaves alone, not what it amends.
+// A sentence that says "untouched", "unchanged" or "not amended" names what
+// the amendment leaves alone, not what it amends.
 const NEGATION_RE = /\b(untouched|unchanged|not amended)\b/i;
-const NEGATION_WINDOW = 40;
+
+/**
+ * Splits `text` into sentences (reusing `SENTENCE_SPLIT_RE`'s boundary),
+ * but only at a boundary outside every parenthesis: a parenthetical that
+ * spans a period (an unclosed paren) keeps that whole run as one sentence,
+ * so its contents are read together rather than split mid-cross-reference.
+ * @param {string} text
+ * @returns {string[]}
+ */
+function splitAtTopLevelSentences(text) {
+  const depthAt = new Array(text.length);
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    depthAt[i] = depth;
+    if (text[i] === "(") depth++;
+    else if (text[i] === ")") depth = Math.max(0, depth - 1);
+  }
+  const sentences = [];
+  let start = 0;
+  for (const m of text.matchAll(new RegExp(SENTENCE_SPLIT_RE.source, "g"))) {
+    if (depthAt[m.index] > 0) continue;
+    sentences.push(text.slice(start, m.index));
+    start = m.index + m[0].length;
+  }
+  sentences.push(text.slice(start));
+  return sentences;
+}
+
+/** Removes every parenthesised span from `text`, nesting included. */
+function stripParentheticals(text) {
+  let out = "";
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (depth === 0) out += ch;
+  }
+  return out;
+}
 
 /**
  * Every ADR-NNNN mention this file's own `Amends:` field names as an
- * amendment target, across every sentence in the field (a field can name
- * more than one target, each its own "ADR-NNNN (explanation)." sentence).
- * A mention inside parentheses is a cross-reference (a seam contract, a
- * config name), not a target, so it is dropped regardless of nesting depth.
- * A mention is also dropped if "untouched", "unchanged" or "not amended"
- * appears shortly before it.
+ * amendment target: the field is read one top-level sentence at a time (a
+ * field can name more than one target, each its own "ADR-NNNN
+ * (explanation)." sentence), each sentence has its parentheticals — cross-
+ * references, not targets — stripped before mentions are read from it, and
+ * a sentence whose stripped text says "untouched", "unchanged" or "not
+ * amended" contributes no target at all.
  * @param {string} fieldText the Amends field's value, from `fieldValue`
  * @returns {string[]} four-digit ADR numbers, in the order they appear
  */
 function amendsMentionsFromField(fieldText) {
-  const depthAt = new Array(fieldText.length);
-  let depth = 0;
-  for (let i = 0; i < fieldText.length; i++) {
-    depthAt[i] = depth;
-    if (fieldText[i] === "(") depth++;
-    else if (fieldText[i] === ")") depth = Math.max(0, depth - 1);
-  }
-
   const mentions = [];
-  for (const m of fieldText.matchAll(ADR_MENTION_RE)) {
-    if (depthAt[m.index] > 0) continue;
-    const context = fieldText.slice(Math.max(0, m.index - NEGATION_WINDOW), m.index);
-    if (NEGATION_RE.test(context)) continue;
-    mentions.push(m[1]);
+  for (const sentence of splitAtTopLevelSentences(fieldText)) {
+    const stripped = stripParentheticals(sentence);
+    if (NEGATION_RE.test(stripped)) continue;
+    for (const m of stripped.matchAll(ADR_MENTION_RE)) mentions.push(m[1]);
   }
   return mentions;
 }
