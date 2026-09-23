@@ -36,7 +36,7 @@ origin (ADR-0008). What it renders and why is `README.md`, not this file.
 
 - ESM everywhere: relative imports end in `.js` even from `.ts` files (NodeNext).
 - One TypeScript at the root; `tsc -b` builds this package; `pnpm typecheck` at the root must pass.
-- `@formula-time/domain` is browser-safe (`types: []`, `lib: ["ES2022"]`, no `node:*`); identity hashing lives there but is never imported here.
+- `@formula-time/domain` is browser-safe (`types: []`, `lib: ["ES2022"]`, no `node:*`): types and the reducer live there; identity hashing does not (`createHash` in `apps/ingest/src/openf1/normalize.ts`) and is never imported here.
 - Unit tests are `*.test.ts(x)` next to the source, vitest, in-memory fakes only; the root `vitest.config.ts` runs this app as the `web` project (jsdom + React Testing Library, `src/test/setup.ts`). `src/test/fakeEventSource.ts` is the `EventSource` test double.
 - Playwright (chromium only, `apps/web/e2e/`) is e2e: `pnpm test:e2e` runs against the rehearse-race stack (`scripts/e2e-stack.sh`), defaulting `RECORDING` to the committed fixture; each spec skips when it is absent. The `e2e` CI job runs only when `apps/web/**` or `packages/domain/**` changed, and is not yet required for merge.
 - `pnpm lint` (ESLint, root `eslint.config.js`, ADR-0017), zero warnings, the same gate as typecheck and unit.
