@@ -1,6 +1,6 @@
-// Writes the jsonl recording — the irreplaceable artefact, not a
-// stopgap (ADR-0034) — under `LIVE_LOG_DIR` (default `./live-logs`,
-// gitignored), one directory per session, matching the file fetcher's
+// Writes the jsonl recording — the irreplaceable artefact (ADR-0001
+// §4) — under `LIVE_LOG_DIR` (default `./live-logs`, gitignored), one
+// directory per session, matching the file fetcher's
 // `<dir>/<session_key>/{session.json, raw/<endpoint>.jsonl}` layout.
 
 import { appendFile, mkdir, writeFile } from "node:fs/promises";

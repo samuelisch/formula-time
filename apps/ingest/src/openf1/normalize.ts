@@ -1,7 +1,9 @@
 // Normalizes OpenF1 rows before they join the queue: canonicalizes
 // timestamps and strips the MQTT transport envelope inside identity
 // hashing, so a REST row and its MQTT twin hash to the same `eventId`
-// no matter which lane computes it first.
+// regardless of lane. The POC reducer's per-row fields (schema_version,
+// original_index, out_of_order, duplicate) are dropped: ingest never
+// folds, and `events` has no columns for them.
 
 import { createHash } from "node:crypto";
 
