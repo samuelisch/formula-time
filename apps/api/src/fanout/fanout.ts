@@ -1,20 +1,7 @@
-// The serialize-once SSE fan-out (ADR-0001 §1 invariant 1, HLD §7 "Push"):
-// one JSON.stringify per push, gzip once as an independent full-flushed
-// block, identical bytes to every socket. A vote never triggers a push --
-// this class has no idea votes exist; it only ever sends what it is told to.
-//
-// Delta pushes (ADR-<N> "Delta pushes"): sockets are tagged with
-// a `format` in addition to `encoding`. A `state`-format socket gets the
-// full push every tick, unchanged. A `delta`-format socket gets one `state`
-// push at join (ADR point 2), then a `delta` push each tick -- a
-// hand-written JSON Patch (patch.ts) from the previous pushed RaceState to
-// this one -- except every KEYFRAME_INTERVAL-th push, which is a full
-// `state` push instead (ADR point 5, recovery without a client fetch). Per
-// tick this class serialises once per format it actually has sockets for
-// (ADR point 4): the `state` frame always (joins and `GET
-// /api/live/snapshot` need it even with zero legacy sockets attached), plus
-// the `delta` frame only when a delta socket is attached and this is not a
-// keyframe tick.
+// The serialize-once SSE fan-out (ADR-0001 §2 invariant 1, ADR-0013): one
+// JSON.stringify and one gzip per push, identical bytes to every socket of
+// a format. A vote never triggers a push -- this class has no idea votes
+// exist; it only ever sends what it is told to. See README: One tick.
 import { constants as zlibConstants, createDeflateRaw, type DeflateRaw } from "node:zlib";
 
 import type { DeltaPush, PollPublic, RaceEvent, RaceState, StatusFrame } from "@formula-time/domain";
@@ -26,13 +13,10 @@ export type Format = "state" | "delta";
 export type FanoutLog = (msg: string, fields?: Record<string, unknown>) => void;
 
 /** The shape `push()` needs to build a delta -- a structural subset of the
- * real `{ type: "state", ... }` payload projector/serve-session.ts sends. `push`
- * itself stays typed as `object` (existing callers, and tests, push
- * arbitrary shapes when they only exercise state-format delivery).
- *
- * `events`/`rebuilt`: carried through to the delta frame exactly like
- * `polls` already is, unvalidated by `isStateLike` -- neither is used to
- * decide whether a payload is state-like, only read once it is. */
+ * real `{ type: "state", ... }` payload `projector/serve-session.ts`
+ * sends. `push` itself stays typed as `object`: existing callers, and
+ * tests, push arbitrary shapes when they only exercise state-format
+ * delivery. */
 interface StateLike {
   seq: unknown;
   sent_at: unknown;
@@ -84,8 +68,8 @@ const HEARTBEAT_MS = 5000;
 const HEARTBEAT_FRAME = Buffer.from(": heartbeat\n\n");
 const CATCHING_UP_STATUS: StatusFrame = { catching_up: true };
 const CATCHING_UP_FRAME = Buffer.from(`event: status\ndata: ${JSON.stringify(CATCHING_UP_STATUS)}\n\n`);
-// ADR point 5: every 200th push to delta sockets is a full `state` push
-// instead of a delta -- recovery within ~50s at the projector's ~4
+// ADR-0013 point 5: every 200th push to delta sockets is a full `state`
+// push instead of a delta -- recovery within ~50s at the projector's ~4
 // pushes/s tick rate, with no client fetch.
 const KEYFRAME_INTERVAL = 200;
 
@@ -98,15 +82,14 @@ export class Fanout {
   // frame) is chained through this promise so only one write + full-flush
   // is ever in flight -- the deflater is one stateful stream. A heartbeat's
   // WRITE is chained through it too (for socket-write ordering against an
-  // in-flight push), even once its bytes are cached and no longer feed the
+  // in-flight push), even once its bytes are cached and stop feeding the
   // deflater itself.
   private deflateChain: Promise<unknown> = Promise.resolve();
 
-  // `latest` per format (ADR point 5's implementation note): the state
-  // frame is always kept (joins of either format, and the snapshot route,
-  // read it); the delta frame is kept too, for symmetry, though nothing
-  // reads it back today -- joins always bootstrap from `latestState` per
-  // ADR point 2, never from `latestDelta`.
+  // `latest` per format: the state frame is always kept (joins of either
+  // format, and the snapshot route, read it); the delta frame is kept too,
+  // for symmetry, though nothing reads it back -- joins always bootstrap
+  // from `latestState` (ADR-0013 point 2), never from `latestDelta`.
   private latestState: Frame | null = null;
   private latestStateJson: string | null = null;
   private latestDelta: Frame | null = null;
@@ -129,13 +112,10 @@ export class Fanout {
   private pendingPayload: object | null = null;
   private hasPending = false;
 
-  // Set when a deflate write error (below) skips a tick's frame entirely --
-  // that tick's `events` reach no connected client. The next frame this
-  // class actually delivers is forced to be a full `state` push carrying
-  // `rebuilt: true`, on every socket format, so every connected client
-  // discards its timeline and backfills again -- the same signal a
-  // reconnecting client already gets. Cleared once that forced push is
-  // delivered; left set if it, too, fails to deflate.
+  // Set when a deflate write error skips a tick's frame entirely, so no
+  // client received it (ADR-0032). Forces the next delivered push to carry
+  // `rebuilt: true`. Cleared once that forced push succeeds; left set if
+  // it too fails to deflate. See README: One tick.
   private skippedSinceLastDelivery = false;
 
   // The stats line's counters: each counts what happened since the last
@@ -150,20 +130,11 @@ export class Fanout {
   private lastActivityAt = Date.now();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-  // The heartbeat frame's gzip bytes, compressed once, at construction,
-  // and reused forever after a successful compute. `deflate()` writes
-  // through Z_FULL_FLUSH (see its own comment), so each call's result is
-  // one independently decodable raw-deflate block -- it carries no
-  // dependency on any later write to the shared stream. `HEARTBEAT_FRAME`
-  // is a constant, so that block is the same bytes every time; computing
-  // it once here skips writing to the shared deflater (and the awaited
-  // round trip through it) on every later heartbeat, and replaying the
-  // cached block mid-stream is exactly as valid as deflating it fresh at
-  // that point would be. A `Fanout` lives for one whole race, not one
-  // connection, so a rejected promise here must not become a permanent
-  // heartbeat outage (ADR-0001: the heartbeat is load-bearing) --
-  // maybeSendHeartbeat re-arms this field on a failure, so only a
-  // transient deflate error is ever cached, never a rejection.
+  // The heartbeat frame's gzip bytes, compressed once at construction and
+  // reused after a successful compute; `maybeSendHeartbeat` re-arms this
+  // on a deflate failure, so only a transient error is ever cached, never
+  // a rejection -- a `Fanout` lives for one race, so a permanent heartbeat
+  // outage is not acceptable (ADR-0001). See README: Fan-out.
   private heartbeatGzPromise: Promise<Buffer>;
 
   public constructor(opts: { log?: FanoutLog } = {}) {
@@ -209,11 +180,11 @@ export class Fanout {
   }
 
   /** Write the gzip header (if gzip) then the newest existing frame, then
-   * attach. Every join -- `state` or `delta` format alike -- gets the
-   * newest `state` push, never `latestDelta` (ADR point 2: "Every live join
-   * is the same"); a delta socket's subsequent pushes are deltas. A socket
-   * joining before any push at all gets the `catching_up` status frame,
-   * regardless of format, same as today. */
+   * attach. Every join, `state` or `delta` format alike, gets the newest
+   * `state` push, never `latestDelta` (ADR-0013 point 2: every live join
+   * is the same); a delta socket's subsequent pushes are deltas. A socket
+   * joining before any push gets the `catching_up` status frame,
+   * regardless of format. */
   public async join(res: FanoutSink, encoding: Encoding, format: Format = "state"): Promise<void> {
     if (encoding === "gzip") {
       res.write(GZIP_HEADER);
@@ -320,13 +291,10 @@ export class Fanout {
       try {
         gz = await this.heartbeatGzPromise;
       } catch (err) {
-        // Called through `void this.maybeSendHeartbeat()` on a bare interval
-        // timer with no catch of its own -- a deflate failure here must
-        // not reject out of this method. Skip this heartbeat, and re-arm:
-        // a `Fanout` lives for a whole race, so caching this rejection
-        // forever would turn one transient deflate error into a permanent
-        // heartbeat outage. The next heartbeat gets a fresh attempt; only
-        // a success is ever cached long-term.
+        // Deflate failure here must not reject out of this bare-interval
+        // callback: skip this heartbeat and re-arm so the rejection isn't
+        // cached forever (ADR-0001, the heartbeat is load-bearing). See
+        // README: Fan-out.
         this.log("deflate failed, skipping this heartbeat", {
           error: err instanceof Error ? err.message : String(err),
         });
@@ -373,17 +341,10 @@ export class Fanout {
     this.pushesSinceLog += 1;
     this.stateBytesGzSinceLog += stateGz.length;
 
-    // A forced rebuild is delivered as a full state push to every socket,
-    // never a delta. `diffState` is a full structural diff between
-    // `prevState` and the current state, so a delta's `patch` would in
-    // fact already span the skipped tick's changes correctly -- what a
-    // patch cannot carry back is the skipped tick's own `events` rows
-    // (the discrete applied-event log, not derivable from a before/after
-    // state diff), which is the actual reason this must be `rebuilt:
-    // true` at all. Forcing the full state frame here simply reuses the
-    // same fallback path the keyframe mechanism already takes
-    // (`buildDeltaFrame` returning `null`), so every socket format gets
-    // identical bytes for this one tick.
+    // A forced rebuild always sends a full state push, never a delta: a
+    // patch cannot carry back the skipped tick's own `events` rows
+    // (ADR-0014), which is why this must be `rebuilt: true`. Reuses the
+    // same fallback path the keyframe mechanism takes. See README: Fan-out.
     const deltaFrame = forceRebuild ? null : await this.buildDeltaFrame(outgoing);
     this.latestDelta = deltaFrame ?? stateFrame;
     // Only a real delta frame counts here -- when buildDeltaFrame falls
@@ -437,13 +398,10 @@ export class Fanout {
         patch,
         polls: payload.polls as PollPublic[],
       };
-      // Straight through from the source payload, same as `polls` above --
-      // `events` is the RaceEvent rows the tick applied (a client folds
-      // these into its timeline regardless of format); `rebuilt` is
-      // `undefined` on an ordinary tick, so it (and a missing `events`,
-      // from an older-shaped push) is left off the object entirely rather
-      // than set to `undefined` -- `exactOptionalPropertyTypes` treats the
-      // two differently, and `JSON.stringify` would drop it either way.
+      // Straight through from the source payload, same as `polls` above:
+      // `events` is the RaceEvent rows this tick applied; `rebuilt` is left
+      // off entirely when `undefined` rather than set to it, since
+      // `exactOptionalPropertyTypes` treats the two differently.
       if (payload.events !== undefined) {
         deltaPayload.events = payload.events as RaceEvent[];
       }

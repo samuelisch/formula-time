@@ -1,9 +1,8 @@
 import { leaderLap } from "./race-clock.js";
 import type { DriverState, RaceState } from "./race-state.js";
 
-// Owner ruling 2026-09-10: OpenF1 has no retirement flag, so run status is
-// derived from staleness against the leader's lap, not any field OpenF1
-// sends directly.
+// OpenF1 has no retirement flag, so run status is derived from staleness
+// against the leader's lap, not any field OpenF1 sends directly.
 export type RunStatus = "running" | "dnf" | "dns";
 
 function parseMillis(value: string | undefined): number | null {
@@ -19,16 +18,12 @@ function findLeader(state: RaceState): DriverState | null {
   return null;
 }
 
-/**
- * Pure, derived run status for one driver. Never guesses: any missing
- * timestamp or missing leader falls back to "running".
- *
- * dns: the leader has reached lap 2+ and this driver has no lap row at all.
- * dnf: this driver is 3+ laps behind the leader and its last intervals
- * update predates the leader's current lap start — a car still receiving
- * intervals rows (every few seconds) stays "running" even 3+ laps down,
- * since a lap takes about 90s.
- */
+/** Pure, derived run status for one driver. Never guesses: any missing
+ * timestamp or missing leader falls back to "running". dns: the leader
+ * has reached lap 2+ and this driver has no lap row at all. dnf: this
+ * driver is 3+ laps behind the leader and its last intervals update
+ * predates the leader's current lap start (a car still receiving
+ * intervals rows stays "running" even 3+ laps down). */
 export function runStatus(state: RaceState, driverNumber: number): RunStatus {
   const driver = state.drivers[String(driverNumber)];
   if (driver === undefined) return "running";

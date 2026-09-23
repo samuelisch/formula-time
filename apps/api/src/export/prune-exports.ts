@@ -1,12 +1,6 @@
-// One-off maintenance command (owner-run, apps/api/AGENTS.md): removes the
-// bogus `exports` rows written before the exporter required a timing event
-// (this fix's precondition on ADR-0009 §2 -- see exporter.ts). For every
-// `exports` row whose session has no event with endpoint != "drivers",
-// delete the file and the row. Dry-run by default; `--apply` deletes.
-//
-// Run inside the api container after the build:
-//   node apps/api/dist/export/prune-exports.js         # dry run, logs only
-//   node apps/api/dist/export/prune-exports.js --apply  # deletes
+// One-off maintenance command (owner-run, apps/api/AGENTS.md): deletes the
+// file and row for an `exports` entry whose session has no non-`drivers`
+// event. Dry-run by default; `--apply` deletes. See README: Exports.
 import { unlink } from "node:fs/promises";
 
 import { createDb, type PrismaClient } from "@formula-time/db";

@@ -2,7 +2,6 @@ import type { RaceState } from "./race-state.js";
 
 // The leader's lap is the race clock for poll lock. Fall back to the furthest
 // lap any driver has reached while driver_order is still empty.
-// Lifted unchanged from the POC (poc/ts/poll_engine.ts).
 export function leaderLap(state: RaceState): number {
   const leaderNumber = state.driver_order[0];
   const leader = leaderNumber === undefined ? undefined : state.drivers[String(leaderNumber)];
@@ -16,7 +15,6 @@ export function leaderLap(state: RaceState): number {
 
 // The live feed's race-end signal (verified on the 2026 Dutch GP raw recording).
 // The reducer folds it into active_flags / current_flag.
-// Lifted unchanged from the POC (poc/ts/poll_engine.ts).
 export function isChequered(state: RaceState): boolean {
   if (state.race_control.current_flag === "CHEQUERED") return true;
   return Object.values(state.race_control.active_flags).includes("CHEQUERED");

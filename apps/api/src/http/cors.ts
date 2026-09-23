@@ -1,11 +1,9 @@
-// CORS for the split-hosted web bundle (ADR-0008). The bundle lives on its
-// own origin (Cloudflare Pages on the apex of the custom domain); the api
-// answers on `api.<domain>`. Both share one registrable domain, so the
-// SameSite=Lax viewer cookie still travels on a credentialed fetch.
-//
-// `CORS_ORIGIN` is a comma-separated allowlist of exact origins, read from
-// the platform secret store. Unset means no cross-origin access at all,
-// which is the right default for a same-origin dev setup (the Vite proxy).
+// CORS for the split-hosted web bundle (ADR-0008): the bundle and this
+// api are on different origins (Netlify and Railway), so the viewer
+// cookie needs `SameSite=None` to cross them in production (ADR-0015).
+// `CORS_ORIGIN` is a comma-separated allowlist of exact origins from the
+// platform secret store; unset means no cross-origin access, the right
+// default for same-origin dev (the Vite proxy).
 import cors from "@fastify/cors";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { OutgoingHttpHeaders } from "node:http";
@@ -45,19 +43,12 @@ function isLocalhostOrigin(origin: string): boolean {
   }
 }
 
-/**
- * POST /api/vote's own origin check (ADR-0015). The viewer cookie moved to
- * `SameSite=None` for the split origins, which removes the CSRF guard
- * `Lax` gave for free, so the vote route checks `Origin` against this same
- * allowlist instead. A same-origin POST always carries an `Origin` header
- * (unlike GET), so a same-origin production request still passes so long
- * as the allowlist includes the site's own origin.
- *
- * An empty allowlist means dev (`CORS_ORIGIN` unset): accept a request
- * with no `Origin` header (same-origin) or a `localhost` origin, so the
- * Vite proxy keeps working. A non-empty allowlist requires the header and
- * membership in it; nothing else passes.
- */
+/** POST /api/vote's own origin check (ADR-0015): the viewer cookie is
+ * `SameSite=None` for the split origins, which carries no CSRF guard, so
+ * this route checks `Origin` against the same allowlist instead. An empty
+ * allowlist (dev, `CORS_ORIGIN` unset) also accepts no `Origin` header or
+ * a `localhost` origin, so the Vite proxy keeps working; a non-empty
+ * allowlist requires exact membership. */
 export function originAllowed(origin: string | undefined, allowed: string[]): boolean {
   if (allowed.length === 0) {
     return origin === undefined || isLocalhostOrigin(origin);
