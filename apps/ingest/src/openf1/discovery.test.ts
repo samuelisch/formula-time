@@ -270,6 +270,84 @@ describe("SessionDiscovery year selection", () => {
   });
 });
 
+describe("SessionDiscovery season coverage", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const COVERED: RawRecord = {
+    session_key: 60001,
+    session_name: "Race",
+    circuit_key: 39, // Monza — has a lap count in CIRCUITS
+    circuit_short_name: "Monza",
+    date_start: new Date(START + 100 * DAY_MS).toISOString(),
+    date_end: new Date(START + 100 * DAY_MS + 2 * 60 * 60 * 1000).toISOString(),
+  };
+  const UNCOVERED_SOON: RawRecord = {
+    session_key: 60002,
+    session_name: "Race",
+    circuit_key: 99999, // not in CIRCUITS
+    circuit_short_name: "Nowhere",
+    date_start: new Date(START + 12 * DAY_MS).toISOString(),
+    date_end: new Date(START + 12 * DAY_MS + 2 * 60 * 60 * 1000).toISOString(),
+  };
+  const UNCOVERED_LATER: RawRecord = {
+    session_key: 60003,
+    session_name: "Race",
+    circuit_key: 99998, // not in CIRCUITS
+    circuit_short_name: "Elsewhere",
+    date_start: new Date(START + 40 * DAY_MS).toISOString(),
+    date_end: new Date(START + 40 * DAY_MS + 2 * 60 * 60 * 1000).toISOString(),
+  };
+
+  test("logs one error line, one info line and the 1/3 summary; a second discovery logs nothing more", async () => {
+    const { fetcher } = fakeFetcher({ sessions: [COVERED, UNCOVERED_SOON, UNCOVERED_LATER] });
+    const logs: Array<{ message: string; level: string | undefined }> = [];
+    const discovery = makeDiscovery(fetcher, {
+      log: (message: string, opts?: { level?: string }): void => {
+        logs.push({ message, level: opts?.level });
+      },
+    });
+
+    await discovery.refreshSessions(START);
+
+    const coverageLines = logs.filter((l) => l.message.startsWith("ingest: no lap count") || l.message.startsWith("ingest: season coverage"));
+    const errorLines = coverageLines.filter((l) => l.level === "error");
+    const infoLines = coverageLines.filter((l) => l.message.startsWith("ingest: no lap count") && l.level !== "error");
+    const summaryLines = coverageLines.filter((l) => l.message.startsWith("ingest: season coverage"));
+
+    expect(errorLines).toHaveLength(1);
+    expect(errorLines[0]?.message).toContain("session_key=60002");
+    expect(errorLines[0]?.message).toContain("circuit_key=99999");
+    expect(infoLines).toHaveLength(1);
+    expect(infoLines[0]?.message).toContain("session_key=60003");
+    expect(summaryLines).toEqual([{ message: "ingest: season coverage 1/3 upcoming races have a lap count", level: undefined }]);
+
+    logs.length = 0;
+    await discovery.refreshSessions(START + 60_000);
+
+    expect(logs.filter((l) => l.message.startsWith("ingest: no lap count") || l.message.startsWith("ingest: season coverage"))).toHaveLength(0);
+  });
+
+  test("a failed first discovery defers the check to the first success", async () => {
+    let shouldFail = true;
+    const fetcher = async (url: string): Promise<unknown> => {
+      if (url.includes("/sessions?")) {
+        if (shouldFail) throw new Error("network error");
+        return [UNCOVERED_SOON];
+      }
+      return [];
+    };
+    const logs: string[] = [];
+    const discovery = makeDiscovery(fetcher, { log: (message: string) => logs.push(message) });
+
+    expect(await discovery.refreshSessions(START)).toBeNull();
+    expect(logs.some((m) => m.startsWith("ingest: season coverage"))).toBe(false);
+
+    shouldFail = false;
+    await discovery.refreshSessions(START + 60_000);
+
+    expect(logs.some((m) => m.startsWith("ingest: season coverage"))).toBe(true);
+  });
+});
+
 describe("SessionDiscovery meeting names", () => {
   test("fetches meetings?year= once per tick and passes the resulting map to onSession", async () => {
     const meetings = [{ meeting_key: 1293, meeting_name: "Italian Grand Prix" }];
