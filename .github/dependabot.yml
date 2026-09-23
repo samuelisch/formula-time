@@ -4,6 +4,9 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # Every specifier in this workspace is an exact version (AGENTS.md), so
+    # a bump must rewrite the pin rather than widen it into a range.
+    versioning-strategy: increase
     groups:
       minor-and-patch:
         update-types:
