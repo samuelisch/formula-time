@@ -23,23 +23,10 @@ interface MountLatch {
 }
 
 /**
- * Whether `LiveTimelineLoader` should be mounted for `sessionKey`, latched:
- * once mounted for a session key it stays mounted while that key remains
- * the live session, even after racing (`racing`, `isRacingPush` applied to
- * the live push) turns false again -- a viewer rewound deep into the race
- * at the chequered flag must not be yanked to the final state (the spoiler
- * rule: everything renders from the displayed, rewound state). It never
- * mounts before racing has begun, and never for a session that was already
- * "finished" the first time this saw it (that session's banner points at
- * the replay instead). `racing` uses the same rule as `useBoardIsRacing`,
- * so the row's own status lagging the fold by one lifecycle check delays
- * this mount by no more than it delays the transport bar.
- *
- * React's "adjust state during render" pattern (as `useBoardDriver` in
- * `board/useBoardState.ts` uses), not a ref: comparing state to the current
- * `sessionKey` during render, and calling `setState` during render when it
- * differs, causes React to redo this render immediately with the new state
- * before anything commits or paints.
+ * Whether `LiveTimelineLoader` should be mounted for `sessionKey`, latched
+ * so a mount persists once racing begins even if racing later turns false
+ * -- a rewound viewer must not be yanked to the final state.
+ * See README: BoardPage.
  */
 function useShouldMountTimelineLoader(sessionKey: number | null, racing: boolean): boolean {
   const [latch, setLatch] = useState<MountLatch>({ key: null, mounted: false });
@@ -59,37 +46,10 @@ function useShouldMountTimelineLoader(sessionKey: number | null, racing: boolean
 }
 
 // The `/live` route: the pure `Board` (board/Board.tsx) plus everything
-// that is live-only -- the finished/upcoming session banner, the connection
-// pill, polls, and the alignment control. `ReplayPage` mounts `Board` on
-// its own, so none of
-// this leaks onto a replay: the banner would read the replay's own
-// session, which is always finished (the exporter only exports finished
-// sessions), and the transport bar's live `TimeTarget` acts on the live
-// store's push buffer, which a replay does not use.
-//
-// `TransportBar` is driven by `useLiveTimeTarget()` through the
-// `TimeTarget` seam rather than the live store directly, so `AlignPanel`
-// (via `useAligner`) is routed through the same seam and can also mount on
-// a replay (`ReplayPage.tsx`) -- one `TimeTargetProvider` wraps the whole
-// `Board`, not just `TransportBar`, so both slots read the same target.
-//
-// `LiveTimelineLoader` is mounted here, keyed off the *live* push's own
-// session key (`useLiveSessionKey`) -- never the *displayed* session,
-// which in timeline mode is the synthesised push and would feed the loader
-// its own output back in. `status` still comes from the raw
-// `useLiveSessionStatus()` (`LiveTimelineLoader` only reads it to decide
-// when to stop paging in events); whether to *mount* the loader at all
-// goes through `isRacingPush()` applied to the live push instead, so the
-// same stale-row lag that would otherwise delay it cannot hide the
-// full-race timeline for a rewinding viewer.
-//
-// The transport bar and align button gate on `useBoardIsRacing()`, not the
-// session row's status alone: the fold is the authority on whether racing
-// has begun, and the row can lag it by one lifecycle check. The upcoming
-// banner is suppressed under the same condition, since it would otherwise
-// sit above a board that is already live. The finished banner keeps its
-// own rule -- a stale row is never the reason a viewer loses the
-// finished/replay signal.
+// that is live-only -- the finished/upcoming session banner, the
+// connection pill, polls, and the alignment control. `ReplayPage` mounts
+// `Board` on its own, so none of this leaks onto a replay.
+// See README: BoardPage.
 export function BoardPage() {
   const polls = usePolls();
   const status = useBoardSessionStatus();
