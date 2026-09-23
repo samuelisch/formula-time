@@ -1,7 +1,5 @@
 // Render order for PollList: open first (needs a vote), then locked
-// (awaiting result), then resolved, then void. Port of the POC's
-// poll_render.js STATUS_ORDER / sortPolls for the current status vocabulary
-// (open/locked/resolved/void; "locked" replaces the POC's "closed").
+// (awaiting result), then resolved, then void.
 import type { PollLifecycleStatus, PollPublic } from "../live/types.ts";
 
 const STATUS_ORDER: Record<PollLifecycleStatus, number> = {

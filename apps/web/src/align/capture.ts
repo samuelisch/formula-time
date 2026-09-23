@@ -47,12 +47,8 @@ export async function loadTesseract(): Promise<TesseractModule> {
 // The engine only ever loads from this origin: worker, core and language
 // data are vendored into the bundle (`scripts/vendor-ocr.mjs`) rather than
 // left at the library's CDN defaults, so a CSP naming only 'self' can be
-// written and the engine version can't change without a commit. These are
-// URLs, meaningful only in a browser -- tesseract.js resolves a non-http
-// path off the filesystem when it runs in Node instead, so the one caller
-// that runs there (the opt-in fixture test against real footage) passes
-// its own filesystem `langPath` into the same vendored directory and
-// leaves `workerPath`/`corePath` at the library's Node defaults.
+// written and the engine version can't change without a commit.
+// See README: Alignment.
 const BROWSER_OCR_PATHS: OcrPaths = {
   workerPath: "/ocr/worker.min.js",
   corePath: "/ocr/tesseract-core-lstm.wasm.js",

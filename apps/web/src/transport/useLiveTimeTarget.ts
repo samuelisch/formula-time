@@ -1,22 +1,9 @@
 // The live `TimeTarget`: wraps the live store's delay (`useDelay`), its
-// displayed push (`useDisplayed`), and its jump anchors (`useAnchors`) --
-// the same seam the deleted `DelayControl` used before it was folded into
-// the shared `TransportBar`. `playback()` is always null: live has no
-// play/pause concept, only a delay.
-//
-// Once a full-race timeline is loaded (`LiveTimelineLoader`
-// hands it to the store), `range()` spans the whole race from
-// `timeline.firstSourceMs`, and `anchors()` comes from the timeline's lap
-// markers rather than only the laps seen since this tab connected -- so a
-// late joiner's "Race start" and lap jumps work for the whole race, not
-// just what this tab has seen. This is true whenever a timeline exists,
-// not only once `seekTo`/`nudge` have actually put the store into timeline
-// mode: the timeline's lap markers are a superset of the stream-derived
-// ones, and a viewer still at the live edge needs `anchors().lights_out`
-// to press "Race start" in the first place. Whether the delay currently
-// resolves through the buffer or the timeline is the store's `mode`
-// (`reselect` in `live/store.ts`); this hook only reports it via
-// `rewindMode()`, it never decides it.
+// displayed push (`useDisplayed`), and its jump anchors (`useAnchors`).
+// `playback()` is always null: live has no play/pause concept, only a
+// delay. Once a full-race timeline is loaded, `range()`/`anchors()` span
+// the whole race instead of only what this tab has seen since connecting.
+// See README: Delay, offset, nudge, seek.
 import { useCallback, useMemo } from "react";
 
 import { deriveTimelineAnchors } from "../live/anchors.ts";
@@ -44,16 +31,12 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
 
   const displayedAtMs = displayed === null ? null : axisOf(displayed);
 
-  // The live edge on the source axis, for display only (the slider's
-  // bounds): the newest push's own axis time, plus however much wall-clock
-  // time has elapsed since it arrived, or `now()` before the first push --
-  // the exact formula the store's `headAxisOf` computes internally, so
-  // `range()` can never disagree with where the store actually is.
-  // `seekTo`/`nudge` do not use this: they hand the source time straight to
-  // the store's own `seekToAxis`/`nudgeDelay`, which read the store's
-  // current state at call time rather than this render's snapshot of
-  // `statePush`/`lastMessageAt`/`delayMs` -- a push (or several) landing
-  // between a render and a click must not throw the result off.
+  // The live edge on the source axis, for display only: the exact formula
+  // `headAxisOf` computes internally, so `range()` never disagrees with
+  // the store. `seekTo`/`nudge` don't use this -- they call the store's
+  // own `seekToAxis`/`nudgeDelay`, read at call time so a push landing
+  // between render and click can't throw the result off.
+  // See README: Delay, offset, nudge, seek.
   const headMs = useCallback(
     () => headAxisOf({ live: statePush, lastMessageAt }, now()) ?? now(),
     [statePush, lastMessageAt, now],
@@ -70,12 +53,10 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
       displayedAt: () => displayedAtMs,
 
       // No upper clamp to spanMs: an over-long delay is exactly what the
-      // store's own `bufferShort`/timeline-mode fold is for -- `reselect`
-      // (`live/store.ts`) decides buffer vs. timeline vs. the oldest-entry
-      // fallback; this only ever sets the delay (`setDelayMs` floors at 0).
-      // Delegates to the store's `seekToAxis`, which measures the delay
-      // from its own current head (the source axis, not the wall clock) at
-      // the moment it runs, not from this render's `headMs` snapshot.
+      // store's own `bufferShort`/timeline-mode fold is for; this only
+      // ever sets the delay (`setDelayMs` floors at 0). Delegates to the
+      // store's `seekToAxis`, measured from its own current head, not
+      // this render's `headMs` snapshot.
       seekTo: (atMs: number) => {
         seekToAxis(atMs, now());
       },

@@ -113,18 +113,10 @@ export function useRewindMode(): RewindMode {
 }
 
 /**
- * The browser-side full-race timeline for the live session
- * (`LiveTimelineLoader` sets it), or null when not loaded -- or when it is
- * loaded but does not match the *live* push's own session
- * (`timelineMatchesSession`, the same guard `reselect()` applies in
- * `store.ts`). That mismatch window is real, not hypothetical: a session
- * change (e.g. quali -> race) leaves `useSessionTimeline`'s effect keyed on
- * the old `sessionKey` for at least one render after `state.live` flips to
- * the new session, and `BoardPage` never remounts `LiveTimelineLoader`
- * across that transition (`/live` carries no session param) -- without this
- * guard, `useLiveTimeTarget`'s `anchors()`/`range()` would show the
- * outgoing session's span and lap markers for that window even though the
- * store's own `displayed`/`mode` have already fallen back correctly.
+ * The browser-side full-race timeline for the live session, or null when
+ * not loaded or when it does not match the *live* push's own session
+ * (`timelineMatchesSession`, the same guard `reselect()` applies).
+ * See README: Timeline fold.
  */
 export function useTimeline(): Timeline | null {
   return useLiveStore((state) =>
@@ -135,11 +127,10 @@ export function useTimeline(): Timeline | null {
 }
 
 /**
- * The *live* session's key (the newest push, `state.live`), as a number --
- * never the *displayed* session, which in timeline mode is synthesised and
- * would give a late joiner's rewind loader the wrong key. Null before the
- * first push, or if `session_key` is not numeric (never happens on the
- * wire, but this hook feeds a `number`-typed prop).
+ * The *live* session's key (the newest push, `state.live`), as a number
+ * -- never the *displayed* session, which in timeline mode is
+ * synthesised and would give a late joiner's rewind loader the wrong
+ * key. Null before the first push.
  */
 export function useLiveSessionKey(): number | null {
   return useLiveStore((state) => {

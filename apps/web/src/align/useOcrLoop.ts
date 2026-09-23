@@ -1,11 +1,9 @@
 // Drives the OCR worker `useCapture.ts` hands it via `begin()`: the
 // SAMPLE_MS sampling timer, the pixel-diff gate, `findLapLine`/
 // `parseLapText` per sample, auto-locating the HUD counter, and whole-frame
-// lights-out pixel detection. Emits raw readings (a lap number, a
-// lights-out fire) through `onLapReading`/`onLightsOut`, and every OCR
-// attempt (success or failure) through `onSample` for the diagnostics line
-// -- it never applies a reading to a delay itself; `applyOffset.ts` and the
-// caller (`useAligner.ts`) own that policy.
+// lights-out pixel detection. Emits raw readings through
+// `onLapReading`/`onLightsOut` and every OCR attempt through `onSample` --
+// it never applies a reading itself; `applyOffset.ts` owns that policy.
 import { useCallback, useLayoutEffect, useRef } from "react";
 
 import {
@@ -62,12 +60,10 @@ export interface OcrLoopControls {
 export function useOcrLoop(options: UseOcrLoopOptions): OcrLoopControls {
   // Live values the sampling loop (a plain interval callback, outside
   // React's render cycle) needs to read without re-subscribing on every
-  // change -- kept current via a ref, synced from a layout effect after
-  // each render so the write never happens during render itself. Must be
-  // `useLayoutEffect`, not `useEffect`: layout effects flush synchronously
-  // right after commit, before the browser can run any queued macrotask --
-  // so `sample()`'s `setInterval` (SAMPLE_MS) can never observe a commit
-  // whose ref sync hasn't run yet.
+  // change -- kept current via a ref, synced from a layout effect (not a
+  // plain effect) so `sample()`'s timer can never observe a commit whose
+  // ref sync hasn't run yet.
+  // See README: Alignment.
   const liveRef = useRef(options);
   useLayoutEffect(() => {
     liveRef.current = options;

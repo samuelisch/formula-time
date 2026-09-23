@@ -1,17 +1,9 @@
 // The replay playback clock: a pure, React-free state machine on the
 // `source_time` axis so it is trivially unit-testable (no timers, no
 // `requestAnimationFrame`). 1x only: data plays at the rate it was
-// recorded.
-//
-// Contract: the wiring only calls `tick` while playing, never while paused
-// or idle, so this clock cannot rely on `tick` alone to keep its
-// wall-clock baseline fresh -- call `tick(nowWallMs)` on every frame
-// *while playing*; `play()` and `seek()` each re-baseline the wall clock to
-// `nowMs` (default `performance.now()`) themselves. Without this, the first
-// `tick` after any idle gap (mount-to-play, a pause, or a seek while paused)
-// would jump `sourceMs` forward by the whole idle gap in one frame -- the
-// bug this round fixes. The caller supplies wall time so tests can drive it
-// deterministically.
+// recorded. `play()`/`seek()` re-baseline the wall clock to `nowMs`
+// themselves, so the first `tick` after any idle gap never jumps
+// `sourceMs` forward by the whole gap in one frame.
 export interface PlaybackClock {
   isPlaying(): boolean;
   sourceMs(): number;
@@ -22,7 +14,7 @@ export interface PlaybackClock {
    * idle before it. A no-op (but still re-baselines) once already at the end.
    */
   play(nowMs?: number): void;
-  /** Freezes the current position; a later `tick` no longer advances it. */
+  /** Freezes the current position; a later `tick` stops advancing it. */
   pause(): void;
   /**
    * Jumps directly to `targetSourceMs`, clamped to `[startSourceMs, endSourceMs]`,
@@ -34,10 +26,8 @@ export interface PlaybackClock {
   /**
    * Advances the clock 1:1 by `nowWallMs - <wall time of the last
    * play/seek/tick>` while playing, clamped to the bounds; a no-op on the
-   * position while paused (but still records `nowWallMs`, harmless if ever
-   * called while paused). Call only while playing -- `play`/`seek` are what
-   * keep the baseline fresh across a pause, not this. Returns the (possibly
-   * unchanged) source time.
+   * position while paused (but still records `nowWallMs`). Call only while
+   * playing -- `play`/`seek` keep the baseline fresh across a pause.
    */
   tick(nowWallMs: number): number;
 }

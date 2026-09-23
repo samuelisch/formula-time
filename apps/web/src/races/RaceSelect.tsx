@@ -1,17 +1,9 @@
-// Reusable race picker (also meant for the chooser -- RacesPage -- later).
-// Lists the current session first (labelled with its status), then the
-// historical races from `GET /api/races`, newest first as served,
-// deduplicated against the current session's key.
-//
-// `current === null` means "no session has been confirmed yet": this still
-// renders a leading, disabled placeholder entry rather than silently
-// letting the browser's native <select> fallback pick the first
-// *historical* race as visually selected. A caller (e.g.
-// PollsPage) must never treat "no current session known yet" as license to
-// show a different, unrelated race's data -- that was the actual bug this
-// placeholder exists to make impossible to reintroduce: if the dropdown can
-// only ever show a historical race as selected when its `value` explicitly
-// names one, the caller's content and the selector can't drift apart.
+// Reusable race picker. Lists the current session first (labelled with
+// its status), then the historical races from `GET /api/races`, newest
+// first as served, deduplicated against the current session's key.
+// `current === null` renders a leading, disabled placeholder rather than
+// letting the native <select> fallback show a historical race as selected.
+// See README: Polls.
 import type { SessionStatusValue } from "../live/selectors.ts";
 import { excludeSession, raceTitleDisambiguated } from "../lib/format.ts";
 import type { RaceIndexEntry } from "./api.ts";

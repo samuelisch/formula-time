@@ -76,14 +76,12 @@ export function useReplayPlayback(folded: FoldedRace | null): ReplayPlayback {
     return folded === null ? null : createPlaybackClock({ startSourceMs, endSourceMs, initialWallMs: 0 });
   }
 
-  // A new race (or a re-fold) gets a fresh clock at its own bounds, and
-  // sourceMs/isPlaying reset to match it. `clock` is state, not a `useMemo`,
-  // so its identity is a guaranteed React contract rather than a caching
-  // optimisation React is free to discard and recompute. All three are
-  // adjusted during render rather than in an effect (React's "adjusting
-  // state when a prop changes" pattern) so there is no extra committed
-  // render with a stale clock; `prevFolded` is the "previous props" this
-  // compares against.
+  // A new race (or a re-fold) gets a fresh clock at its own bounds; clock,
+  // sourceMs, and isPlaying reset to match it. `clock` is state, not a
+  // `useMemo` (a guaranteed identity, not a discardable cache), and all
+  // three are adjusted during render (React's "adjusting state when a
+  // prop changes" pattern) so there is no extra committed render with a
+  // stale clock.
   const [clock, setClock] = useState<PlaybackClock | null>(freshClock);
   const [prevFolded, setPrevFolded] = useState(folded);
   if (prevFolded !== folded) {

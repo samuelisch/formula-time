@@ -1,17 +1,9 @@
 // Tiny UI-only store for the poll modal's open/closed state and the last
-// poll signature it has seen. Shared between PollsButton (manual open) and
-// PollModal (auto-pop + close), which are mounted as independent siblings
-// in BoardPage. Deliberately separate from the live store
-// (apps/web/src/live/store.ts) -- this holds no race state.
-//
-// The signature lives here rather than in a PollModal-local ref:
-// BoardPage and PollsPage are sibling routes, so navigating away and back
-// remounts PollModal. A per-instance ref resets to
-// "" on that remount, so the auto-pop effect would treat an unchanged,
-// already-dismissed poll set as a fresh transition and re-pop it. Keeping
-// the signature in this singleton (which survives the remount, same as
-// `isOpen`) makes "never re-pops for an unchanged set" hold across
-// navigation, not just across rerenders of one instance.
+// poll signature it has seen. Shared between PollsButton (manual open)
+// and PollModal (auto-pop + close), mounted as independent siblings in
+// BoardPage. Deliberately separate from the live store -- this holds no
+// race state.
+// See README: Polls.
 import { create } from "zustand";
 
 export interface PollModalUiState {

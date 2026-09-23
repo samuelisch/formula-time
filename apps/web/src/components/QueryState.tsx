@@ -2,9 +2,8 @@
 // load" (with a Retry button calling `refetch()`) from the success case,
 // which renders `children` -- an empty *successful* result is the caller's
 // concern (its own empty-state copy inside `children`), not this
-// component's. Used by PollsPage (the historical-race polls fetch) and
-// RacesPage (the races index), so both distinguish a failed fetch from a
-// genuinely empty list instead of showing the same "nothing here" text.
+// component's. Used by PollsPage and RacesPage, so both distinguish a
+// failed fetch from a genuinely empty list.
 import type { ReactNode } from "react";
 
 import styles from "./QueryState.module.css";

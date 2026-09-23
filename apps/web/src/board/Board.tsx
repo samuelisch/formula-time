@@ -1,31 +1,9 @@
-// The pure timing board: a two-row toolbar (row 1: lap counter, source
-// clock, and caller-supplied controls; row 2: the transport bar, full
-// width), the driver-detail `side` slot, race-control and weather cards in
-// a grid, and the full driver table. Nothing here is live-only -- every
-// child reads through `useBoardState.ts`, so this renders a folded
-// historical push under a `BoardSourceProvider` exactly as it renders the
-// live feed (ADR-0009 §5).
-//
-// Layout: `side` sits in DOM order right after the toolbar -- above the
-// cards and the table -- because that is also its *visual* position below
-// the ~860px breakpoint (Board.module.css): a full-width card directly
-// under the (whole, two-row) toolbar. Above the breakpoint,
-// `grid-template-areas` repositions `side` next to the table in a final row
-// without moving it in the DOM, so reading/tab order stays "toolbar, side,
-// cards, table" at every width; only the *visual* arrangement changes. This
-// is a single `grid` on `.board`, not two copies of `side` -- there is
-// exactly one `side` slot in the tree at any width.
-//
-// The split from `pages/BoardPage.tsx` is by composition, not a flag: the
-// live route's own furniture -- the finished/upcoming banner, polls, and
-// align controls -- all read the *live* session and belong to `BoardPage`,
-// which wraps this. `ReplayPage` mounts this directly with the transport
-// bar in the `transport` slot, so a replay can never pick up a live-only
-// control by accident.
-//
-// The toolbar is split into two rows because the shared `TransportBar`
-// (row 2) needs the full width for its slider; row 1 holds the short
-// controls that stay put beside the lap counter.
+// The pure timing board: a two-row toolbar, the driver-detail `side` slot,
+// race-control and weather cards, and the driver table. Nothing here is
+// live-only -- every child reads through `useBoardState.ts`, so this
+// renders a folded historical push under a `BoardSourceProvider` exactly
+// as it renders the live feed (ADR-0009 §5).
+// See README: Board layout.
 import type { ReactNode } from "react";
 
 import { clock } from "../lib/format.ts";

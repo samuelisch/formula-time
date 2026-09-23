@@ -61,12 +61,10 @@ export function ReplayPage() {
   const target = useReplayTimeTarget(playback, foldQuery.data ?? null);
 
   // The start notice's dismissal: sticky for the life of the page once the
-  // viewer has started or seeked playback themselves, regardless of where
-  // that lands them -- so it never reappears on a later rewind before
-  // lights-out. A wrapper `TimeTarget` sets it inside `seekTo`/`nudge`/
-  // `playback().play` before delegating to the real target, so the bar and
-  // the notice's own link share the one flag without either duplicating the
-  // other's logic.
+  // viewer has started or seeked playback themselves, so it never
+  // reappears on a later rewind before lights-out. A wrapper `TimeTarget`
+  // sets it inside `seekTo`/`nudge`/`playback().play` before delegating to
+  // the real target, so the bar and the notice's own link share one flag.
   const [dismissed, setDismissed] = useState(false);
   const targetWithDismissal = useMemo<TimeTarget>(
     () => ({
@@ -154,14 +152,10 @@ export function ReplayPage() {
         </div>
       )}
       {/* The pure `Board`, never `BoardPage`: the live route's furniture
-          (the finished/upcoming banner and polls) reads the live session
-          and must not appear on a replay. The banner in particular would
-          always fire here -- the exporter only exports finished sessions --
-          and link the replay back to itself. No polls button in `controls`.
-          `AlignPanel` mounts here too: `useAligner` reads through
-          `useTimeTarget()`/the board-source seam instead of the live store
-          directly, so it lines the replay up with a broadcast the same way
-          the live board does. */}
+          (the finished/upcoming banner and polls) must not appear on a
+          replay. `AlignPanel` mounts here too, through the same
+          `TimeTarget` seam as `BoardPage`.
+          See README: ReplayPage. */}
       <BoardSourceProvider push={playback.push}>
         <TimeTargetProvider value={targetWithDismissal}>
           <Board controls={<AlignPanel />} transport={<TransportBar />} side={<DriverPanel />} />

@@ -19,19 +19,12 @@ const EMPTY_ANCHORS: Anchors = { lights_out: null, laps: [], restarts: [] };
 export function useReplayTimeTarget(playback: ReplayPlayback, folded: FoldedRace | null): TimeTarget {
   const anchors = useMemo<Anchors>(() => (folded === null ? EMPTY_ANCHORS : deriveTimelineAnchors(folded)), [folded]);
 
-  // Un-nudged sync offset: the net effect of every `seekTo`/`nudge` call on
-  // a fold, in ms. Ticking while playing advances the real position
-  // (`playback.sourceMs`) and an "un-nudged, played straight through"
-  // reference by the same amount every frame, so their difference never
-  // moves except at the instant of a seek, where it steps by exactly how
-  // far that seek actually moved the (clamped) position -- no separate
-  // wall-clock tracking needed, just an accumulator reset to 0 whenever
-  // `folded` changes identity (a revisit to a cached fold -- TanStack
-  // Query's `staleTime: Infinity` can hand back the same `FoldedRace`
-  // object -- must not resurface a stale offset). React's sanctioned
-  // "adjust state during render" pattern: comparing state to the current
-  // prop and calling `setState` during render, instead of reading a ref
-  // during render.
+  // Un-nudged sync offset: the net effect of every `seekTo`/`nudge` call
+  // on a fold, in ms. Ticking while playing advances both the real
+  // position and this "un-nudged, played straight through" reference by
+  // the same amount, so their difference only moves at a seek. Reset to 0
+  // whenever `folded` changes identity.
+  // See README: Delay, offset, nudge, seek.
   const [offset, setOffset] = useState<{ fold: FoldedRace | null; ms: number }>({ fold: folded, ms: 0 });
   if (offset.fold !== folded) {
     setOffset({ fold: folded, ms: 0 });

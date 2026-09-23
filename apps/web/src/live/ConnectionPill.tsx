@@ -8,11 +8,10 @@ import { useCatchingUp, useConnection, useLastMessageAt } from "./selectors.ts";
 const QUIET_AFTER_MS = 5_000;
 
 /**
- * `text` is the visible pill wording, which ticks once a second while quiet
- * (the "last update Ns ago" count keeps advancing). `announce` is what a
- * screen reader is told: the same wording everywhere except the quiet-feed
- * case, where it drops the seconds count so a live region re-announces only
- * a real connection-state change, never the tick itself.
+ * `text` is the visible pill wording, ticking once a second while quiet.
+ * `announce` is what a screen reader is told: the same wording except the
+ * quiet-feed case, where it drops the seconds count so a live region
+ * re-announces only a real connection-state change, never the tick.
  */
 function pillState(
   connection: ReturnType<typeof useConnection>,
@@ -34,14 +33,9 @@ function pillState(
 
 /**
  * The live route's connection indicator. Renders only while racing has
- * begun (`useBoardIsRacing()`, the same gate BoardPage's transport bar and
- * align button use): "connected" means connected to the OpenF1 session, so
- * with no session, or one that has not started or has finished, there is
- * nothing to show -- the finished/upcoming banner already explains that
- * state. The fold is the authority on whether racing has begun, not the
- * session row alone, since the row can lag it by one lifecycle check. Ticks
- * once a second so the "last update Ns ago" wording keeps advancing even
- * when no new push arrives.
+ * begun (`useBoardIsRacing()`); the finished/upcoming banner covers the
+ * rest. Ticks once a second so the wording keeps advancing.
+ * See README: BoardPage.
  */
 export function ConnectionPill() {
   const isRacing = useBoardIsRacing();

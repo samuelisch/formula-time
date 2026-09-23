@@ -96,17 +96,12 @@ export function createLapVerdictPolicy(): LapVerdictPolicy {
   };
 }
 
-// --- The apply rule -------------------------------------------------------
-//
-// On a lights-out fire at frame time f (performance.now) or a lap flip read
-// at f: target = chooseAnchorTarget(anchors, lap, isRelock) (lights-out uses
-// restarts.at(-1) after an abort, else lights_out); observedWall = Date.now()
-// - (performance.now() - f) + PIPELINE_BIAS_MS; tracker.observe(target,
-// observedWall, kind); if the tracker's offsetMs() is a number,
-// setDelayMs(Math.max(0, offsetMs)). If the anchor for the lap/event seen is
-// unknown, the status says "no anchor yet, will retry at the next lap" and
-// returns -- no server fetch, no retry loop: anchors come from `useAnchors()`
-// synchronously.
+// The apply rule: compute observedWall from the frame's performance-clock
+// time plus PIPELINE_BIAS_MS, feed it to the offset tracker, and set the
+// delay when it returns a number. An unknown anchor leaves a "no anchor
+// yet, will retry at the next lap" status and returns -- no server fetch,
+// no retry loop.
+// See README: Alignment.
 
 export function chooseTarget(anchors: Anchors, kind: ObserveKind, lap: number, isRestart: boolean): string | null {
   if (kind === "lights") {

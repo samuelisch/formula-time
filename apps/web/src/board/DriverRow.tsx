@@ -44,18 +44,11 @@ export interface DriverRowProps {
 }
 
 // Memoised: useBoardDriver() returns the previous reference when this
-// driver's data has not changed since the last push, so a push that touches
-// one driver re-renders only that driver's row. `selected` and `onSelect`
-// arrive as props from one shared `useDriverSelection()` call in
-// `TimingTable`, rather than each row calling the hook itself: every row
-// calling `useSearchParams()` directly would re-render all of them on any
-// selection change (the URL/location context notifies every subscriber, not
-// just the row whose own `selected` value changed), defeating the point of
-// this memoisation for that case. `delta` is likewise a plain number prop
-// (not read from a hook here), so the same shallow comparison also skips a
-// row whose cue did not change; it also drives a subtle row highlight (not
-// just the small cue cell), fading with the arrow since both come from the
-// same `delta`.
+// driver's data hasn't changed, so a push that touches one driver
+// re-renders only that row. `selected` and `onSelect` arrive as props from
+// one shared `useDriverSelection()` call in `TimingTable` rather than each
+// row calling the hook itself, so a selection change re-renders only the
+// affected rows. See README: Board layout.
 export const DriverRow = memo(function DriverRow({ number: driverNumber, delta = 0, selected, onSelect }: DriverRowProps) {
   const driver = useBoardDriver(driverNumber);
   const runStatus = useBoardRunStatus(driverNumber);

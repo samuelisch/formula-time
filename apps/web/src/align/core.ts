@@ -1,10 +1,6 @@
 // Pure alignment core: OCR-text parsing, lap tracking, correction policy, and
-// the pixel-diff gate. No DOM, no capture — runs in the browser AND in node
-// tests. Spec: docs/superpowers/specs/2026-09-05-broadcast-align-design.md
-//
-// Ported verbatim from the POC (`poc/ui/align_core.js` /
-// `poc/ui/align_core.d.ts`) into strict TypeScript. Behaviour is unchanged;
-// only types were added.
+// the pixel-diff gate. No DOM, no capture — runs in the browser and in node
+// tests.
 
 export interface LapReading {
   lap: number;
@@ -29,17 +25,11 @@ export interface LapTracker {
   current(): number | null;
 }
 
-// Monotonic guard: only lastLap+1 is a time-anchored flip. A "first" read
-// tells us the lap but not when it started.
-//
-// A counter hidden across >=2 flips (cutaway/replay) or a bad first read
-// would otherwise wedge the tracker forever — every later read rejected,
-// silently. After 3 CONSECUTIVE reads of the same rejected value, re-lock to
-// it as an unanchored "first" (never as a "flip": a re-lock never claims to
-// know when that lap started, same as any other first read). The
-// consecutive count resets on any non-rejected verdict or on a different
-// rejected value, so noisy misreads that don't agree with each other never
-// trigger a re-lock.
+// Monotonic guard: only lastLap+1 counts as a time-anchored flip; a "first"
+// read tells us the lap but not when it started. A tracker stuck on a
+// misread re-locks after three consecutive agreeing rejections, then treats
+// that as an unanchored first read, never a flip.
+// See README: Alignment.
 export function createLapTracker(): LapTracker {
   let lastLap: number | null = null;
   let rejectedValue: number | null = null;
@@ -219,15 +209,12 @@ export function createLightsOutDetector(options: {
   windowMs?: number;
   cutFraction?: number;
 } = {}): LightsOutDetector {
-  // Validated against real broadcast footage (2026-09-06 owner clip, Zandvoort
-  // start): the five gantry lights are TINY next to trackside red signage, so
-  // per-tile stability tracking drowns in noise. What survives reality is the
-  // scalar signature: the count of red tiles (fine grid) RAMPS as lights come
-  // on one by one (>= riseMin above the trailing-window floor, sustained
-  // >= rampMs), then COLLAPSES toward the floor in a single step, inside a
-  // continuous shot. Signage is static (no ramp); camera cuts are instant
-  // (no ramp) and vetoed by the global-change check. On the owner clip this
-  // fires exactly once, at the true lights-out frame.
+  // The five gantry lights are tiny next to trackside red signage, so
+  // per-tile stability tracking drowns in noise. The scalar signature
+  // (fraction of lit tiles) ramps as lights come on, then collapses toward
+  // the floor in a single step, inside a continuous shot; signage is
+  // static and camera cuts are vetoed by the global-change check.
+  // See README: Alignment.
   const litThreshold = options.litThreshold ?? 0.25;
   const riseMin = options.riseMin ?? 4;
   const rampMs = options.rampMs ?? 2000;
@@ -270,13 +257,9 @@ export function createLightsOutDetector(options: {
   };
 }
 
-// --- Predictive alignment (spec 2026-09-05-predictive-alignment) ---
-// The OFFSET (screen wall-clock minus anchor source time) is the aligned
-// session's real state; individual events are noisy evidence. Lights-out
-// (pixel path, ±0.1s) seeds/overwrites; OCR flips (±0.5-0.8s jitter) nudge
-// via a small EMA gain, so averaging shrinks their noise. A sample far off
-// the estimate is a misread — discarded; three consecutive agreeing
-// discards mean the world changed (big stream re-buffer, wrong lock): adopt.
+// The offset (screen wall-clock minus anchor source time) is the aligned
+// session's real state; individual events are noisy evidence toward it.
+// See README: Alignment.
 
 export interface OffsetTracker {
   observe(
@@ -341,16 +324,11 @@ export function predictFlipWall(anchorIso: string | null | undefined, offsetMs: 
   return anchor + offsetMs;
 }
 
-// --- Auto-locating the HUD counter (no user-drawn box needed) ---
 // Tesseract reports WHERE each recognized line sits. Scan a full-frame OCR
 // result for the first line whose text parses as LAP N/M; its bbox becomes
 // the crop, padded so digit-width changes (9 -> 10, 99 -> 100) stay inside.
-//
-// Shape is the real library's `recognize(image, {}, { blocks: true })`
-// (tesseract.js 7 `Page`/`Block`/`Paragraph`/`Line`, `src/index.d.ts`):
-// lines don't sit at the page's top level, only under
-// `blocks[].paragraphs[].lines[]`. The default `{ text: true }` output
-// used elsewhere in this module never populates `blocks` at all.
+// Lines sit under `blocks[].paragraphs[].lines[]`, not the page's top
+// level. See README: Alignment.
 
 export interface OcrLine {
   text: string;
@@ -402,13 +380,11 @@ export function cropFromBBox(
   };
 }
 
-// --- Diagnostics history label ---------------------------------------
-// The status line policy.ts produces (`applyReading`/`createLapVerdictPolicy`)
-// is a full sentence meant for the one-line status; the diagnostics panel
-// needs a short label per verdict for its rolling history instead. Rather
-// than duplicate the verdict computation, this collapses the SAME sentence
-// down to a fixed vocabulary -- it must track the sentence shapes those two
-// functions produce, all of which stay stable unless that policy changes.
+// Diagnostics history label: policy.ts's status line is a full sentence for
+// the one-line status; the diagnostics panel needs a short label per
+// verdict instead. This collapses that sentence to a fixed vocabulary
+// rather than duplicating the verdict computation -- it must track the
+// sentence shapes `applyReading`/`createLapVerdictPolicy` produce.
 
 export function summarizeVerdict(statusLine: string): string {
   const noAnchorMatch = statusLine.match(/^(.*) — no anchor yet, will retry at the next lap$/);

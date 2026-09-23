@@ -2,9 +2,8 @@
 // start/stop chain (tesseract load -> getDisplayMedia -> video.play() ->
 // OCR worker creation), the offscreen video element, the preview canvas
 // with its crop overlay, and drag-to-override the crop box. No OCR
-// sampling and no reading policy here -- `useOcrLoop.ts` drives the worker
-// this hook hands it once `onRunning` fires; `status` is owned by the
-// caller (`useAligner.ts`) and only ever written here through `setStatus`.
+// sampling or reading policy here -- `useOcrLoop.ts` drives the worker this
+// hook hands it once `onRunning` fires; `status` is owned by the caller.
 import { useCallback, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
@@ -101,7 +100,7 @@ export function useCapture(options: UseCaptureOptions): CaptureState {
   const stoppedRef = useRef(true);
   // Bumped on every start()/stop(): start()'s async setup chain checks this
   // after each await and abandons itself (releasing whatever it already
-  // acquired) the moment it no longer matches -- a Stop mid-setup, or a
+  // acquired) the moment it stops matching -- a Stop mid-setup, or a
   // Stop-then-Start that starts a second chain before the first settles.
   const startGenRef = useRef(0);
 
@@ -165,12 +164,11 @@ export function useCapture(options: UseCaptureOptions): CaptureState {
     setStatus("Loading OCR…");
     void (async () => {
       // This chain's OWN acquisitions, tracked locally so a stale-chain
-      // cleanup (below, and in the catch block) releases exactly what THIS
-      // chain got -- never streamRef.current/workerRef.current/
-      // video.srcObject, which by the time a stale chain resumes may
-      // already belong to a newer chain that ran to completion in the
-      // meantime. Only a chain still holding the current generation ever
-      // assigns to those shared refs.
+      // cleanup releases exactly what THIS chain got -- never
+      // streamRef.current/workerRef.current/video.srcObject, which may by
+      // then belong to a newer chain. Only a chain still holding the
+      // current generation assigns to those shared refs.
+      // See README: Alignment.
       let ownStream: MediaStream | null = null;
       let ownWorker: OcrWorker | null = null;
       // Re-checked after every await below: a Stop mid-setup (stoppedRef) or

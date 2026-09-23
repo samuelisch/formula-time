@@ -1,54 +1,9 @@
 // The incremental fold shared by the replay path (`foldRace.ts`) and the
-// live path (`apps/web/src/live/useSessionTimeline.ts`): a `Timeline` is a running
+// live path (`live/useSessionTimeline.ts`): a `Timeline` is a running
 // fold over an event log -- keyframes, lap markers, and the first/last
-// source times seen -- built either in one shot (`foldRace`: create then
-// `appendEvents` with the whole file) or across many `appendEvents` calls
-// as pages arrive from `GET /api/races/:session_key/events` while a
-// session is still live.
-//
-// Design: a keyframe is taken every `KEYFRAME_EVENT_INTERVAL` events or
-// every `KEYFRAME_SOURCE_TIME_MS` of source time, whichever comes first.
-// Scrubbing to a target source time (`foldAt`) finds the nearest keyframe
-// at or before that time and replays only the events after it, so a scrub
-// never re-folds the whole timeline.
-//
-// A ~28k-event race must not block the UI thread noticeably. Chosen
-// strategy: chunked yields with `setTimeout(0)`, not a Web Worker -- the
-// whole point of folding in the browser is to reuse `RaceStateReducer`
-// unchanged (ADR-0009 §5 "must stay identical to the server's"); a worker
-// would need events serialised across `postMessage` and a second Vite
-// worker entry/tsconfig, for a fold that (chunked) never blocks a frame for
-// more than `CHUNK_SIZE` events' worth of reducer work -- a few
-// milliseconds. `foldAt` (the scrub path) stays synchronous: it only ever
-// replays up to one keyframe interval's worth of events.
-//
-// Dedup: `RaceStateReducer`'s own duplicate-event detection
-// (`seenEventIds`) is private reducer state, not part of `RaceState` -- it
-// is not in a keyframe's snapshot. `appendEvents` dedupes by `event_id`
-// against every event already in the timeline (first occurrence, in `seq`
-// order, wins) before applying anything, so no duplicate ever reaches a
-// reducer -- a scrub that rebuilds a reducer from a keyframe snapshot never
-// re-applies one, matching a single continuous fold.
-//
-// Null-source truncation rule: "the state at `targetSourceMs`" applies
-// events in `seq` order up to, but not including, the first event whose
-// `source_time` is non-null and exceeds the target; every null-source
-// event before that boundary applies, none after it does.
-// `truncationBoundary` computes that index; `foldAt` and (in
-// `foldRace.test.ts`) the full-fold-truncated reference both call it, so
-// the two can never disagree about where the cut falls.
-//
-// Reconstructing the live fold position: `appendEvents` does not keep a
-// persistent `RaceStateReducer` across calls -- doing so would make
-// `Timeline` carry hidden, unclonable state, and the live path
-// (`live/useSessionTimeline.ts`) hands a `Timeline` to React state after every page.
-// Instead each call rebuilds the reducer from the *last* keyframe already
-// recorded and replays the (bounded, at most one keyframe interval's
-// worth of) events since it -- exactly what `foldAt` already does for a
-// scrub. `Timeline` therefore stays a plain, structurally-inspectable
-// value: the same shape as `FoldedRace` minus `finalState`
-// (`foldRace.ts` defines `FoldedRace` as `Timeline & { finalState }`), so
-// `foldAt` accepts either one unchanged.
+// source times seen -- built either in one shot or across many
+// `appendEvents` calls as pages arrive while a session is still live.
+// See README: Timeline fold.
 import type { RawRecord, RaceEvent, RaceState } from "@formula-time/domain";
 import { createInitialState, RaceStateReducer } from "@formula-time/domain";
 
@@ -102,12 +57,9 @@ function lapNumber(payload: RawRecord): number | null {
 
 /**
  * Records `sourceMs` as a candidate start time for `lap`, in place on
- * `markers` (sorted by lap): creates the marker on the first non-null
- * `source_time` seen for that lap, and lowers an existing marker's time in
- * place when a later-arriving row for the same lap turns out earlier --
- * never raises it, since the earliest row already seen is the lap's start.
- * A lap lower than every marker recorded so far is inserted in its sorted
- * position rather than assumed to append at the end.
+ * `markers` (sorted by lap): creates the marker on first sight, lowers it
+ * (never raises it) when a later row for the same lap is earlier.
+ * See README: Timeline fold.
  */
 function recordLapMarker(markers: LapMarker[], lap: number, sourceMs: number): void {
   const index = markers.findIndex((marker) => marker.lap === lap);
@@ -131,11 +83,10 @@ function yieldToEventLoop(): Promise<void> {
 }
 
 /**
- * Normalizes the session row before it becomes `state.session`: a schema-1
- * file (ADR-0041) carries `session_key` as a JSON number, unlike a schema-2
- * file or the live push, both already a string -- so an old cached file's
- * fold would otherwise disagree with a live one (ADR-0009 §5). A schema-2
- * row passes through unchanged.
+ * Normalizes the session row before it becomes `state.session`: a
+ * schema-1 file (ADR-0041) carries `session_key` as a JSON number, unlike
+ * a schema-2 file or the live push, both already a string.
+ * See README: Timeline fold.
  */
 function normalizedSessionRow(session: RawRecord): RawRecord {
   const sessionKey = session["session_key"];
@@ -144,11 +95,9 @@ function normalizedSessionRow(session: RawRecord): RawRecord {
 }
 
 /**
- * The index of the first event in `events`, scanning from `fromIndex`, whose
- * `source_time` is non-null and exceeds `targetSourceMs` -- see the
- * "Null-source truncation rule" header note. Events at indices
- * `[fromIndex, boundary)` are the ones that apply for `targetSourceMs`;
- * `events.length` means every remaining event applies.
+ * The index of the first event in `events`, from `fromIndex`, whose
+ * `source_time` is non-null and exceeds `targetSourceMs`.
+ * See README: Timeline fold.
  */
 export function truncationBoundary(events: RaceEvent[], targetSourceMs: number, fromIndex = 0): number {
   for (let index = fromIndex; index < events.length; index += 1) {
@@ -186,14 +135,10 @@ function keyframeBefore(timeline: Timeline, targetSourceMs: number): Keyframe {
 }
 
 /**
- * Appends `rawEvents` onto `timeline` in place (mutating its arrays) and
- * returns it: dedupes by `event_id` against everything already on the
- * timeline (and within this same batch), applies each new event through a
- * reducer resumed from the last keyframe, and keeps keyframes/lap markers
- * exactly as a single full fold would (see the header note on
- * reconstructing the live fold position). Chunked: yields to the event
- * loop every `CHUNK_SIZE` applied events, so appending a large page (or the
- * whole file, from `foldRace`) never blocks the UI thread for long.
+ * Appends `rawEvents` onto `timeline` in place and returns it: dedupes,
+ * applies each event, and keeps keyframes/lap markers exactly as a full
+ * fold would. Chunked: yields every `CHUNK_SIZE` applied events.
+ * See README: Timeline fold.
  */
 export async function appendEvents(timeline: Timeline, rawEvents: RaceEvent[]): Promise<Timeline> {
   if (rawEvents.length === 0) return timeline;
@@ -229,13 +174,12 @@ export async function appendEvents(timeline: Timeline, rawEvents: RaceEvent[]): 
       if (keyframeSourceMs === null) keyframeSourceMs = incoming;
     }
 
-    // A lap's start is only known from a `laps` row that actually carries a
-    // `date_start` -- the first lap-1 row for each driver arrives with a
-    // null `source_time` while the field is still on the formation lap, so
-    // gating on the leader's current lap (as this used to) stamps the
-    // marker with whatever unrelated event happened to be last, long before
-    // lights out. Recording straight from `laps` rows keeps the marker tied
-    // to the lap it actually describes.
+    // A lap's start is only known from a `laps` row that actually carries
+    // a `date_start` -- the first lap-1 row for each driver arrives with a
+    // null `source_time` while still on the formation lap. Recording
+    // straight from `laps` rows keeps the marker tied to the lap it
+    // actually describes.
+    // See README: Timeline fold.
     if (raceEvent.endpoint === "laps" && incoming !== null) {
       const lap = lapNumber(raceEvent.payload);
       if (lap !== null) {
@@ -268,12 +212,9 @@ export async function appendEvents(timeline: Timeline, rawEvents: RaceEvent[]): 
 }
 
 /**
- * The race state at `targetSourceMs`: the nearest earlier keyframe, cloned,
- * with the events after it re-applied up to `truncationBoundary` (the
- * "Null-source truncation rule" header note). Synchronous -- bounded by one
- * keyframe interval's worth of events, never the whole timeline.
- * `timeline.events` is already deduped (by `appendEvents`), so no
- * duplicate `event_id` can reach the fresh reducer built here.
+ * The race state at `targetSourceMs`: the nearest earlier keyframe,
+ * cloned, with the events after it re-applied up to `truncationBoundary`.
+ * See README: Timeline fold.
  */
 export function foldAt(timeline: Timeline, targetSourceMs: number): RaceState {
   const keyframe = keyframeBefore(timeline, targetSourceMs);

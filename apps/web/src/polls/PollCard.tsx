@@ -1,14 +1,9 @@
 // One poll: question, status pill, lock-lap meta, option rows as vote
-// buttons, and a verdict line once resolved. Port of the POC's
-// poll_render.js renderPollCards for the current status vocabulary (open,
-// locked, resolved, void) and the app's own useVote/useMutation flow rather
-// than a bare fetch.
-//
-// Collapsed inside a Collapsible: the summary is the status pill, question,
-// and lock/vote-count line; the option rows, vote buttons,
-// and verdict live in the expanded body. Open polls default open (they need
-// a vote), every other status defaults collapsed. PollList and PollModal
-// both render this unchanged -- the collapse behaviour comes for free.
+// buttons, and a verdict line once resolved. Collapsed inside a
+// Collapsible: open polls default open (they need a vote), every other
+// status defaults collapsed; PollList and PollModal both render this
+// unchanged -- the collapse behaviour comes for free.
+// See README: Polls.
 import { Collapsible } from "../components/Collapsible.tsx";
 import type { PollLifecycleStatus, PollPublic } from "../live/types.ts";
 import styles from "./PollCard.module.css";

@@ -92,9 +92,9 @@ export function domainAlias(env: NodeJS.ProcessEnv): Record<string, string> {
 // Dev server proxies the api's routes to the app service (ADR-0002); every
 // api call goes through `/api` (src/api.ts) or `/health` (the platform
 // probe). `/live` and `/polls` are SPA routes (Shell's nav, RacesPage's
-// links) -- proxying those bare prefixes too, from before the `/api`
-// prefix existed, shadowed those routes on a hard reload (issue #72).
-// Production serves the built assets from the platform CDN or the app.
+// links), never proxied here: proxying those bare prefixes shadows the SPA
+// routes on a hard reload. Production serves the built assets from the
+// platform CDN or the app.
 export default defineConfig({
   plugins: [react(), buildMetaPlugin(buildSha), cspHeadersPlugin(apiOriginForCsp)],
   resolve: {
