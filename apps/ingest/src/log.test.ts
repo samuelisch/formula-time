@@ -20,11 +20,12 @@ describe("countFields", () => {
 
   it("extracts the rest lane's entry-list fetch counts", () => {
     // apps/ingest/src/openf1/rest-lane.ts's entry-list fetch message.
-    expect(
-      countFields(
-        "entry list: fetched session_key=9999 rows=20 new=20 foreign=0 unknown_session=0",
-      ),
-    ).toEqual({ rows: 20, new: 20, foreign: 0, unknown_session: 0 });
+    expect(countFields("entry list: fetched session_key=9999 rows=20 new=20 foreign=0 unknown_session=0")).toEqual({
+      rows: 20,
+      new: 20,
+      foreign: 0,
+      unknown_session: 0,
+    });
   });
 
   it("extracts the rest lane's poll counts, ignoring names outside the list", () => {
@@ -71,10 +72,7 @@ describe("createLogger", () => {
     // comes only from the base binding, never as one of the call's own
     // fields, since pino appends fields alongside base bindings rather
     // than merging them — a repeated key would write the key twice.
-    logger.info(
-      { live_source: "api", mqtt_enabled: false, rest_tick_ms: 2200, sponsored: false },
-      "ingest: config",
-    );
+    logger.info({ live_source: "api", mqtt_enabled: false, rest_tick_ms: 2200, sponsored: false }, "ingest: config");
 
     expect(lines).toHaveLength(1);
     expect((lines[0]?.match(/"build":/g) ?? []).length).toBe(1);

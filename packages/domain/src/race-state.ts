@@ -123,10 +123,7 @@ function newDriver(driverNumber: number, metadata: RawRecord = {}): DriverState 
   };
 }
 
-export function createInitialState(metadata: {
-  sessions: RawRecord[];
-  drivers: RawRecord[];
-}): RaceState {
+export function createInitialState(metadata: { sessions: RawRecord[]; drivers: RawRecord[] }): RaceState {
   const drivers: Record<string, DriverState> = {};
   for (const driver of metadata.drivers) {
     const driverNumber = numberValue(driver, "driver_number");
@@ -313,11 +310,7 @@ export class RaceStateReducer {
   }
 
   private updateTyreAge(driver: DriverState): void {
-    if (
-      driver.current_lap === null ||
-      driver.tyre.lap_start === null ||
-      driver.tyre.age_at_start === null
-    ) {
+    if (driver.current_lap === null || driver.tyre.lap_start === null || driver.tyre.age_at_start === null) {
       return;
     }
     driver.tyre.age = driver.tyre.age_at_start + Math.max(0, driver.current_lap - driver.tyre.lap_start);

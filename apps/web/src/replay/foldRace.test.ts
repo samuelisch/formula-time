@@ -181,9 +181,19 @@ describe("foldRace", () => {
     // (null source_time, after e5) should not.
     const events: RaceEvent[] = [
       event("e1", "laps", 0, { driver_number: 1, lap_number: 1 }),
-      { event_id: "e2", endpoint: "race_control", source_time: null, payload: { category: "Flag", message: "before-1" } },
+      {
+        event_id: "e2",
+        endpoint: "race_control",
+        source_time: null,
+        payload: { category: "Flag", message: "before-1" },
+      },
       event("e3", "laps", 10, { driver_number: 1, lap_number: 2 }),
-      { event_id: "e4", endpoint: "race_control", source_time: null, payload: { category: "Flag", message: "before-2" } },
+      {
+        event_id: "e4",
+        endpoint: "race_control",
+        source_time: null,
+        payload: { category: "Flag", message: "before-2" },
+      },
       event("e5", "laps", 50, { driver_number: 1, lap_number: 3 }), // the truncation boundary for target=20s
       { event_id: "e6", endpoint: "race_control", source_time: null, payload: { category: "Flag", message: "after" } },
     ];
@@ -198,10 +208,7 @@ describe("foldRace", () => {
 
     expect(scrubbed).toEqual(truncatedFinalState);
     // Both null-source messages before the boundary landed; the one after did not.
-    expect(scrubbed.race_control.recent_messages.map((m) => m.payload["message"])).toEqual([
-      "before-1",
-      "before-2",
-    ]);
+    expect(scrubbed.race_control.recent_messages.map((m) => m.payload["message"])).toEqual(["before-1", "before-2"]);
     expect(leaderLap(scrubbed)).toBe(2);
   });
 });

@@ -60,7 +60,11 @@ describe("handleLapRead: sequences the lap tracker, the lock/apply policy, and t
   it("a flip (lastLap + 1) with a known anchor applies and seeks the target", () => {
     const trackers = createReadingTrackers();
     handleLapRead(5, 1_000, trackers, ctx()); // locks on 5, unanchored
-    const anchors: Anchors = { lights_out: null, laps: [{ lap: 6, source_time: "2026-09-06T13:00:10.000Z" }], restarts: [] };
+    const anchors: Anchors = {
+      lights_out: null,
+      laps: [{ lap: 6, source_time: "2026-09-06T13:00:10.000Z" }],
+      restarts: [],
+    };
     const target = fakeTarget();
     const status = handleLapRead(6, 2_000, trackers, ctx({ anchors, target }));
     expect(status).toMatch(/^Lap 6: /);
@@ -78,7 +82,11 @@ describe("handleLapRead: sequences the lap tracker, the lock/apply policy, and t
     try {
       const trackers = createReadingTrackers();
       const lap15Marker = "2026-09-06T13:12:34.000Z";
-      const anchorsAtLap14: Anchors = { lights_out: null, laps: [{ lap: 14, source_time: "2026-09-06T13:11:00.000Z" }], restarts: [] };
+      const anchorsAtLap14: Anchors = {
+        lights_out: null,
+        laps: [{ lap: 14, source_time: "2026-09-06T13:11:00.000Z" }],
+        restarts: [],
+      };
       handleLapRead(14, 4_800, trackers, ctx({ anchors: anchorsAtLap14 })); // locks on 14, unanchored -- lap 14 isn't lap 1
 
       const anchors: Anchors = {
@@ -120,7 +128,11 @@ describe("handleLightsOutRead: always an anchored observation, no lock phase", (
 
   it("labels a restart differently and reads the latest restart anchor", () => {
     const trackers = createReadingTrackers();
-    const anchors: Anchors = { lights_out: "2026-09-06T13:00:00.000Z", laps: [], restarts: ["2026-09-06T13:05:00.000Z"] };
+    const anchors: Anchors = {
+      lights_out: "2026-09-06T13:00:00.000Z",
+      laps: [],
+      restarts: ["2026-09-06T13:05:00.000Z"],
+    };
     const target = fakeTarget();
     const status = handleLightsOutRead(1_000, true, trackers, ctx({ anchors, target }));
     expect(status).toMatch(/^Restart lights out: /);

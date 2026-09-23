@@ -112,63 +112,59 @@ afterAll(async () => {
 });
 
 describe("vote burst", () => {
-  test(
-    "1,000 distinct viewers voting twice concurrently (2,000 requests) land exactly 1,000 rows",
-    async () => {
-      const viewerIds = Array.from({ length: VIEWER_COUNT }, () => randomUUID());
-      const sentOptions = new Map<string, [string, string]>();
+  test("1,000 distinct viewers voting twice concurrently (2,000 requests) land exactly 1,000 rows", async () => {
+    const viewerIds = Array.from({ length: VIEWER_COUNT }, () => randomUUID());
+    const sentOptions = new Map<string, [string, string]>();
 
-      const requests: Promise<unknown>[] = [];
-      viewerIds.forEach((viewerId, index) => {
-        const pair: [string, string] = Math.random() < 0.5 ? ["1", "44"] : ["44", "1"];
-        sentOptions.set(viewerId, pair);
-        // A distinct fake IP per viewer: 1,000 real viewers vote from 1,000
-        // different addresses, never one address. Sharing one address here
-        // would run every viewer's two requests into the vote route's
-        // per-IP rate limit (60/minute) instead of exercising the
-        // conditional-upsert race this test targets.
-        const remoteAddress = `10.${(index >> 16) & 0xff}.${(index >> 8) & 0xff}.${index & 0xff}`;
-        for (const optionId of pair) {
-          requests.push(
-            app.inject({
-              method: "POST",
-              url: "/api/vote",
-              headers: { cookie: `viewer_id=${viewerId}` },
-              payload: { poll_id: POLL_ID, option_id: optionId },
-              remoteAddress,
-            }),
-          );
-        }
-      });
-
-      const startedAt = Date.now();
-      await Promise.all(requests);
-      const wallMs = Date.now() - startedAt;
-      // Recorded in the PR body per the acceptance criteria.
-      console.log(`vote-burst wall time: ${wallMs}ms for ${requests.length} requests`);
-
-      const rows = await db.vote.findMany({ where: { pollId: POLL_ID } });
-      expect(rows).toHaveLength(VIEWER_COUNT);
-      for (const row of rows) {
-        const sent = sentOptions.get(row.viewerId);
-        expect(sent).toBeDefined();
-        expect(sent).toContain(row.optionId);
+    const requests: Promise<unknown>[] = [];
+    viewerIds.forEach((viewerId, index) => {
+      const pair: [string, string] = Math.random() < 0.5 ? ["1", "44"] : ["44", "1"];
+      sentOptions.set(viewerId, pair);
+      // A distinct fake IP per viewer: 1,000 real viewers vote from 1,000
+      // different addresses, never one address. Sharing one address here
+      // would run every viewer's two requests into the vote route's
+      // per-IP rate limit (60/minute) instead of exercising the
+      // conditional-upsert race this test targets.
+      const remoteAddress = `10.${(index >> 16) & 0xff}.${(index >> 8) & 0xff}.${index & 0xff}`;
+      for (const optionId of pair) {
+        requests.push(
+          app.inject({
+            method: "POST",
+            url: "/api/vote",
+            headers: { cookie: `viewer_id=${viewerId}` },
+            payload: { poll_id: POLL_ID, option_id: optionId },
+            remoteAddress,
+          }),
+        );
       }
+    });
 
-      const grouped = await db.vote.groupBy({
-        by: ["optionId"],
-        where: { pollId: POLL_ID },
-        _count: { optionId: true },
-      });
-      const expectedTally: Record<string, number> = {};
-      for (const group of grouped) {
-        expectedTally[group.optionId] = group._count.optionId;
-      }
+    const startedAt = Date.now();
+    await Promise.all(requests);
+    const wallMs = Date.now() - startedAt;
+    // Recorded in the PR body per the acceptance criteria.
+    console.log(`vote-burst wall time: ${wallMs}ms for ${requests.length} requests`);
 
-      const winner = module.publicPolls().find((p) => p.poll_id === POLL_ID);
-      expect(winner?.total_votes).toBe(VIEWER_COUNT);
-      expect(winner?.tally).toEqual(expectedTally);
-    },
-    60_000,
-  );
+    const rows = await db.vote.findMany({ where: { pollId: POLL_ID } });
+    expect(rows).toHaveLength(VIEWER_COUNT);
+    for (const row of rows) {
+      const sent = sentOptions.get(row.viewerId);
+      expect(sent).toBeDefined();
+      expect(sent).toContain(row.optionId);
+    }
+
+    const grouped = await db.vote.groupBy({
+      by: ["optionId"],
+      where: { pollId: POLL_ID },
+      _count: { optionId: true },
+    });
+    const expectedTally: Record<string, number> = {};
+    for (const group of grouped) {
+      expectedTally[group.optionId] = group._count.optionId;
+    }
+
+    const winner = module.publicPolls().find((p) => p.poll_id === POLL_ID);
+    expect(winner?.total_votes).toBe(VIEWER_COUNT);
+    expect(winner?.tally).toEqual(expectedTally);
+  }, 60_000);
 });

@@ -123,24 +123,18 @@ function makeFakeDb() {
       }),
     },
     event: {
-      findMany: vi.fn(
-        async ({ where, take }: { where: { sessionKey: bigint; seq: { gt: bigint } }; take: number }) => {
-          calls.push("event.findMany");
-          return events
-            .filter((e) => e.sessionKey === where.sessionKey && e.seq > where.seq.gt)
-            .sort((a, b) => (a.seq < b.seq ? -1 : a.seq > b.seq ? 1 : 0))
-            .slice(0, take);
-        },
-      ),
-      findFirst: vi.fn(
-        async ({ where }: { where: { sessionKey: bigint; endpoint: { not: string } } }) => {
-          calls.push("event.findFirst");
-          const found = events.find(
-            (e) => e.sessionKey === where.sessionKey && e.endpoint !== where.endpoint.not,
-          );
-          return found === undefined ? null : { seq: found.seq };
-        },
-      ),
+      findMany: vi.fn(async ({ where, take }: { where: { sessionKey: bigint; seq: { gt: bigint } }; take: number }) => {
+        calls.push("event.findMany");
+        return events
+          .filter((e) => e.sessionKey === where.sessionKey && e.seq > where.seq.gt)
+          .sort((a, b) => (a.seq < b.seq ? -1 : a.seq > b.seq ? 1 : 0))
+          .slice(0, take);
+      }),
+      findFirst: vi.fn(async ({ where }: { where: { sessionKey: bigint; endpoint: { not: string } } }) => {
+        calls.push("event.findFirst");
+        const found = events.find((e) => e.sessionKey === where.sessionKey && e.endpoint !== where.endpoint.not);
+        return found === undefined ? null : { seq: found.seq };
+      }),
     },
     export: {
       create: vi.fn(async ({ data }: { data: FakeExportRow }) => {
@@ -149,13 +143,7 @@ function makeFakeDb() {
         return data;
       }),
       update: vi.fn(
-        async ({
-          where,
-          data,
-        }: {
-          where: { sessionKey: bigint };
-          data: { exportedAt: Date; path: string };
-        }) => {
+        async ({ where, data }: { where: { sessionKey: bigint }; data: { exportedAt: Date; path: string } }) => {
           calls.push("export.update");
           const idx = exports.findIndex((e) => e.sessionKey === where.sessionKey);
           if (idx === -1) throw new Error(`no export row for ${where.sessionKey.toString()}`);
@@ -377,7 +365,10 @@ describe("createExporter", () => {
     expect(db.exports).toHaveLength(1);
     const row = db.exports[0];
     expect(row?.exportedAt.getTime()).toBeGreaterThan(oldExportedAt.getTime());
-    expect(log).toHaveBeenCalledWith("export re-exported 9", expect.objectContaining({ exportedAt: row?.exportedAt.toISOString() }));
+    expect(log).toHaveBeenCalledWith(
+      "export re-exported 9",
+      expect.objectContaining({ exportedAt: row?.exportedAt.toISOString() }),
+    );
 
     const gz = await readFile(join(dir, "9.json.gz"));
     const json = JSON.parse((await gunzipAsync(gz)).toString("utf-8")) as { exported_at: string };

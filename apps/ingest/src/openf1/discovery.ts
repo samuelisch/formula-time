@@ -62,7 +62,9 @@ export interface SessionDiscoveryOptions {
    * first discovery. `meetingNames` is this tick's `meeting_key ->
    * meeting_name` map, for `sessionFieldsFromRaw`'s join.
    */
-  onSession?: ((session: RawRecord, nowMs: number, meetingNames: ReadonlyMap<number, string>) => void | Promise<void>) | undefined;
+  onSession?:
+    | ((session: RawRecord, nowMs: number, meetingNames: ReadonlyMap<number, string>) => void | Promise<void>)
+    | undefined;
   /** The lane's recorder wrapper, used only for the followed session's own `meetings` row. */
   onRecorded: RecordRows;
   countStat: CountStat;
@@ -282,7 +284,8 @@ export class SessionDiscovery {
         {
           level,
           fields: {
-            session_key: typeof sessionKey === "number" || typeof sessionKey === "string" ? sessionKey : String(sessionKey),
+            session_key:
+              typeof sessionKey === "number" || typeof sessionKey === "string" ? sessionKey : String(sessionKey),
             circuit_key: circuitKey,
             days_until: Math.floor(msUntil / (24 * 60 * 60 * 1000)),
           },

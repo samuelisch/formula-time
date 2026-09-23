@@ -26,7 +26,13 @@ function fixtureState(): RaceState {
       drivers: [
         { driver_number: 1, full_name: "Driver One", name_acronym: "ONE", team_name: "Team A", team_colour: "F47600" },
         { driver_number: 2, full_name: "Driver Two", name_acronym: "TWO", team_name: "Team B", team_colour: "4781D7" },
-        { driver_number: 3, full_name: "Driver Three", name_acronym: "THR", team_name: "Team A", team_colour: "F47600" },
+        {
+          driver_number: 3,
+          full_name: "Driver Three",
+          name_acronym: "THR",
+          team_name: "Team A",
+          team_colour: "F47600",
+        },
       ],
     }),
   );
@@ -34,7 +40,9 @@ function fixtureState(): RaceState {
   reducer.apply(event("p1", "position", "2026-09-06T13:00:01Z", { driver_number: 1, position: 1 }));
   reducer.apply(event("p2", "position", "2026-09-06T13:00:01Z", { driver_number: 2, position: 2 }));
   reducer.apply(event("p3", "position", "2026-09-06T13:00:01Z", { driver_number: 3, position: 3 }));
-  reducer.apply(event("i1", "intervals", "2026-09-06T13:00:02Z", { driver_number: 2, interval: 1.2, gap_to_leader: 1.2 }));
+  reducer.apply(
+    event("i1", "intervals", "2026-09-06T13:00:02Z", { driver_number: 2, interval: 1.2, gap_to_leader: 1.2 }),
+  );
   reducer.apply(
     event("l1", "laps", "2026-09-06T13:00:03Z", {
       driver_number: 1,
@@ -49,7 +57,9 @@ function fixtureState(): RaceState {
   reducer.apply(
     event("rc1", "race_control", "2026-09-06T13:00:04Z", { category: "SafetyCar", message: "VSC DEPLOYED" }),
   );
-  reducer.apply(event("w1", "weather", "2026-09-06T13:00:05Z", { date: "2026-09-06T13:00:05Z", air_temperature: 28.4 }));
+  reducer.apply(
+    event("w1", "weather", "2026-09-06T13:00:05Z", { date: "2026-09-06T13:00:05Z", air_temperature: 28.4 }),
+  );
 
   return reducer.snapshot();
 }
@@ -116,9 +126,7 @@ function randomMutation(reducer: RaceStateReducer, seq: number): void {
       );
       break;
     case "weather":
-      reducer.apply(
-        event(`mut-${seq}`, "weather", sourceTime, { date: sourceTime, air_temperature: 20 + (seq % 15) }),
-      );
+      reducer.apply(event(`mut-${seq}`, "weather", sourceTime, { date: sourceTime, air_temperature: 20 + (seq % 15) }));
       break;
   }
 }
@@ -146,7 +154,9 @@ describe("diffState / applyPatch", () => {
   it("only touches the changed driver's fields, not every driver", () => {
     const prev = fixtureState();
     const reducer = new RaceStateReducer(structuredClone(prev));
-    reducer.apply(event("touch-2", "intervals", "2026-09-06T13:00:20Z", { driver_number: 2, interval: 5, gap_to_leader: 5 }));
+    reducer.apply(
+      event("touch-2", "intervals", "2026-09-06T13:00:20Z", { driver_number: 2, interval: 5, gap_to_leader: 5 }),
+    );
     const next = reducer.snapshot();
 
     const ops = diffState(prev, next);
@@ -168,7 +178,11 @@ describe("diffState / applyPatch", () => {
     expect(applyPatch(prev, lappedOps)).toEqual(lapped);
 
     reducer.apply(
-      event("lap-3-back", "intervals", "2026-09-06T13:00:21Z", { driver_number: 3, interval: 1.6, gap_to_leader: 22.1 }),
+      event("lap-3-back", "intervals", "2026-09-06T13:00:21Z", {
+        driver_number: 3,
+        interval: 1.6,
+        gap_to_leader: 22.1,
+      }),
     );
     const unlapped = reducer.snapshot();
     const unlappedOps = diffState(lapped, unlapped);

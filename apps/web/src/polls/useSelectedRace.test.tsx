@@ -126,7 +126,10 @@ describe("useSelectedRace", () => {
   it("a push confirming the current session cancels the fallback timer and is selected as current", () => {
     resetStore({
       ...settledConnection(),
-      displayed: makePush({ session_key: "9999" }, { session: { session_key: "9999", country: "Italy", name: "Race", status: "live" } }),
+      displayed: makePush(
+        { session_key: "9999" },
+        { session: { session_key: "9999", country: "Italy", name: "Race", status: "live" } },
+      ),
     });
     stubRacesFetch(races);
 
@@ -144,7 +147,15 @@ describe("useSelectedRace", () => {
       ...settledConnection(),
       displayed: makePush(
         { session_key: "9999" },
-        { session: { session_key: "9999", country: "Italy", name: "Race", meeting_name: "Italian Grand Prix", status: "live" } },
+        {
+          session: {
+            session_key: "9999",
+            country: "Italy",
+            name: "Race",
+            meeting_name: "Italian Grand Prix",
+            status: "live",
+          },
+        },
       ),
     });
     stubRacesFetch(races);
@@ -250,7 +261,10 @@ describe("useSelectedRace", () => {
 
   it("?race= self-heals to current once a push confirms a matching session key", () => {
     resetStore({
-      displayed: makePush({ session_key: "11361" }, { session: { session_key: "11361", country: "Italy", name: "Race", status: "live" } }),
+      displayed: makePush(
+        { session_key: "11361" },
+        { session: { session_key: "11361", country: "Italy", name: "Race", status: "live" } },
+      ),
     });
     stubRacesFetch(races);
 

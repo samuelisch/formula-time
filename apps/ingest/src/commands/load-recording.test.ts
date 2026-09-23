@@ -230,9 +230,11 @@ describe("loadRecordings", () => {
     expect(totals).toEqual({ inserted: 25, skipped: 0, sessionsAttempted: 1, sessionsSkipped: 0 });
     expect(db.insertOrder).toHaveLength(25);
     expect(db.insertOrder.slice(0, ENTRY_LIST_2026.length).every((id) => id.startsWith("drivers:"))).toBe(true);
-    expect(db.insertOrder.slice(ENTRY_LIST_2026.length, ENTRY_LIST_2026.length + 2).every((id) => id.startsWith("position:"))).toBe(
-      true,
-    );
+    expect(
+      db.insertOrder
+        .slice(ENTRY_LIST_2026.length, ENTRY_LIST_2026.length + 2)
+        .every((id) => id.startsWith("position:")),
+    ).toBe(true);
     expect(db.insertOrder[ENTRY_LIST_2026.length + 2]!.startsWith("weather:")).toBe(true);
   });
 

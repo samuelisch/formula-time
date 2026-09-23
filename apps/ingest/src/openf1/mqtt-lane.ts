@@ -335,10 +335,9 @@ export class MqttLane {
       this.wireClient(client, attemptGeneration);
     } catch (error) {
       if (this.stopped || attemptGeneration !== this.generation) return;
-      this.log(
-        `mqtt: token fetch failed, will retry: ${error instanceof Error ? error.message : String(error)}`,
-        { level: "error" },
-      );
+      this.log(`mqtt: token fetch failed, will retry: ${error instanceof Error ? error.message : String(error)}`, {
+        level: "error",
+      });
       this.scheduleReconnect(mqttBackoffDelayMs(this.baseBackoffMs, ++this.backoffAttempt, this.maxBackoffMs));
     }
   }
@@ -462,7 +461,14 @@ export class MqttLane {
       return;
     }
 
-    const result = await enqueueRows(this.getNormalizer(), this.queue, endpoint, sessionKey, [stripped], this.recordRow);
+    const result = await enqueueRows(
+      this.getNormalizer(),
+      this.queue,
+      endpoint,
+      sessionKey,
+      [stripped],
+      this.recordRow,
+    );
     this.droppedSinceLog += result.malformed;
     this.rowsSinceLog += result.newRows;
     this.unjoinedSinceLog += result.unjoined;

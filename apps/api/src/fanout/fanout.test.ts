@@ -161,10 +161,7 @@ describe("Fanout", () => {
       .filter((frame) => frame.startsWith("event: state"))
       .map((frame) => JSON.parse(frame.split("data: ")[1] ?? "{}") as { n: number; rebuilt?: boolean });
 
-    expect(delivered).toEqual([
-      { n: 2, rebuilt: true },
-      { n: 3 },
-    ]);
+    expect(delivered).toEqual([{ n: 2, rebuilt: true }, { n: 3 }]);
     expect(logs.some((l) => l.msg.includes("deflate"))).toBe(true);
   });
 
@@ -208,9 +205,9 @@ describe("Fanout", () => {
     // Drives maybeSendHeartbeat() directly rather than through heartbeat()'s
     // setInterval -- see the earlier caching test's comment on why that
     // races real zlib callbacks against fake-timer advances.
-    const sendHeartbeat = (
-      fanout as unknown as { maybeSendHeartbeat(): Promise<void> }
-    ).maybeSendHeartbeat.bind(fanout);
+    const sendHeartbeat = (fanout as unknown as { maybeSendHeartbeat(): Promise<void> }).maybeSendHeartbeat.bind(
+      fanout,
+    );
 
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + HEARTBEAT_MS + 1);
@@ -265,9 +262,9 @@ describe("Fanout", () => {
     // fire on its own can race a still-pending async step -- fully
     // awaiting each call here before the next one starts is what makes
     // this deterministic.
-    const sendHeartbeat = (
-      fanout as unknown as { maybeSendHeartbeat(): Promise<void> }
-    ).maybeSendHeartbeat.bind(fanout);
+    const sendHeartbeat = (fanout as unknown as { maybeSendHeartbeat(): Promise<void> }).maybeSendHeartbeat.bind(
+      fanout,
+    );
 
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + HEARTBEAT_MS + 1);
@@ -426,7 +423,12 @@ describe("Fanout delta pushes (issue #89)", () => {
 
     const res = new FakeRes();
     await fanout.join(res, "plain", "delta");
-    expect(frames(res)).toEqual([{ event: "state", data: statePush(1, raceState({ sequence: 1, drivers: { "1": { driver_number: 1 } as never } })) }]);
+    expect(frames(res)).toEqual([
+      {
+        event: "state",
+        data: statePush(1, raceState({ sequence: 1, drivers: { "1": { driver_number: 1 } as never } })),
+      },
+    ]);
 
     await fanout.push(
       statePush(2, raceState({ sequence: 2, drivers: { "1": { driver_number: 1, position: 1 } as never } })),

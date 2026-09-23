@@ -15,7 +15,21 @@ function renderWith(push: ReturnType<typeof makePush> | null): void {
 
 describe("RaceControlCard phase line", () => {
   it("shows Pre-race before any session status arrives", () => {
-    renderWith(makePush({}, { race_control: { session_status: null, current_flag: null, safety_car: null, active_flags: {}, driver_flags: {}, recent_messages: [] } }));
+    renderWith(
+      makePush(
+        {},
+        {
+          race_control: {
+            session_status: null,
+            current_flag: null,
+            safety_car: null,
+            active_flags: {},
+            driver_flags: {},
+            recent_messages: [],
+          },
+        },
+      ),
+    );
     expect(screen.getByText("Pre-race · waiting for timing data")).toBeInTheDocument();
   });
 
@@ -26,7 +40,14 @@ describe("RaceControlCard phase line", () => {
         {
           drivers: {},
           driver_order: [],
-          race_control: { session_status: "SESSION STARTED", current_flag: null, safety_car: null, active_flags: {}, driver_flags: {}, recent_messages: [] },
+          race_control: {
+            session_status: "SESSION STARTED",
+            current_flag: null,
+            safety_car: null,
+            active_flags: {},
+            driver_flags: {},
+            recent_messages: [],
+          },
         },
       ),
     );
@@ -42,7 +63,16 @@ describe("RaceControlCard phase line", () => {
     renderWith(
       makePush(
         {},
-        { race_control: { session_status: "SESSION FINISHED", current_flag: null, safety_car: null, active_flags: {}, driver_flags: {}, recent_messages: [] } },
+        {
+          race_control: {
+            session_status: "SESSION FINISHED",
+            current_flag: null,
+            safety_car: null,
+            active_flags: {},
+            driver_flags: {},
+            recent_messages: [],
+          },
+        },
       ),
     );
     expect(screen.getByText("SESSION FINISHED")).toBeInTheDocument();
@@ -57,14 +87,38 @@ describe("RaceControlCard flag line", () => {
 
   it("shows a full safety car deployment", () => {
     renderWith(
-      makePush({}, { race_control: { session_status: "SESSION STARTED", current_flag: null, safety_car: "SC", active_flags: {}, driver_flags: {}, recent_messages: [] } }),
+      makePush(
+        {},
+        {
+          race_control: {
+            session_status: "SESSION STARTED",
+            current_flag: null,
+            safety_car: "SC",
+            active_flags: {},
+            driver_flags: {},
+            recent_messages: [],
+          },
+        },
+      ),
     );
     expect(screen.getByText("Safety Car (SC)")).toBeInTheDocument();
   });
 
   it("shows a virtual safety car deployment", () => {
     renderWith(
-      makePush({}, { race_control: { session_status: "SESSION STARTED", current_flag: null, safety_car: "VSC", active_flags: {}, driver_flags: {}, recent_messages: [] } }),
+      makePush(
+        {},
+        {
+          race_control: {
+            session_status: "SESSION STARTED",
+            current_flag: null,
+            safety_car: "VSC",
+            active_flags: {},
+            driver_flags: {},
+            recent_messages: [],
+          },
+        },
+      ),
     );
     expect(screen.getByText("Virtual Safety Car (VSC)")).toBeInTheDocument();
   });

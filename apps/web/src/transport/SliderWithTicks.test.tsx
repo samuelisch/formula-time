@@ -18,7 +18,14 @@ const TICKS: TickMark[] = [
 describe("SliderWithTicks", () => {
   it("renders one tick per anchor, positioned by percent of the range", () => {
     const { container } = render(
-      <SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={vi.fn()} />,
+      <SliderWithTicks
+        min={0}
+        max={100_000}
+        value={0}
+        ticks={TICKS}
+        ariaLabel="Playback position"
+        onChange={vi.fn()}
+      />,
     );
     const ticks = Array.from(container.querySelectorAll('[class*="tick"]:not([class*="tickLabel"])'));
     // 5 tick marks (the wrapper's own track children), each positioned via inline `left`.
@@ -28,7 +35,16 @@ describe("SliderWithTicks", () => {
   });
 
   it("labels every lap when 40 or fewer ticks fall inside the slider", () => {
-    render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={vi.fn()} />);
+    render(
+      <SliderWithTicks
+        min={0}
+        max={100_000}
+        value={0}
+        ticks={TICKS}
+        ariaLabel="Playback position"
+        onChange={vi.fn()}
+      />,
+    );
     for (const lap of ["1", "2", "3", "4", "5"]) {
       expect(screen.getByText(lap)).toBeInTheDocument();
     }
@@ -37,17 +53,44 @@ describe("SliderWithTicks", () => {
   it("labels only every fifth lap once more than 40 ticks fall inside the slider", () => {
     const manyTicks: TickMark[] = Array.from({ length: 60 }, (_, index) => ({ lap: index + 1, value: index * 1_000 }));
     render(
-      <SliderWithTicks min={0} max={59_000} value={0} ticks={manyTicks} ariaLabel="Playback position" onChange={vi.fn()} />,
+      <SliderWithTicks
+        min={0}
+        max={59_000}
+        value={0}
+        ticks={manyTicks}
+        ariaLabel="Playback position"
+        onChange={vi.fn()}
+      />,
     );
     const labels = screen.getAllByText(/^\d+$/).filter((el) => el.className.includes("tickLabel"));
     expect(labels).toHaveLength(12);
-    expect(labels.map((el) => el.textContent)).toEqual(
-      ["5", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55", "60"],
-    );
+    expect(labels.map((el) => el.textContent)).toEqual([
+      "5",
+      "10",
+      "15",
+      "20",
+      "25",
+      "30",
+      "35",
+      "40",
+      "45",
+      "50",
+      "55",
+      "60",
+    ]);
   });
 
   it("shows the current lap in a tooltip above the thumb", () => {
-    render(<SliderWithTicks min={0} max={100_000} value={45_000} ticks={TICKS} ariaLabel="Playback position" onChange={vi.fn()} />);
+    render(
+      <SliderWithTicks
+        min={0}
+        max={100_000}
+        value={45_000}
+        ticks={TICKS}
+        ariaLabel="Playback position"
+        onChange={vi.fn()}
+      />,
+    );
     expect(screen.getByText("Lap 2")).toBeInTheDocument();
   });
 
@@ -77,13 +120,31 @@ describe("SliderWithTicks", () => {
   });
 
   it("falls back to ticks for the tooltip lookup when allTicks is not given", () => {
-    render(<SliderWithTicks min={0} max={100_000} value={45_000} ticks={TICKS} ariaLabel="Playback position" onChange={vi.fn()} />);
+    render(
+      <SliderWithTicks
+        min={0}
+        max={100_000}
+        value={45_000}
+        ticks={TICKS}
+        ariaLabel="Playback position"
+        onChange={vi.fn()}
+      />,
+    );
     expect(screen.getByText("Lap 2")).toBeInTheDocument();
   });
 
   it("snaps the emitted value when a pointer drag lands within the threshold of a tick", () => {
     const onChange = vi.fn();
-    render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={onChange} />);
+    render(
+      <SliderWithTicks
+        min={0}
+        max={100_000}
+        value={0}
+        ticks={TICKS}
+        ariaLabel="Playback position"
+        onChange={onChange}
+      />,
+    );
     const slider = screen.getByRole("slider", { name: "Playback position" });
     fireEvent.pointerDown(slider);
     fireEvent.change(slider, { target: { value: "31000" } });
@@ -92,7 +153,16 @@ describe("SliderWithTicks", () => {
 
   it("passes the raw value through during a drag when nothing is close enough to snap to", () => {
     const onChange = vi.fn();
-    render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={onChange} />);
+    render(
+      <SliderWithTicks
+        min={0}
+        max={100_000}
+        value={0}
+        ticks={TICKS}
+        ariaLabel="Playback position"
+        onChange={onChange}
+      />,
+    );
     const slider = screen.getByRole("slider", { name: "Playback position" });
     fireEvent.pointerDown(slider);
     fireEvent.change(slider, { target: { value: "45000" } });
@@ -105,7 +175,16 @@ describe("SliderWithTicks", () => {
   // and the control could appear stuck on it.
   it("does not snap a change with no pointer drag in progress, even inside the snap threshold", () => {
     const onChange = vi.fn();
-    render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={onChange} />);
+    render(
+      <SliderWithTicks
+        min={0}
+        max={100_000}
+        value={0}
+        ticks={TICKS}
+        ariaLabel="Playback position"
+        onChange={onChange}
+      />,
+    );
     const slider = screen.getByRole("slider", { name: "Playback position" });
     fireEvent.change(slider, { target: { value: "31000" } }); // no pointerDown first
     expect(onChange).toHaveBeenCalledWith(31_000); // not 30_000
@@ -114,7 +193,16 @@ describe("SliderWithTicks", () => {
   it("keyboard stepping near an off-grid tick moves exactly one step, never snapping onto it", () => {
     const onChange = vi.fn();
     const offGridTick: TickMark[] = [{ lap: 2, value: 30_050 }]; // not a multiple of the 100ms step
-    render(<SliderWithTicks min={0} max={100_000} value={29_900} ticks={offGridTick} ariaLabel="Playback position" onChange={onChange} />);
+    render(
+      <SliderWithTicks
+        min={0}
+        max={100_000}
+        value={29_900}
+        ticks={offGridTick}
+        ariaLabel="Playback position"
+        onChange={onChange}
+      />,
+    );
     const slider = screen.getByRole("slider", { name: "Playback position" });
     // One native step (100ms) lands at 30_000, well within +/-1.5% (1500ms)
     // of the tick at 30_050 -- must not snap without a drag.
@@ -127,7 +215,16 @@ describe("SliderWithTicks", () => {
 
   it("resumes snapping on a later drag after a prior drag ended (pointerup/pointercancel reset it)", () => {
     const onChange = vi.fn();
-    render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={onChange} />);
+    render(
+      <SliderWithTicks
+        min={0}
+        max={100_000}
+        value={0}
+        ticks={TICKS}
+        ariaLabel="Playback position"
+        onChange={onChange}
+      />,
+    );
     const slider = screen.getByRole("slider", { name: "Playback position" });
 
     fireEvent.pointerDown(slider);
@@ -149,7 +246,16 @@ describe("SliderWithTicks", () => {
   // step would snap.
   it("clears the drag state on blur or lost pointer capture, so an interrupted drag doesn't leave keyboard steps snapping", () => {
     const onChange = vi.fn();
-    render(<SliderWithTicks min={0} max={100_000} value={0} ticks={TICKS} ariaLabel="Playback position" onChange={onChange} />);
+    render(
+      <SliderWithTicks
+        min={0}
+        max={100_000}
+        value={0}
+        ticks={TICKS}
+        ariaLabel="Playback position"
+        onChange={onChange}
+      />,
+    );
     const slider = screen.getByRole("slider", { name: "Playback position" });
 
     fireEvent.pointerDown(slider);
@@ -165,7 +271,17 @@ describe("SliderWithTicks", () => {
   });
 
   it("disables the underlying input when disabled", () => {
-    render(<SliderWithTicks min={0} max={0} value={0} ticks={[]} disabled ariaLabel="Playback position" onChange={vi.fn()} />);
+    render(
+      <SliderWithTicks
+        min={0}
+        max={0}
+        value={0}
+        ticks={[]}
+        disabled
+        ariaLabel="Playback position"
+        onChange={vi.fn()}
+      />,
+    );
     expect((screen.getByRole("slider", { name: "Playback position" }) as HTMLInputElement).disabled).toBe(true);
   });
 });

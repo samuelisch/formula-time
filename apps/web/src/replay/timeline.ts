@@ -189,12 +189,14 @@ export async function appendEvents(timeline: Timeline, rawEvents: RaceEvent[]): 
 
     const dueByCount = eventsSinceKeyframe >= KEYFRAME_EVENT_INTERVAL;
     const dueByTime =
-      lastSourceMs !== null &&
-      keyframeSourceMs !== null &&
-      lastSourceMs - keyframeSourceMs >= KEYFRAME_SOURCE_TIME_MS;
+      lastSourceMs !== null && keyframeSourceMs !== null && lastSourceMs - keyframeSourceMs >= KEYFRAME_SOURCE_TIME_MS;
 
     if (dueByCount || dueByTime) {
-      timeline.keyframes.push({ eventIndex: timeline.events.length, sourceMs: lastSourceMs, state: reducer.snapshot() });
+      timeline.keyframes.push({
+        eventIndex: timeline.events.length,
+        sourceMs: lastSourceMs,
+        state: reducer.snapshot(),
+      });
       eventsSinceKeyframe = 0;
       keyframeSourceMs = lastSourceMs;
     }

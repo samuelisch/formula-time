@@ -6,7 +6,13 @@ import { QueryState } from "./QueryState.tsx";
 describe("QueryState", () => {
   it("shows the loading text and not the children while pending", () => {
     render(
-      <QueryState status="pending" error={null} onRetry={vi.fn()} loadingText="Loading things…" errorText="Could not load things">
+      <QueryState
+        status="pending"
+        error={null}
+        onRetry={vi.fn()}
+        loadingText="Loading things…"
+        errorText="Could not load things"
+      >
         <p>Content</p>
       </QueryState>,
     );
@@ -18,7 +24,13 @@ describe("QueryState", () => {
   it("shows the error text and a Retry button that calls onRetry, not the children", () => {
     const onRetry = vi.fn();
     render(
-      <QueryState status="error" error={new Error("boom")} onRetry={onRetry} loadingText="Loading things…" errorText="Could not load things">
+      <QueryState
+        status="error"
+        error={new Error("boom")}
+        onRetry={onRetry}
+        loadingText="Loading things…"
+        errorText="Could not load things"
+      >
         <p>Content</p>
       </QueryState>,
     );
@@ -32,7 +44,13 @@ describe("QueryState", () => {
 
   it("renders the children on success, not the loading or error text", () => {
     render(
-      <QueryState status="success" error={null} onRetry={vi.fn()} loadingText="Loading things…" errorText="Could not load things">
+      <QueryState
+        status="success"
+        error={null}
+        onRetry={vi.fn()}
+        loadingText="Loading things…"
+        errorText="Could not load things"
+      >
         <p>Content</p>
       </QueryState>,
     );

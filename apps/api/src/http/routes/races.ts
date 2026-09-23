@@ -177,10 +177,7 @@ export const racesRoutes: FastifyPluginCallback<RacesRoutesOptions> = (app: Fast
       // never change (ADR-0010 single writer per session, ADR-0007
       // "ingest never updates an events row"). A short page is the head,
       // still growing -- never cache it.
-      reply.header(
-        "cache-control",
-        events.length === limit ? "public, max-age=31536000, immutable" : "no-store",
-      );
+      reply.header("cache-control", events.length === limit ? "public, max-age=31536000, immutable" : "no-store");
 
       const page: RaceEventsPage = {
         session_key: sessionKey.toString(),

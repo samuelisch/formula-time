@@ -45,9 +45,7 @@ describe("useReplayTimeTarget", () => {
     const { result: withoutFold } = renderHook(() => useReplayTimeTarget(fakePlayback({ sourceMs: 5_000 }), null));
     expect(withoutFold.current.displayedAt()).toBeNull();
 
-    const { result: withFold } = renderHook(() =>
-      useReplayTimeTarget(fakePlayback({ sourceMs: 5_000 }), folded()),
-    );
+    const { result: withFold } = renderHook(() => useReplayTimeTarget(fakePlayback({ sourceMs: 5_000 }), folded()));
     expect(withFold.current.displayedAt()).toBe(5_000);
   });
 

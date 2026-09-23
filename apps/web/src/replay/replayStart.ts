@@ -24,7 +24,12 @@ export interface ReplayStartInput {
  * scheduled or delayed formation-lap start, clamped to what the fold
  * actually covers.
  */
-export function replayStartMs({ firstSourceMs, lastSourceMs, dateStartMs, lightsOutMs }: ReplayStartInput): number | null {
+export function replayStartMs({
+  firstSourceMs,
+  lastSourceMs,
+  dateStartMs,
+  lightsOutMs,
+}: ReplayStartInput): number | null {
   if (firstSourceMs === null) return null;
 
   const candidate =

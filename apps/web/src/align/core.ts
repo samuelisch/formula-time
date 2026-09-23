@@ -92,11 +92,7 @@ export interface Anchors {
 // evidence of a misread storm, not race start, so it's treated like any
 // other lap lookup. Null when the data side hasn't produced that anchor yet
 // (caller retries at the next lap).
-export function chooseAnchorTarget(
-  anchors: Anchors | null | undefined,
-  lap: number,
-  isRelock: boolean,
-): string | null {
+export function chooseAnchorTarget(anchors: Anchors | null | undefined, lap: number, isRelock: boolean): string | null {
   if (!anchors) return null;
   if (lap === 1 && !isRelock) {
     return anchors.lights_out ?? anchors.laps?.find((candidate) => candidate.lap === 1)?.source_time ?? null;
@@ -201,14 +197,16 @@ export interface LightsOutDetector {
   pushSummary(summary: LightsSummary, wall: number): { wall: number; cells: number[] } | null;
 }
 
-export function createLightsOutDetector(options: {
-  litThreshold?: number;
-  riseMin?: number;
-  rampMs?: number;
-  dropKeep?: number;
-  windowMs?: number;
-  cutFraction?: number;
-} = {}): LightsOutDetector {
+export function createLightsOutDetector(
+  options: {
+    litThreshold?: number;
+    riseMin?: number;
+    rampMs?: number;
+    dropKeep?: number;
+    windowMs?: number;
+    cutFraction?: number;
+  } = {},
+): LightsOutDetector {
   // The five gantry lights are tiny next to trackside red signage, so
   // per-tile stability tracking drowns in noise. The scalar signature
   // (fraction of lit tiles) ramps as lights come on, then collapses toward
@@ -271,11 +269,13 @@ export interface OffsetTracker {
   observationCount(): number;
 }
 
-export function createOffsetTracker(options: {
-  discardBeyondMs?: number;
-  relockAfter?: number;
-  flipGain?: number;
-} = {}): OffsetTracker {
+export function createOffsetTracker(
+  options: {
+    discardBeyondMs?: number;
+    relockAfter?: number;
+    flipGain?: number;
+  } = {},
+): OffsetTracker {
   const discardBeyondMs = options.discardBeyondMs ?? 3000;
   const relockAfter = options.relockAfter ?? 3;
   const flipGain = options.flipGain ?? 0.3;

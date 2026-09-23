@@ -126,7 +126,9 @@ export async function runSimulation(opts: SimOptions): Promise<void> {
   );
 
   const spanMs = rows.at(-1)!.receivedAt - cutMs;
-  log(`drip simulator: ${rows.length} rows, dripping ${(spanMs / 60000).toFixed(1)} recorded minutes (--start ${opts.start})`);
+  log(
+    `drip simulator: ${rows.length} rows, dripping ${(spanMs / 60000).toFixed(1)} recorded minutes (--start ${opts.start})`,
+  );
   log(`  source: ${opts.recordingDir}  ->  ${outDir} (session_key=${opts.simKey})`);
   log(`  speed: ${opts.speed}x (finishes in ~${(spanMs / opts.speed / 60000).toFixed(1)} min). Ctrl+C to stop.`);
 

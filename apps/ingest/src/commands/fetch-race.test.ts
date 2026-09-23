@@ -230,9 +230,7 @@ describe("splitLapRow", () => {
     reducer.apply(toRaceEvent(completeRow!));
     expect(state.drivers["63"]!.current_lap).toBe(10);
     expect(state.drivers["63"]!.lap_duration).toBe(LAP_DURATION);
-    expect(state.latest_source_time).toBe(
-      new Date(Date.parse(DATE_START) + LAP_DURATION * 1000).toISOString(),
-    );
+    expect(state.latest_source_time).toBe(new Date(Date.parse(DATE_START) + LAP_DURATION * 1000).toISOString());
   });
 });
 

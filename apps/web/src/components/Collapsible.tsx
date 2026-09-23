@@ -30,7 +30,13 @@ export function Collapsible({ summary, children, defaultOpen = false, open, onTo
 
   return (
     <div className={cx(styles.collapsible, className)}>
-      <button type="button" className={styles.trigger} aria-expanded={isOpen} aria-controls={contentId} onClick={toggle}>
+      <button
+        type="button"
+        className={styles.trigger}
+        aria-expanded={isOpen}
+        aria-controls={contentId}
+        onClick={toggle}
+      >
         {summary}
       </button>
       <div id={contentId} className={styles.content} hidden={!isOpen}>

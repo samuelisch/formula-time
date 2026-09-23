@@ -556,7 +556,11 @@ describe("applyOffsetToTarget", () => {
   it("replay: a lights-out reseed lands the seek on lap 1's own source time", () => {
     const target = fakeReplayTarget();
     const lap1SourceTime = "2026-09-06T13:00:00.000Z";
-    const anchors: Anchors = { lights_out: lap1SourceTime, laps: [{ lap: 1, source_time: lap1SourceTime }], restarts: [] };
+    const anchors: Anchors = {
+      lights_out: lap1SourceTime,
+      laps: [{ lap: 1, source_time: lap1SourceTime }],
+      restarts: [],
+    };
     const anchorIso = chooseTarget(anchors, "lights", 0, false);
     expect(anchorIso).toBe(lap1SourceTime);
     const anchorMs = Date.parse(anchorIso!);

@@ -143,7 +143,9 @@ describe("clock", () => {
 
 describe("raceTitle", () => {
   it("uses meeting_name when present", () => {
-    expect(raceTitle({ meeting_name: "Spanish Grand Prix", country: "Spain", name: "Race" })).toBe("Spanish Grand Prix");
+    expect(raceTitle({ meeting_name: "Spanish Grand Prix", country: "Spain", name: "Race" })).toBe(
+      "Spanish Grand Prix",
+    );
   });
 
   it("falls back to country · name when meeting_name is absent", () => {
@@ -172,7 +174,9 @@ describe("raceSubtitle", () => {
   });
 
   it("drops a missing circuit_short_name", () => {
-    expect(raceSubtitle({ location: "Montmeló", date_start: "2026-06-14T13:00:00.000Z" })).toBe("Montmeló · 2026-06-14");
+    expect(raceSubtitle({ location: "Montmeló", date_start: "2026-06-14T13:00:00.000Z" })).toBe(
+      "Montmeló · 2026-06-14",
+    );
   });
 
   it("drops a missing location", () => {
@@ -190,20 +194,26 @@ describe("raceSubtitle", () => {
   });
 
   it("drops the date when date_start is unparseable, rather than leaking date()'s em dash", () => {
-    expect(raceSubtitle({ circuit_short_name: "Barcelona-Catalunya", date_start: "not-a-date" })).toBe("Barcelona-Catalunya");
+    expect(raceSubtitle({ circuit_short_name: "Barcelona-Catalunya", date_start: "not-a-date" })).toBe(
+      "Barcelona-Catalunya",
+    );
   });
 });
 
 describe("raceTitleDisambiguated", () => {
   it("returns the plain title when no other race in the list shares it", () => {
-    const races = [makeRace({ session_key: 1, meeting_name: "Spanish Grand Prix", date_start: "2026-06-14T13:00:00.000Z" })];
+    const races = [
+      makeRace({ session_key: 1, meeting_name: "Spanish Grand Prix", date_start: "2026-06-14T13:00:00.000Z" }),
+    ];
     expect(raceTitleDisambiguated({ meeting_name: "Italian Grand Prix", country: "Italy", name: "Race" }, races)).toBe(
       "Italian Grand Prix",
     );
   });
 
   it("appends the session's own year when another race in the list shares the title", () => {
-    const races = [makeRace({ session_key: 1, meeting_name: "Spanish Grand Prix", date_start: "2025-06-01T13:00:00.000Z" })];
+    const races = [
+      makeRace({ session_key: 1, meeting_name: "Spanish Grand Prix", date_start: "2025-06-01T13:00:00.000Z" }),
+    ];
     expect(
       raceTitleDisambiguated({ meeting_name: "Spanish Grand Prix", date_start: "2026-06-14T13:00:00.000Z" }, races),
     ).toBe("Spanish Grand Prix (2026)");
@@ -215,7 +225,9 @@ describe("raceTitleDisambiguated", () => {
   });
 
   it("falls back to the plain title when a colliding session's date_start is unparseable, rather than rendering (NaN)", () => {
-    const races = [makeRace({ session_key: 1, meeting_name: "Spanish Grand Prix", date_start: "2025-06-01T13:00:00.000Z" })];
+    const races = [
+      makeRace({ session_key: 1, meeting_name: "Spanish Grand Prix", date_start: "2025-06-01T13:00:00.000Z" }),
+    ];
     expect(raceTitleDisambiguated({ meeting_name: "Spanish Grand Prix", date_start: "not-a-date" }, races)).toBe(
       "Spanish Grand Prix",
     );

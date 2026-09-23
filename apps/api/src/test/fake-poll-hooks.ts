@@ -15,9 +15,7 @@ export interface FakePollHooks extends PollHooks {
   resolveNext(): void;
 }
 
-export function fakePollHooks(
-  options: { calls?: string[]; manualOnState?: boolean } = {},
-): FakePollHooks {
+export function fakePollHooks(options: { calls?: string[]; manualOnState?: boolean } = {}): FakePollHooks {
   const calls = options.calls ?? [];
   const pending: Array<() => void> = [];
 

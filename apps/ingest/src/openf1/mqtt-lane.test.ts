@@ -85,7 +85,11 @@ class FakeMqttClient extends EventEmitter implements MqttClientLike {
   }
 }
 
-function fakeConnect(): { connectImpl: MqttConnect; clients: FakeMqttClient[]; calls: Array<{ url: string; opts: Record<string, unknown> }> } {
+function fakeConnect(): {
+  connectImpl: MqttConnect;
+  clients: FakeMqttClient[];
+  calls: Array<{ url: string; opts: Record<string, unknown> }>;
+} {
   const clients: FakeMqttClient[] = [];
   const calls: Array<{ url: string; opts: Record<string, unknown> }> = [];
   const connectImpl: MqttConnect = (url, opts) => {
@@ -97,7 +101,9 @@ function fakeConnect(): { connectImpl: MqttConnect; clients: FakeMqttClient[]; c
   return { connectImpl, clients, calls };
 }
 
-function fakeAuth(tokens: string[] = ["token-1", "token-2", "token-3", "token-4"]): MqttLaneAuth & { invalidateCalls: number; getTokenCalls: number } {
+function fakeAuth(
+  tokens: string[] = ["token-1", "token-2", "token-3", "token-4"],
+): MqttLaneAuth & { invalidateCalls: number; getTokenCalls: number } {
   let index = 0;
   const state = {
     invalidateCalls: 0,

@@ -243,7 +243,10 @@ interface PositionCueSnapshot {
  */
 export function useBoardPositionDeltas(): Record<number, number> {
   const push = useBoardPush();
-  const [snapshot, setSnapshot] = useState<PositionCueSnapshot>(() => ({ push: null, cueState: emptyPositionCueState() }));
+  const [snapshot, setSnapshot] = useState<PositionCueSnapshot>(() => ({
+    push: null,
+    cueState: emptyPositionCueState(),
+  }));
 
   if (push !== null && push !== snapshot.push) {
     const cueState = advancePositionCueState(snapshot.cueState, push, wallClockMillis());

@@ -5,7 +5,9 @@ import { FORMATION_WINDOW_MS, replayStartMs } from "./replayStart.ts";
 const MIN = 60_000;
 
 function at(hh: number, mm: number, ss = 0): number {
-  return Date.parse(`2026-09-06T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}.000Z`);
+  return Date.parse(
+    `2026-09-06T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}.000Z`,
+  );
 }
 
 describe("replayStartMs", () => {

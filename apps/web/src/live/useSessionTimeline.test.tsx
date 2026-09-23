@@ -370,9 +370,7 @@ describe("useSessionTimeline", () => {
     });
     expect(result.current.loading).toBe(false);
 
-    await waitFor(() =>
-      expect(result.current.timeline?.events.map((e) => e.event_id)).toEqual(["e1", "e2", "e3"]),
-    );
+    await waitFor(() => expect(result.current.timeline?.events.map((e) => e.event_id)).toEqual(["e1", "e2", "e3"]));
     // No further page: the resume's one request plus the first join's one.
     expect(fetchStub).toHaveBeenCalledTimes(2);
   });

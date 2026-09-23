@@ -37,7 +37,9 @@ const FLIP_FRAME = "lap-change-0500ms.png";
 const PASS_RATE_MIN = 0.9; // "at least nine of every ten frames" (issue #241)
 
 const frames = manifest.frames as ManifestFrame[];
-const readableFrames = frames.filter((frame): frame is ManifestFrame & { lap: number; total: number } => frame.lap !== null);
+const readableFrames = frames.filter(
+  (frame): frame is ManifestFrame & { lap: number; total: number } => frame.lap !== null,
+);
 const blankFrames = frames.filter((frame) => frame.lap === null);
 
 describe.skipIf(!process.env.OCR_FIXTURES)("lap counter OCR against real footage crops", () => {
@@ -61,36 +63,27 @@ describe.skipIf(!process.env.OCR_FIXTURES)("lap counter OCR against real footage
     return parseLapText(result.data.text);
   }
 
-  test(
-    "reads the manifest's lap on at least 90% of frames that have a counter on screen",
-    async () => {
-      const results = await Promise.all(readableFrames.map((frame) => readFrame(frame.file)));
-      const passes = results.filter((reading, index) => reading?.lap === readableFrames[index]!.lap && reading.total === readableFrames[index]!.total);
-      const passRate = passes.length / readableFrames.length;
-      expect(passRate, `${passes.length}/${readableFrames.length} frames read correctly (need >= ${PASS_RATE_MIN * 100}%)`).toBeGreaterThanOrEqual(
-        PASS_RATE_MIN,
-      );
-    },
-    60_000,
-  );
+  test("reads the manifest's lap on at least 90% of frames that have a counter on screen", async () => {
+    const results = await Promise.all(readableFrames.map((frame) => readFrame(frame.file)));
+    const passes = results.filter(
+      (reading, index) => reading?.lap === readableFrames[index]!.lap && reading.total === readableFrames[index]!.total,
+    );
+    const passRate = passes.length / readableFrames.length;
+    expect(
+      passRate,
+      `${passes.length}/${readableFrames.length} frames read correctly (need >= ${PASS_RATE_MIN * 100}%)`,
+    ).toBeGreaterThanOrEqual(PASS_RATE_MIN);
+  }, 60_000);
 
-  test(
-    "reads the flip frame itself correctly -- the case that actually matters for a seek",
-    async () => {
-      const reading = await readFrame(FLIP_FRAME);
-      expect(reading).toEqual({ lap: 15, total: 72 });
-    },
-    30_000,
-  );
+  test("reads the flip frame itself correctly -- the case that actually matters for a seek", async () => {
+    const reading = await readFrame(FLIP_FRAME);
+    expect(reading).toEqual({ lap: 15, total: 72 });
+  }, 30_000);
 
-  test(
-    "never reports a lap on a frame the manifest says has no counter on screen -- no false positives",
-    async () => {
-      const results = await Promise.all(blankFrames.map((frame) => readFrame(frame.file)));
-      results.forEach((reading, index) => {
-        expect(reading, `${blankFrames[index]!.file} should not have parsed a lap`).toBeNull();
-      });
-    },
-    60_000,
-  );
+  test("never reports a lap on a frame the manifest says has no counter on screen -- no false positives", async () => {
+    const results = await Promise.all(blankFrames.map((frame) => readFrame(frame.file)));
+    results.forEach((reading, index) => {
+      expect(reading, `${blankFrames[index]!.file} should not have parsed a lap`).toBeNull();
+    });
+  }, 60_000);
 });

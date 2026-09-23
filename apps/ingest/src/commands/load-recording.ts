@@ -65,7 +65,12 @@ export interface EventTransactionDb {
 }
 
 /** The slice of the Prisma client the loader needs — real client or a fake (unit test). */
-export type LoaderDb = SessionsDb & EventWriterDb & SessionStatusReader & EventDeleteDb & EventReadDb & EventTransactionDb;
+export type LoaderDb = SessionsDb &
+  EventWriterDb &
+  SessionStatusReader &
+  EventDeleteDb &
+  EventReadDb &
+  EventTransactionDb;
 
 // Reads every `raw/*.jsonl` through the same `LiveNormalizer` in this
 // file order; "drivers" here is the recorded OpenF1 fetch
@@ -125,9 +130,11 @@ async function readSessionRowsInTimeOrder(dir: string, sessionKey: number): Prom
  * The two counts the verify line reports: `endpoint_runs` and
  * `source_time_backsteps`. See README: Recording load.
  */
-export function verifyCounts(
-  rows: readonly { endpoint: string; source_time: Date | string | null }[],
-): { rows: number; endpoint_runs: number; source_time_backsteps: number } {
+export function verifyCounts(rows: readonly { endpoint: string; source_time: Date | string | null }[]): {
+  rows: number;
+  endpoint_runs: number;
+  source_time_backsteps: number;
+} {
   let endpoint_runs = 0;
   let previousEndpoint: string | null = null;
   let previousSourceTimeMs: number | null = null;
@@ -351,9 +358,7 @@ export async function writeSessionThroughLoader(
       // it here so the failure stays attributed to this session.
       const dropped = queue.clear();
       log(`load: dropped ${dropped} unwritten rows for ${sessionKey}`);
-      log(
-        `load: session=${sessionKey} writer failed to write all events; session left upcoming for the next run`,
-      );
+      log(`load: session=${sessionKey} writer failed to write all events; session left upcoming for the next run`);
       return { skipped: true, drainResult };
     }
   }
@@ -419,7 +424,9 @@ async function meetingNamesForSession(
     const match = rows.find((row) => Number(row["meeting_key"]) === meetingKey);
     const name = match?.["meeting_name"];
     if (typeof name === "string" && name.length > 0) return new Map([[meetingKey, name]]);
-    log(`load: session=${sessionKey} live meetings fetch for meeting_key=${meetingKey} returned no usable meeting_name`);
+    log(
+      `load: session=${sessionKey} live meetings fetch for meeting_key=${meetingKey} returned no usable meeting_name`,
+    );
     return new Map();
   } catch (error) {
     log(
@@ -580,7 +587,9 @@ if (isMain) {
   // historical meetings data is public, so this works whether or not
   // OPENF1_LOGIN/PASSWORD are configured (OpenF1Auth(null) sends no bearer
   // token) — rate-limited the same way fetch-race's own live requests are.
-  const meetingsFetcher = withRetry(withSpacing(createOpenF1Fetcher(new OpenF1Auth(credentialsFromEnv())), FETCH_SPACING_MS));
+  const meetingsFetcher = withRetry(
+    withSpacing(createOpenF1Fetcher(new OpenF1Auth(credentialsFromEnv())), FETCH_SPACING_MS),
+  );
   loadRecordings(dirs, db, { replace, meetingsFetcher })
     .then(async (result) => {
       await db.$disconnect();

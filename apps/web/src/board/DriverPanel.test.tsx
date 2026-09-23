@@ -92,10 +92,7 @@ describe("DriverPanel", () => {
       current_lap: 2,
       source_timestamps: { intervals: "2026-09-08T13:00:00.000Z" },
     });
-    renderWith(
-      makePush({}, { drivers: { "1": leader, "16": dnfDriver }, driver_order: [1, 16] }),
-      "/live?driver=16",
-    );
+    renderWith(makePush({}, { drivers: { "1": leader, "16": dnfDriver }, driver_order: [1, 16] }), "/live?driver=16");
 
     expect(screen.getByText("Retired (DNF)")).toBeInTheDocument();
   });
@@ -108,10 +105,7 @@ describe("DriverPanel", () => {
       current_lap: 5,
     });
     const dnsDriver = makeDriver({ driver_number: 14, name_acronym: "ALO", position: 17, current_lap: null });
-    renderWith(
-      makePush({}, { drivers: { "1": leader, "14": dnsDriver }, driver_order: [1, 14] }),
-      "/live?driver=14",
-    );
+    renderWith(makePush({}, { drivers: { "1": leader, "14": dnsDriver }, driver_order: [1, 14] }), "/live?driver=14");
 
     expect(screen.getByText("Did not start (DNS)")).toBeInTheDocument();
   });

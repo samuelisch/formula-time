@@ -6,15 +6,15 @@
 // it never applies a reading itself; `applyOffset.ts` owns that policy.
 import { useCallback, useLayoutEffect, useRef } from "react";
 
+import { clearStoredCrop, drawInto, readPixels, readStoredCrop, writeStoredCrop, type OcrWorker } from "./capture.ts";
 import {
-  clearStoredCrop,
-  drawInto,
-  readPixels,
-  readStoredCrop,
-  writeStoredCrop,
-  type OcrWorker,
-} from "./capture.ts";
-import { createLightsOutDetector, cropFromBBox, findLapLine, parseLapText, redFractionGrid, regionChanged } from "./core.ts";
+  createLightsOutDetector,
+  cropFromBBox,
+  findLapLine,
+  parseLapText,
+  redFractionGrid,
+  regionChanged,
+} from "./core.ts";
 import { createLightsGate, NO_READ_NUDGE_STATUS, SAMPLE_MS, shouldNudgeNoRead, type Crop } from "./policy.ts";
 
 const AUTO_DETECT_MS = 3_000;
@@ -164,7 +164,9 @@ export function useOcrLoop(options: UseOcrLoopOptions): OcrLoopControls {
 
   const startAutoDetect = useCallback(() => {
     stopAutoDetect();
-    liveRef.current.setStatus("Scanning the whole window for the lap counter (LAP N/M)… lights-out detection is already active. Drag on the preview to override.");
+    liveRef.current.setStatus(
+      "Scanning the whole window for the lap counter (LAP N/M)… lights-out detection is already active. Drag on the preview to override.",
+    );
     autoDetectTimerRef.current = setInterval(() => void autoDetectOnce(), AUTO_DETECT_MS);
     void autoDetectOnce();
   }, [autoDetectOnce, stopAutoDetect]);
@@ -219,7 +221,16 @@ export function useOcrLoop(options: UseOcrLoopOptions): OcrLoopControls {
       pendingFrameRef.current = null;
       recognizeCanvas.width = pendingCanvas.width;
       recognizeCanvas.height = pendingCanvas.height;
-      drawInto(recognizeCanvas, pendingCanvas, 0, 0, pendingCanvas.width, pendingCanvas.height, pendingCanvas.width, pendingCanvas.height);
+      drawInto(
+        recognizeCanvas,
+        pendingCanvas,
+        0,
+        0,
+        pendingCanvas.width,
+        pendingCanvas.height,
+        pendingCanvas.width,
+        pendingCanvas.height,
+      );
       recognizingRef.current = true;
       try {
         let reading = null;
@@ -266,7 +277,10 @@ export function useOcrLoop(options: UseOcrLoopOptions): OcrLoopControls {
       drawInto(frameCanvas, video, 0, 0, video.videoWidth, video.videoHeight, frameCanvas.width, frameCanvas.height);
       const framePixels = readPixels(frameCanvas);
       if (framePixels.length > 0) {
-        const fired = lightsDetectorRef.current.push(redFractionGrid(framePixels, frameCanvas.width, frameCanvas.height, 48, 27), Date.now());
+        const fired = lightsDetectorRef.current.push(
+          redFractionGrid(framePixels, frameCanvas.width, frameCanvas.height, 48, 27),
+          Date.now(),
+        );
         if (fired) {
           lightsGateRef.current.markFired();
           liveRef.current.onLightsOut(lightsFrameAt, lightsGateRef.current.isRestart());

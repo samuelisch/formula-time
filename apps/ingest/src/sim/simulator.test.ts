@@ -76,13 +76,22 @@ describe("loadRecordingRows", () => {
     await writeFile(
       path.join(fixture, "raw", "position.jsonl"),
       [
-        JSON.stringify({ received_at: "2026-08-23T13:00:02.000Z", payload: { driver_number: 1, position: 1, date: "2026-08-23T12:59:59Z" } }),
-        JSON.stringify({ received_at: "2026-08-23T13:00:04.000Z", payload: { driver_number: 1, position: 2, date: "2026-08-23T13:00:01Z" } }),
+        JSON.stringify({
+          received_at: "2026-08-23T13:00:02.000Z",
+          payload: { driver_number: 1, position: 1, date: "2026-08-23T12:59:59Z" },
+        }),
+        JSON.stringify({
+          received_at: "2026-08-23T13:00:04.000Z",
+          payload: { driver_number: 1, position: 2, date: "2026-08-23T13:00:01Z" },
+        }),
       ].join("\n") + "\n",
     );
     await writeFile(
       path.join(fixture, "raw", "drivers.jsonl"),
-      JSON.stringify({ received_at: "2026-08-23T13:00:00.000Z", payload: { driver_number: 1, full_name: "Sim Driver" } }) + "\n",
+      JSON.stringify({
+        received_at: "2026-08-23T13:00:00.000Z",
+        payload: { driver_number: 1, full_name: "Sim Driver" },
+      }) + "\n",
     );
 
     const rows = await loadRecordingRows(fixture);
@@ -125,11 +134,21 @@ describe("runSimulation", () => {
     );
     await writeFile(
       path.join(fixture, "raw", "drivers.jsonl"),
-      JSON.stringify({ received_at: "2026-08-23T13:00:00.000Z", payload: { driver_number: 1, full_name: "Sim Driver" } }) + "\n",
+      JSON.stringify({
+        received_at: "2026-08-23T13:00:00.000Z",
+        payload: { driver_number: 1, full_name: "Sim Driver" },
+      }) + "\n",
     );
 
     await rm(outRoot, { recursive: true, force: true });
-    await runSimulation({ recordingDir: fixture, simKey: 70707, outRoot, speed: 20, start: "recording", onLog: () => {} });
+    await runSimulation({
+      recordingDir: fixture,
+      simKey: 70707,
+      outRoot,
+      speed: 20,
+      start: "recording",
+      onLog: () => {},
+    });
 
     const outDir = path.join(outRoot, "70707");
     const written = JSON.parse(await readFile(path.join(outDir, "session.json"), "utf8")) as {
@@ -156,7 +175,14 @@ describe("runSimulation", () => {
     await writeFile(path.join(realOutDir, "polls.jsonl"), "");
 
     await expect(
-      runSimulation({ recordingDir: fixture, simKey: 70708, outRoot: realOutRoot, speed: 20, start: "recording", onLog: () => {} }),
+      runSimulation({
+        recordingDir: fixture,
+        simKey: 70708,
+        outRoot: realOutRoot,
+        speed: 20,
+        start: "recording",
+        onLog: () => {},
+      }),
     ).rejects.toThrow(/looks like a real recording/);
 
     await rm(realOutRoot, { recursive: true, force: true });

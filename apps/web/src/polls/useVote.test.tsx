@@ -29,9 +29,11 @@ describe("useVote", () => {
   });
 
   it("stores the pick in localStorage on a 200", async () => {
-    const fetchStub = vi.fn().mockResolvedValue(
-      jsonResponse(true, 200, { poll_id: "poll-1", option_id: "opt-a", viewer_id: "v1", counted: true }),
-    );
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(true, 200, { poll_id: "poll-1", option_id: "opt-a", viewer_id: "v1", counted: true }),
+      );
     vi.stubGlobal("fetch", fetchStub);
 
     const { result } = renderHook(() => useVote(), { wrapper });

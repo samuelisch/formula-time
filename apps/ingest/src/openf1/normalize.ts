@@ -73,7 +73,9 @@ export function stableJson(value: unknown): string {
 }
 
 export function eventId(endpoint: string, payload: RawRecord): string {
-  const digest = createHash("sha256").update(stableJson(stripEnvelope(payload))).digest("hex");
+  const digest = createHash("sha256")
+    .update(stableJson(stripEnvelope(payload)))
+    .digest("hex");
   return `${endpoint}:${digest}`;
 }
 
@@ -142,9 +144,7 @@ export class LiveNormalizer {
         const id = eventId(endpoint, payload);
         if (seen.has(id)) continue;
 
-        let sourceTime: string | null = config.timestampField
-          ? timestampValue(payload[config.timestampField])
-          : null;
+        let sourceTime: string | null = config.timestampField ? timestampValue(payload[config.timestampField]) : null;
 
         if (endpoint === "stints") {
           const driverNumber = getNumber(payload, "driver_number");

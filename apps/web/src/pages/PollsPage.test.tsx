@@ -78,8 +78,10 @@ interface FetchHandlers {
 
 function stubFetch(handlers: FetchHandlers): ReturnType<typeof vi.fn> {
   const fn = vi.fn((url: string) => {
-    if (url === "/api/polls") return Promise.resolve(new Response(JSON.stringify(handlers.polls ?? []), { status: 200 }));
-    if (url === "/api/races") return Promise.resolve(new Response(JSON.stringify(handlers.races ?? []), { status: 200 }));
+    if (url === "/api/polls")
+      return Promise.resolve(new Response(JSON.stringify(handlers.polls ?? []), { status: 200 }));
+    if (url === "/api/races")
+      return Promise.resolve(new Response(JSON.stringify(handlers.races ?? []), { status: 200 }));
     if (url === "/api/vote") return Promise.resolve(new Response(JSON.stringify(handlers.vote ?? {}), { status: 200 }));
     const racePollsMatch = /^\/api\/races\/([^/]+)\/polls$/.exec(url);
     if (racePollsMatch) {
@@ -207,12 +209,17 @@ describe("PollsPage", () => {
     renderPage();
 
     expect(await screen.findByText("No polls for this race")).toBeInTheDocument();
-    expect(screen.getByText("Polls open on the Friday of the race weekend once the entry list is known")).toBeInTheDocument();
+    expect(
+      screen.getByText("Polls open on the Friday of the race weekend once the entry list is known"),
+    ).toBeInTheDocument();
   });
 
   it("shows the LAP line above the list only when the selected race is the current session and it is live", async () => {
     resetStore({
-      displayed: makePush({ session_key: "9999", total_laps: 53 }, { session: { session_key: "9999", country: "Italy", name: "Race", status: "live" } }),
+      displayed: makePush(
+        { session_key: "9999", total_laps: 53 },
+        { session: { session_key: "9999", country: "Italy", name: "Race", status: "live" } },
+      ),
     });
     stubFetch({ races: [] });
 
@@ -238,7 +245,10 @@ describe("PollsPage", () => {
 
   it("hides the LAP line when a historical (non-current) race is selected, even while the current session is live", async () => {
     resetStore({
-      displayed: makePush({ session_key: "9999", total_laps: 53 }, { session: { session_key: "9999", country: "Italy", name: "Race", status: "live" } }),
+      displayed: makePush(
+        { session_key: "9999", total_laps: 53 },
+        { session: { session_key: "9999", country: "Italy", name: "Race", status: "live" } },
+      ),
     });
     stubFetch({ races, racePolls: { "11361": [] } });
 
@@ -284,7 +294,10 @@ describe("PollsPage", () => {
 
       act(() => {
         useLiveStore.setState({
-          displayed: makePush({ session_key: "9999", polls: [poll] }, { session: { session_key: "9999", country: "Italy", name: "Race", status: "live" } }),
+          displayed: makePush(
+            { session_key: "9999", polls: [poll] },
+            { session: { session_key: "9999", country: "Italy", name: "Race", status: "live" } },
+          ),
         });
       });
       expect(await screen.findByText("Who wins?")).toBeInTheDocument();
@@ -365,12 +378,16 @@ describe("PollsPage", () => {
     renderPage("/polls?race=11361");
 
     expect(await screen.findByText("Could not load polls for this race")).toBeInTheDocument();
-    const callsBeforeRetry = fetchStub.mock.calls.filter((call: unknown[]) => call[0] === "/api/races/11361/polls").length;
+    const callsBeforeRetry = fetchStub.mock.calls.filter(
+      (call: unknown[]) => call[0] === "/api/races/11361/polls",
+    ).length;
 
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
     await waitFor(() => {
-      const callsAfterRetry = fetchStub.mock.calls.filter((call: unknown[]) => call[0] === "/api/races/11361/polls").length;
+      const callsAfterRetry = fetchStub.mock.calls.filter(
+        (call: unknown[]) => call[0] === "/api/races/11361/polls",
+      ).length;
       expect(callsAfterRetry).toBeGreaterThan(callsBeforeRetry);
     });
   });

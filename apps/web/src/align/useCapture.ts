@@ -116,7 +116,14 @@ export function useCapture(options: UseCaptureOptions): CaptureState {
     drawInto(canvas, video, 0, 0, video.videoWidth, video.videoHeight, PREVIEW_WIDTH, height);
     const box = cropRef.current;
     if (box) {
-      strokeRect(canvas, box.x * canvas.width, box.y * canvas.height, box.w * canvas.width, box.h * canvas.height, "#e10600");
+      strokeRect(
+        canvas,
+        box.x * canvas.width,
+        box.y * canvas.height,
+        box.w * canvas.width,
+        box.h * canvas.height,
+        "#e10600",
+      );
     }
   }, [video]);
 
@@ -236,7 +243,18 @@ export function useCapture(options: UseCaptureOptions): CaptureState {
         }
       }
     })();
-  }, [captureDisplayMediaImpl, drawPreview, loadTesseractImpl, createOcrWorkerImpl, onRunning, phase, releaseResources, setStatus, stop, video]);
+  }, [
+    captureDisplayMediaImpl,
+    drawPreview,
+    loadTesseractImpl,
+    createOcrWorkerImpl,
+    onRunning,
+    phase,
+    releaseResources,
+    setStatus,
+    stop,
+    video,
+  ]);
 
   const previewCanvasRef = useCallback((el: HTMLCanvasElement | null) => {
     previewCanvasElRef.current = el;
@@ -284,5 +302,17 @@ export function useCapture(options: UseCaptureOptions): CaptureState {
   const frame = useCallback(() => video, [video]);
   const getCrop = useCallback(() => cropRef.current, []);
 
-  return { phase, visible, crop, setCrop, getCrop, previewCanvasRef, onPreviewPointerDown, onPreviewPointerUp, start, stop, frame };
+  return {
+    phase,
+    visible,
+    crop,
+    setCrop,
+    getCrop,
+    previewCanvasRef,
+    onPreviewPointerDown,
+    onPreviewPointerUp,
+    start,
+    stop,
+    frame,
+  };
 }

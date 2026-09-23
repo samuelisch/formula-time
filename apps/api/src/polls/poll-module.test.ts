@@ -46,13 +46,7 @@ function makeFakeDb() {
         return { count: data.length };
       }),
       updateMany: vi.fn(
-        async ({
-          where,
-          data,
-        }: {
-          where: { pollId: string; status: string };
-          data: Record<string, unknown>;
-        }) => {
+        async ({ where, data }: { where: { pollId: string; status: string }; data: Record<string, unknown> }) => {
           if (failNextUpdateManyCall) {
             failNextUpdateManyCall = false;
             calls.push(`poll.updateMany:${where.pollId}:${where.status}->FAILED`);
@@ -179,9 +173,7 @@ describe("PollModule.onState — opening templates", () => {
       meetingName: "Spanish Grand Prix",
     });
 
-    localModule.onState(
-      raceState({ drivers: { "1": driver({ driver_number: 1, name_acronym: "VER" }) } }),
-    );
+    localModule.onState(raceState({ drivers: { "1": driver({ driver_number: 1, name_acronym: "VER" }) } }));
     await localModule.waitForIdle();
 
     const polls = localModule.publicPolls();

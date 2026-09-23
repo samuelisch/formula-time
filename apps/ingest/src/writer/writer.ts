@@ -159,10 +159,9 @@ export class EventWriter {
       } catch {
         consecutiveFailures += 1;
         if (consecutiveFailures >= EventWriter.MAX_CONSECUTIVE_FAILURES) {
-          this.log(
-            `writer: giving up after ${consecutiveFailures} consecutive failures, dropped=${this.queue.size}`,
-            { level: "error" },
-          );
+          this.log(`writer: giving up after ${consecutiveFailures} consecutive failures, dropped=${this.queue.size}`, {
+            level: "error",
+          });
           return { inserted, skipped };
         }
         continue;

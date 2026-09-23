@@ -21,7 +21,11 @@ export interface OcrOutputRequest {
 
 export interface OcrWorker {
   setParameters(params: Record<string, string>): Promise<void>;
-  recognize(image: HTMLCanvasElement, options?: Record<string, unknown>, output?: OcrOutputRequest): Promise<{ data: OcrResult }>;
+  recognize(
+    image: HTMLCanvasElement,
+    options?: Record<string, unknown>,
+    output?: OcrOutputRequest,
+  ): Promise<{ data: OcrResult }>;
   terminate(): Promise<void>;
 }
 
@@ -55,7 +59,10 @@ const BROWSER_OCR_PATHS: OcrPaths = {
   langPath: "/ocr/",
 };
 
-export async function createOcrWorker(tesseract: TesseractModule, paths: OcrPaths = BROWSER_OCR_PATHS): Promise<OcrWorker> {
+export async function createOcrWorker(
+  tesseract: TesseractModule,
+  paths: OcrPaths = BROWSER_OCR_PATHS,
+): Promise<OcrWorker> {
   const worker = await tesseract.createWorker("eng", undefined, paths);
   await worker.setParameters({ tessedit_char_whitelist: "LAP0123456789/ " });
   return worker;

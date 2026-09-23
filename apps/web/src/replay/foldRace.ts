@@ -31,10 +31,7 @@ export interface FoldedRace extends Timeline {
  * scrubbing, and lap markers for the transport bar. Pure given its
  * inputs; the only side effect is yielding to the event loop.
  */
-export async function foldRace(
-  rawEvents: RaceEvent[],
-  rawSession: RawRecord | SessionWire,
-): Promise<FoldedRace> {
+export async function foldRace(rawEvents: RaceEvent[], rawSession: RawRecord | SessionWire): Promise<FoldedRace> {
   // A schema-2 export document's `session` is `SessionWire`, a named
   // interface with no index signature; the spread produces a fresh object
   // literal so `createTimeline` (RawRecord, shared with the live path) accepts it.

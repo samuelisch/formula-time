@@ -17,10 +17,7 @@ async function build(allowed: string[]) {
 
 describe("parseAllowedOrigins", () => {
   it("splits a comma list and drops blanks", () => {
-    expect(parseAllowedOrigins(" https://a.test, https://b.test ,")).toEqual([
-      "https://a.test",
-      "https://b.test",
-    ]);
+    expect(parseAllowedOrigins(" https://a.test, https://b.test ,")).toEqual(["https://a.test", "https://b.test"]);
     expect(parseAllowedOrigins(undefined)).toEqual([]);
   });
 });

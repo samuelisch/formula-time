@@ -24,9 +24,7 @@ describe("healthWithBuild", () => {
   });
 
   test("GIT_SHA takes precedence over RAILWAY_GIT_COMMIT_SHA when both are set", () => {
-    expect(
-      healthWithBuild(health, "ok", { GIT_SHA: "explicit", RAILWAY_GIT_COMMIT_SHA: "railwaysha" }),
-    ).toEqual({
+    expect(healthWithBuild(health, "ok", { GIT_SHA: "explicit", RAILWAY_GIT_COMMIT_SHA: "railwaysha" })).toEqual({
       ...health,
       build: "explicit",
       db: "ok",
@@ -48,12 +46,12 @@ describe("healthWithBuild", () => {
 });
 
 describe("createDbProbe", () => {
-  test("status is \"ok\" before the first probe settles", () => {
+  test('status is "ok" before the first probe settles', () => {
     const probe = createDbProbe({ probe: () => new Promise(() => {}) });
     expect(probe.status()).toBe("ok");
   });
 
-  test("status becomes \"unreachable\" when the probe rejects, and is cached until the next run", async () => {
+  test('status becomes "unreachable" when the probe rejects, and is cached until the next run', async () => {
     vi.useFakeTimers();
     try {
       let calls = 0;
@@ -81,7 +79,7 @@ describe("createDbProbe", () => {
     }
   });
 
-  test("status recovers to \"ok\" once a later probe succeeds", async () => {
+  test('status recovers to "ok" once a later probe succeeds', async () => {
     vi.useFakeTimers();
     try {
       let fail = true;

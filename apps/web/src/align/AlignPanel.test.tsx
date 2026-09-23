@@ -55,7 +55,14 @@ const { useAligner } = await import("./useAligner.ts");
 // keeps exercising the real hook.
 const { useAligner: realUseAligner } = await vi.importActual<typeof import("./useAligner.ts")>("./useAligner.ts");
 
-const EMPTY_DIAGNOSTICS: Diagnostics = { lastText: null, lastError: null, lastSampleAt: null, attempts: 0, accepted: 0, history: [] };
+const EMPTY_DIAGNOSTICS: Diagnostics = {
+  lastText: null,
+  lastError: null,
+  lastSampleAt: null,
+  attempts: 0,
+  accepted: 0,
+  history: [],
+};
 
 function fakeAlignerState(overrides: Partial<AlignerState> = {}): AlignerState {
   return {
@@ -142,7 +149,14 @@ describe("AlignPanel", () => {
     it("renders the exact 'OCR: text · Ns ago · reads a/b' format", () => {
       vi.mocked(useAligner).mockReturnValue(
         fakeAlignerState({
-          diagnostics: { lastText: "LAP 15/72", lastError: null, lastSampleAt: Date.now() - 5_000, attempts: 8, accepted: 6, history: [] },
+          diagnostics: {
+            lastText: "LAP 15/72",
+            lastError: null,
+            lastSampleAt: Date.now() - 5_000,
+            attempts: 8,
+            accepted: 6,
+            history: [],
+          },
         }),
       );
 
@@ -154,7 +168,14 @@ describe("AlignPanel", () => {
     it("shows the rejection's error message in place of raw text", () => {
       vi.mocked(useAligner).mockReturnValue(
         fakeAlignerState({
-          diagnostics: { lastText: null, lastError: "worker crashed", lastSampleAt: Date.now() - 2_000, attempts: 3, accepted: 1, history: [] },
+          diagnostics: {
+            lastText: null,
+            lastError: "worker crashed",
+            lastSampleAt: Date.now() - 2_000,
+            attempts: 3,
+            accepted: 1,
+            history: [],
+          },
         }),
       );
 

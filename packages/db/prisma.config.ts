@@ -30,9 +30,7 @@ import { defineConfig } from "prisma/config";
 function requireDirectUrl(): string {
   const directUrl = process.env["DATABASE_DIRECT_URL"];
   if (!directUrl) {
-    throw new Error(
-      "DATABASE_DIRECT_URL is required for Prisma Migrate (ADR-0004: direct, non-pooled)",
-    );
+    throw new Error("DATABASE_DIRECT_URL is required for Prisma Migrate (ADR-0004: direct, non-pooled)");
   }
   return directUrl;
 }

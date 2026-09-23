@@ -1,7 +1,13 @@
 import { describe, expect, test } from "vitest";
 
 import type { RawRecord } from "../openf1/types.js";
-import { computeSessionStatus, isRaceSession, sameSessionFields, sessionFieldsFromRaw, upsertSession } from "./sessions.js";
+import {
+  computeSessionStatus,
+  isRaceSession,
+  sameSessionFields,
+  sessionFieldsFromRaw,
+  upsertSession,
+} from "./sessions.js";
 import type { SessionsDb } from "./sessions.js";
 
 function fakeDb(): SessionsDb & { rows: Map<string, unknown> } {
@@ -255,25 +261,23 @@ describe("upsertSession", () => {
 
   test("an invalid date_start is rejected without touching the db", async () => {
     const db = fakeDb();
-    await expect(
-      upsertSession(db, { ...RAW_SESSION, date_start: "not a date" }, START_MS),
-    ).rejects.toThrow(/date_start/);
+    await expect(upsertSession(db, { ...RAW_SESSION, date_start: "not a date" }, START_MS)).rejects.toThrow(
+      /date_start/,
+    );
     expect(db.rows.size).toBe(0);
   });
 
   test("an invalid date_end is rejected without touching the db", async () => {
     const db = fakeDb();
-    await expect(
-      upsertSession(db, { ...RAW_SESSION, date_end: "also not a date" }, START_MS),
-    ).rejects.toThrow(/date_end/);
+    await expect(upsertSession(db, { ...RAW_SESSION, date_end: "also not a date" }, START_MS)).rejects.toThrow(
+      /date_end/,
+    );
     expect(db.rows.size).toBe(0);
   });
 
   test("a non-integer session_key is rejected without touching the db", async () => {
     const db = fakeDb();
-    await expect(upsertSession(db, { ...RAW_SESSION, session_key: 11_361.5 }, START_MS)).rejects.toThrow(
-      /session_key/,
-    );
+    await expect(upsertSession(db, { ...RAW_SESSION, session_key: 11_361.5 }, START_MS)).rejects.toThrow(/session_key/);
     expect(db.rows.size).toBe(0);
   });
 

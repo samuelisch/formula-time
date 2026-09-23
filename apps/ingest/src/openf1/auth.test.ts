@@ -61,9 +61,7 @@ describe("OpenF1Auth", () => {
   });
 
   test("expires_in as numeric string -> expiry in that many seconds", async () => {
-    const fetchImpl = vi.fn<FetchLike>().mockImplementation(() =>
-      Promise.resolve(tokenResponse("token-1", "3600")),
-    );
+    const fetchImpl = vi.fn<FetchLike>().mockImplementation(() => Promise.resolve(tokenResponse("token-1", "3600")));
     let now = 0;
     const auth = new OpenF1Auth({ login: "l", password: "p" }, { fetchImpl, now: () => now });
 
@@ -77,9 +75,7 @@ describe("OpenF1Auth", () => {
   });
 
   test("expires_in as a number -> same expiry as the numeric string", async () => {
-    const fetchImpl = vi.fn<FetchLike>().mockImplementation(() =>
-      Promise.resolve(tokenResponse("token-1", 3600)),
-    );
+    const fetchImpl = vi.fn<FetchLike>().mockImplementation(() => Promise.resolve(tokenResponse("token-1", 3600)));
     let now = 0;
     const auth = new OpenF1Auth({ login: "l", password: "p" }, { fetchImpl, now: () => now });
 
@@ -90,9 +86,7 @@ describe("OpenF1Auth", () => {
   });
 
   test("expires_in missing -> falls back to 3600s and logs once, at error level", async () => {
-    const fetchImpl = vi.fn<FetchLike>().mockImplementation(() =>
-      Promise.resolve(tokenResponseNoExpiry("token-1")),
-    );
+    const fetchImpl = vi.fn<FetchLike>().mockImplementation(() => Promise.resolve(tokenResponseNoExpiry("token-1")));
     let now = 0;
     const logs: Array<{ message: string; level: string | undefined }> = [];
     const auth = new OpenF1Auth(
@@ -110,9 +104,9 @@ describe("OpenF1Auth", () => {
   });
 
   test("non-string access_token -> still rejected as unexpected shape", async () => {
-    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(
-      new Response(JSON.stringify({ access_token: 12345, expires_in: "3600" }), { status: 200 }),
-    );
+    const fetchImpl = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(new Response(JSON.stringify({ access_token: 12345, expires_in: "3600" }), { status: 200 }));
     const auth = new OpenF1Auth({ login: "l", password: "p" }, { fetchImpl });
 
     await expect(auth.getToken()).rejects.toThrow(/unexpected response shape/);
@@ -154,10 +148,7 @@ describe("createOpenF1Fetcher", () => {
 
     await fetcher("https://api.openf1.org/v1/position?session_key=1");
 
-    expect(fetchImpl).toHaveBeenCalledWith(
-      "https://api.openf1.org/v1/position?session_key=1",
-      { headers: {} },
-    );
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.openf1.org/v1/position?session_key=1", { headers: {} });
   });
 
   test("404 means no data yet -> empty array, not a throw", async () => {

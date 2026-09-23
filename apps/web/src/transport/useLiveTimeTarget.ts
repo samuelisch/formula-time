@@ -7,7 +7,15 @@
 import { useCallback, useMemo } from "react";
 
 import { deriveTimelineAnchors } from "../live/anchors.ts";
-import { useAnchors, useDelay, useDisplayed, useLastMessageAt, useRewindMode, useStatePush, useTimeline } from "../live/selectors.ts";
+import {
+  useAnchors,
+  useDelay,
+  useDisplayed,
+  useLastMessageAt,
+  useRewindMode,
+  useStatePush,
+  useTimeline,
+} from "../live/selectors.ts";
 import { headAxisOf } from "../live/store.ts";
 import { axisOf } from "../live/types.ts";
 import type { TimeTarget } from "./TimeTarget.ts";
@@ -46,7 +54,10 @@ export function useLiveTimeTarget(now: () => number = Date.now): TimeTarget {
   // new shallow copy per page and per live push, so this recomputes about
   // once a second while live -- one pass over the timeline's events array,
   // acceptable.
-  const anchors = useMemo(() => (timeline === null ? streamAnchors : deriveTimelineAnchors(timeline)), [timeline, streamAnchors]);
+  const anchors = useMemo(
+    () => (timeline === null ? streamAnchors : deriveTimelineAnchors(timeline)),
+    [timeline, streamAnchors],
+  );
 
   return useMemo<TimeTarget>(
     () => ({

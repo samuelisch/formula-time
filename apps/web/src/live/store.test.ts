@@ -505,7 +505,9 @@ describe("headAxisOf", () => {
 
   it("is the live push's axis time plus wall-clock time elapsed since it arrived", () => {
     const push = frame("2026-09-08T12:00:00.000Z", 0);
-    expect(headAxisOf({ live: push, lastMessageAt: 1_000 }, 6_000)).toBe(Date.parse("2026-09-08T12:00:00.000Z") + 5_000);
+    expect(headAxisOf({ live: push, lastMessageAt: 1_000 }, 6_000)).toBe(
+      Date.parse("2026-09-08T12:00:00.000Z") + 5_000,
+    );
   });
 });
 

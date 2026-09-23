@@ -113,7 +113,12 @@ export function chooseTarget(anchors: Anchors, kind: ObserveKind, lap: number, i
   return chooseAnchorTarget(anchors, lap, false);
 }
 
-export function computeObservedWall(nowWallMs: number, nowPerfMs: number, frameAt: number, pipelineBiasMs: number): number {
+export function computeObservedWall(
+  nowWallMs: number,
+  nowPerfMs: number,
+  frameAt: number,
+  pipelineBiasMs: number,
+): number {
   return nowWallMs - (nowPerfMs - frameAt) + pipelineBiasMs;
 }
 
@@ -149,7 +154,11 @@ export function applyReading(input: ApplyReadingInput): string {
   return statusForVerdict(input.label, verdict, offsetMs);
 }
 
-function statusForVerdict(label: string, verdict: "seeded" | "accepted" | "discarded" | "relock", offsetMs: number | null): string {
+function statusForVerdict(
+  label: string,
+  verdict: "seeded" | "accepted" | "discarded" | "relock",
+  offsetMs: number | null,
+): string {
   const seconds = offsetMs === null ? "?" : (offsetMs / 1000).toFixed(1);
   switch (verdict) {
     case "seeded":
@@ -205,7 +214,12 @@ export function isValidCrop(box: unknown): box is Crop {
   if (!box || typeof box !== "object") return false;
   const candidate = box as Partial<Record<keyof Crop, unknown>>;
   const inUnitRange = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
-  if (!inUnitRange(candidate.x) || !inUnitRange(candidate.y) || !inUnitRange(candidate.w) || !inUnitRange(candidate.h)) {
+  if (
+    !inUnitRange(candidate.x) ||
+    !inUnitRange(candidate.y) ||
+    !inUnitRange(candidate.w) ||
+    !inUnitRange(candidate.h)
+  ) {
     return false;
   }
   return candidate.w > 0 && candidate.h > 0;

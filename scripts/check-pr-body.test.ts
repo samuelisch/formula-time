@@ -40,9 +40,7 @@ describe("checkBody: the Verified section", () => {
   });
 
   it("fails an empty section", () => {
-    expect(checkBody(body(""), "create")).toBe(
-      "PR body: ## Verified must hold the real result, not a placeholder",
-    );
+    expect(checkBody(body(""), "create")).toBe("PR body: ## Verified must hold the real result, not a placeholder");
   });
 
   it("fails a section that is only blank lines", () => {
@@ -52,9 +50,7 @@ describe("checkBody: the Verified section", () => {
   it.each(["pending", "Pending — will fill in", "TBD", "tbd after CI", "todo", "WIP", "placeholder", "n/a", "N/A"])(
     "fails the placeholder word %j",
     (word) => {
-      expect(checkBody(body(word), "create")).toBe(
-        "PR body: ## Verified must hold the real result, not a placeholder",
-      );
+      expect(checkBody(body(word), "create")).toBe("PR body: ## Verified must hold the real result, not a placeholder");
     },
   );
 

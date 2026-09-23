@@ -70,9 +70,7 @@ describe("parseAdrFile", () => {
   });
 
   it("yields status unknown when no Status field is present", () => {
-    const content = ["# ADR-0099 — No status field", "", "## Context", "", "No front matter here at all."].join(
-      "\n",
-    );
+    const content = ["# ADR-0099 — No status field", "", "## Context", "", "No front matter here at all."].join("\n");
     const parsed = parseAdrFile("0099-no-status.md", content);
     expect(parsed?.status).toBe("unknown");
   });
@@ -160,7 +158,7 @@ describe("parseAdrFile", () => {
       "- **Date:** 2026-09-14",
       "- **Owner:** Samuel Chan",
       '- **Amends:** ADR-0034 (its "a rejected append is logged at error level ...',
-      "  never allowed to block or stop the lane\" stance is extended to the",
+      '  never allowed to block or stop the lane" stance is extended to the',
       "  startup probe this ADR adds, not changed); ADR-0007 §4 (names",
       "  `LIVE_LOG_DIR` as a config seam and is unchanged by this).",
       "",
@@ -255,7 +253,7 @@ describe("parseAdrFile", () => {
       "- **Status:** Proposed (accepted when this PR merges)",
       "- **Date:** 2026-09-23",
       "- **Owner:** Samuel Chan",
-      '- **Amends:** ADR-0033 (`updateSession()`\'s decision reads "publishes once,',
+      "- **Amends:** ADR-0033 (`updateSession()`'s decision reads \"publishes once,",
       '  immediately, with `events: []`" with no precondition; it now publishes',
       "  only once the projector has finished its catch-up fold — before that,",
       "  the catch-up tick's own publish already carries the refreshed row).",
@@ -283,7 +281,7 @@ describe("parseAdrFile", () => {
       "- **Date:** 2026-09-22",
       "- **Owner:** Samuel Chan",
       '- **Amends:** ADR-0014 (Decision point 3: "A client backfills',
-      "  `GET /api/races/:key/events` pages from 0 until a short page\"; the",
+      '  `GET /api/races/:key/events` pages from 0 until a short page"; the',
       "  starting seq now depends on why the backfill runs).",
       '  ADR-0032 (its context sentence "a reconnecting client (which always',
       '  re-backfills) was unaffected": a reconnecting client now resumes from',

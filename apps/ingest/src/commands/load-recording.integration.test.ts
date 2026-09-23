@@ -107,9 +107,27 @@ test("--replace: 3 stale rows in endpoint order end up replaced by exactly the r
   // endpoint-grouped load leaves behind.
   await db.event.createMany({
     data: [
-      { eventId: "stale:1", sessionKey: SESSION_KEY, endpoint: "laps", sourceTime: new Date("2026-01-01T13:05:00Z"), payload: {} },
-      { eventId: "stale:2", sessionKey: SESSION_KEY, endpoint: "laps", sourceTime: new Date("2026-01-01T13:06:00Z"), payload: {} },
-      { eventId: "stale:3", sessionKey: SESSION_KEY, endpoint: "position", sourceTime: new Date("2026-01-01T13:00:01Z"), payload: {} },
+      {
+        eventId: "stale:1",
+        sessionKey: SESSION_KEY,
+        endpoint: "laps",
+        sourceTime: new Date("2026-01-01T13:05:00Z"),
+        payload: {},
+      },
+      {
+        eventId: "stale:2",
+        sessionKey: SESSION_KEY,
+        endpoint: "laps",
+        sourceTime: new Date("2026-01-01T13:06:00Z"),
+        payload: {},
+      },
+      {
+        eventId: "stale:3",
+        sessionKey: SESSION_KEY,
+        endpoint: "position",
+        sourceTime: new Date("2026-01-01T13:00:01Z"),
+        payload: {},
+      },
     ],
   });
   const staleRows = await db.event.findMany({ where: { sessionKey: SESSION_KEY }, orderBy: { seq: "desc" }, take: 1 });
@@ -168,7 +186,15 @@ test("without --replace, a stale row untouched by skip-duplicates stays alongsid
     },
   });
   await db.event.createMany({
-    data: [{ eventId: "stale:1", sessionKey: SESSION_KEY, endpoint: "laps", sourceTime: new Date("2026-01-01T13:05:00Z"), payload: {} }],
+    data: [
+      {
+        eventId: "stale:1",
+        sessionKey: SESSION_KEY,
+        endpoint: "laps",
+        sourceTime: new Date("2026-01-01T13:05:00Z"),
+        payload: {},
+      },
+    ],
   });
 
   const result = await loadRecordings([dir], db, { onLog: () => {} });
@@ -193,8 +219,7 @@ test("without --replace, a stale row untouched by skip-duplicates stays alongsid
 // present (CI, a reviewer's machine), and overridable by env var for a
 // different layout.
 const RECORDING_11361_DIR =
-  process.env["RECORDING_11361_DIR"] ??
-  path.resolve(fileURLToPath(import.meta.url), "../../../../../recordings/11361");
+  process.env["RECORDING_11361_DIR"] ?? path.resolve(fileURLToPath(import.meta.url), "../../../../../recordings/11361");
 const RECORDING_SESSION_KEY = 11361n;
 
 async function wipeRecording11361(): Promise<void> {

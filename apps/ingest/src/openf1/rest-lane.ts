@@ -24,12 +24,27 @@ export { OPENF1_BASE, pickLiveSession, sessionExpired } from "./discovery.js";
 // Weighted rotation: hot endpoints appear most often. 21 slots; at a 2.2s
 // tick a full cycle is ~46s (~27 req/min). See README: Rules.
 export const POLL_ROTATION: string[] = [
-  "position", "intervals", "laps", "race_control",
-  "position", "intervals", "weather",
-  "position", "intervals", "pit",
-  "position", "intervals", "laps", "race_control",
-  "position", "intervals", "stints",
-  "position", "intervals", "position", "intervals",
+  "position",
+  "intervals",
+  "laps",
+  "race_control",
+  "position",
+  "intervals",
+  "weather",
+  "position",
+  "intervals",
+  "pit",
+  "position",
+  "intervals",
+  "laps",
+  "race_control",
+  "position",
+  "intervals",
+  "stints",
+  "position",
+  "intervals",
+  "position",
+  "intervals",
 ];
 
 // The live API rejects every date filter, so the lane always calls this
@@ -116,7 +131,10 @@ export class RestLane {
   // instead of enqueueing rows after the writer drained (SIGTERM race).
   private currentTick: Promise<void> | null = null;
 
-  public constructor(private readonly queue: EventQueue<QueueItem>, opts: RestLaneOptions = {}) {
+  public constructor(
+    private readonly queue: EventQueue<QueueItem>,
+    opts: RestLaneOptions = {},
+  ) {
     this.fetcher = opts.fetcher ?? defaultFetcher;
     this.now = opts.now ?? Date.now;
     this.tickMs = opts.tickMs ?? 2200;
@@ -294,16 +312,30 @@ export class RestLane {
   }
 
   /** The lane's one normalize-enqueue-record path, through the current normalizer. */
-  private async enqueueAndRecord(endpoint: string, sessionKey: number, rows: RawRecord[]): Promise<{ newRows: number; malformed: number }> {
+  private async enqueueAndRecord(
+    endpoint: string,
+    sessionKey: number,
+    rows: RawRecord[],
+  ): Promise<{ newRows: number; malformed: number }> {
     const result = await enqueueRows(this.normalizer, this.queue, endpoint, sessionKey, rows, this.recordRows);
     this.countStat("unjoined", result.unjoined);
     return { newRows: result.newRows, malformed: result.malformed };
   }
 
   /** The same path for `drivers` rows, tagged to the `session_key` in their own payload. */
-  private async enqueueAndRecordDrivers(rows: RawRecord[], expectedSessionKey: number | null): Promise<EnqueueDriverRowsResult> {
+  private async enqueueAndRecordDrivers(
+    rows: RawRecord[],
+    expectedSessionKey: number | null,
+  ): Promise<EnqueueDriverRowsResult> {
     const isKnown = (key: number): boolean => this.discovery.isKnownSession(key);
-    const result = await enqueueDriverRows(this.normalizer, this.queue, rows, expectedSessionKey, isKnown, this.recordRows);
+    const result = await enqueueDriverRows(
+      this.normalizer,
+      this.queue,
+      rows,
+      expectedSessionKey,
+      isKnown,
+      this.recordRows,
+    );
     this.countStat("unjoined", result.unjoined);
     return result;
   }

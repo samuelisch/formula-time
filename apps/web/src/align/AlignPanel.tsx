@@ -22,7 +22,17 @@ function diagnosticsLine(diagnostics: Diagnostics): string {
 }
 
 export function AlignPanel() {
-  const { phase, status, diagnostics, visible, previewCanvasRef, onPreviewPointerDown, onPreviewPointerUp, start, stop } = useAligner();
+  const {
+    phase,
+    status,
+    diagnostics,
+    visible,
+    previewCanvasRef,
+    onPreviewPointerDown,
+    onPreviewPointerUp,
+    start,
+    stop,
+  } = useAligner();
   // Collapsed to its tab by default under the narrow breakpoint -- the
   // experimental preview canvas otherwise crowds a phone-width board;
   // still a plain toggle from there, same as the wide layout.

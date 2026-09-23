@@ -31,7 +31,9 @@ function fakeWorker(recognize: OcrWorker["recognize"]): OcrWorker {
   return { setParameters: vi.fn(), recognize, terminate: vi.fn() };
 }
 
-function makeOptions(overrides: Partial<UseOcrLoopOptions> = {}): UseOcrLoopOptions & { crop: { current: Crop | null } } {
+function makeOptions(
+  overrides: Partial<UseOcrLoopOptions> = {},
+): UseOcrLoopOptions & { crop: { current: Crop | null } } {
   const crop = { current: null as Crop | null };
   const base: UseOcrLoopOptions = {
     frame: () => fakeVideo(),
@@ -69,7 +71,10 @@ describe("useOcrLoop", () => {
     // blocks[].paragraphs[].lines[], not at the page's top level; the
     // requested `text` output is still populated alongside `blocks`.
     const recognize = vi.fn().mockResolvedValue({
-      data: { text: "LAP 3/50", blocks: [{ paragraphs: [{ lines: [{ text: "LAP 3/50", bbox: { x0: 100, y0: 20, x1: 200, y1: 40 } }] }] }] },
+      data: {
+        text: "LAP 3/50",
+        blocks: [{ paragraphs: [{ lines: [{ text: "LAP 3/50", bbox: { x0: 100, y0: 20, x1: 200, y1: 40 } }] }] }],
+      },
     });
     const options = makeOptions();
     const { result } = renderHook(() => useOcrLoop(options));
@@ -134,7 +139,9 @@ describe("useOcrLoop", () => {
 
     expect(options.crop.current).toEqual(remembered);
     expect(options.setStatus).toHaveBeenCalledWith("Checking the remembered box…");
-    expect(options.setStatus).toHaveBeenCalledWith(expect.stringContaining("Remembered box still shows the lap counter"));
+    expect(options.setStatus).toHaveBeenCalledWith(
+      expect.stringContaining("Remembered box still shows the lap counter"),
+    );
     // The remembered-crop validation is also a recognize() attempt -- it
     // must reach the diagnostics line just like every other one.
     expect(options.onSample).toHaveBeenCalledWith({ text: "LAP 12/58", parsed: true });

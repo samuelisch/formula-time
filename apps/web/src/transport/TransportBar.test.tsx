@@ -29,14 +29,19 @@ const ANCHORS_WITH_LAP_5: Anchors = {
 };
 
 /** A live-shaped fake: `playback()` is always null, `seekTo`/`nudge` mutate `state.displayedAtMs` directly like the delay-backed implementation would. */
-function makeLiveFake(overrides: {
-  displayedAtMs?: number | null;
-  range?: { startMs: number; endMs: number } | null;
-  anchors?: Anchors;
-  notice?: string | null;
-  syncOffsetMs?: number | null;
-  rewindMode?: RewindMode | null;
-} = {}): TimeTarget & { seekTo: ReturnType<typeof vi.fn<(atMs: number) => void>>; nudge: ReturnType<typeof vi.fn<(deltaMs: number) => void>> } {
+function makeLiveFake(
+  overrides: {
+    displayedAtMs?: number | null;
+    range?: { startMs: number; endMs: number } | null;
+    anchors?: Anchors;
+    notice?: string | null;
+    syncOffsetMs?: number | null;
+    rewindMode?: RewindMode | null;
+  } = {},
+): TimeTarget & {
+  seekTo: ReturnType<typeof vi.fn<(atMs: number) => void>>;
+  nudge: ReturnType<typeof vi.fn<(deltaMs: number) => void>>;
+} {
   const range = "range" in overrides ? overrides.range! : { startMs: 0, endMs: 180_000 };
   const displayedAtMs = "displayedAtMs" in overrides ? overrides.displayedAtMs! : (range?.endMs ?? null);
   return {
@@ -53,13 +58,15 @@ function makeLiveFake(overrides: {
 }
 
 /** A replay-shaped fake: `playback()` is non-null and mutable. */
-function makeReplayFake(overrides: {
-  displayedAtMs?: number | null;
-  range?: { startMs: number; endMs: number } | null;
-  anchors?: Anchors;
-  playing?: boolean;
-  syncOffsetMs?: number | null;
-} = {}): TimeTarget & {
+function makeReplayFake(
+  overrides: {
+    displayedAtMs?: number | null;
+    range?: { startMs: number; endMs: number } | null;
+    anchors?: Anchors;
+    playing?: boolean;
+    syncOffsetMs?: number | null;
+  } = {},
+): TimeTarget & {
   seekTo: ReturnType<typeof vi.fn<(atMs: number) => void>>;
   nudge: ReturnType<typeof vi.fn<(deltaMs: number) => void>>;
   play: ReturnType<typeof vi.fn>;
@@ -140,13 +147,23 @@ describe("TransportBar -- live", () => {
   });
 
   it("shows the timeline-mode readout when rewindMode() is 'timeline'", () => {
-    const target = makeLiveFake({ range: { startMs: 0, endMs: 180_000 }, displayedAtMs: 168_000, rewindMode: "timeline", syncOffsetMs: 12_000 });
+    const target = makeLiveFake({
+      range: { startMs: 0, endMs: 180_000 },
+      displayedAtMs: 168_000,
+      rewindMode: "timeline",
+      syncOffsetMs: 12_000,
+    });
     renderBar(target);
     expect(screen.getByText("Rewound 12.0s · from the log")).toBeInTheDocument();
   });
 
   it("shows the plain seconds readout when rewindMode() is 'buffer', not the timeline wording", () => {
-    const target = makeLiveFake({ range: { startMs: 0, endMs: 180_000 }, displayedAtMs: 168_000, rewindMode: "buffer", syncOffsetMs: 12_000 });
+    const target = makeLiveFake({
+      range: { startMs: 0, endMs: 180_000 },
+      displayedAtMs: 168_000,
+      rewindMode: "buffer",
+      syncOffsetMs: 12_000,
+    });
     renderBar(target);
     expect(screen.getByText("12.0s")).toBeInTheDocument();
     expect(screen.queryByText(/from the log/)).not.toBeInTheDocument();
@@ -339,7 +356,9 @@ describe("TransportBar -- shortcuts legend", () => {
 describe("TransportBar -- notice()", () => {
   it("renders the target's notice under the row, and nothing when there is none", () => {
     const { unmount } = render(
-      <TimeTargetProvider value={makeLiveFake({ notice: "Delay exceeds what this tab has buffered; showing the oldest" })}>
+      <TimeTargetProvider
+        value={makeLiveFake({ notice: "Delay exceeds what this tab has buffered; showing the oldest" })}
+      >
         <TransportBar />
       </TimeTargetProvider>,
     );
@@ -408,7 +427,12 @@ describe("TransportBar -- live, real useLiveTimeTarget (regression: stale range(
     function bufferedPush(atMs: number) {
       return makePush({ sent_at: atMs }, { latest_source_time: null });
     }
-    const bufferedSpan = { entries: [{ at: 0, push: bufferedPush(0) }, { at: 1_000_000, push: bufferedPush(1_000_000) }] };
+    const bufferedSpan = {
+      entries: [
+        { at: 0, push: bufferedPush(0) },
+        { at: 1_000_000, push: bufferedPush(1_000_000) },
+      ],
+    };
     let nowMs = 1_000_000;
     const now = () => nowMs;
 
