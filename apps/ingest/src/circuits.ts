@@ -33,6 +33,11 @@ export const CIRCUITS: Record<number, { name: string; totalLaps: number }> = {
   // Official race distance: https://www.formula1.com/en/racing/2026/australia
   // ("Number of Laps: 58"), retrieved 2026-09-11.
   10: { name: "Melbourne", totalLaps: 58 },
+  // 2026 Gulf Air Bahrain Grand Prix in Malaysia (session_key 11731,
+  // circuit_key 12, "Kuala Lumpur"). Official race distance:
+  // https://www.formula1.com/en/racing/2026/bahrain/circuit
+  // ("Number of Laps: 56"), retrieved 2026-09-23.
+  12: { name: "Kuala Lumpur", totalLaps: 56 },
   // 2026 Chinese GP (session_key 11245, circuit_key 49, "Shanghai").
   // Official race distance: https://www.formula1.com/en/racing/2026/china
   // ("Number of Laps: 56"), retrieved 2026-09-11.
