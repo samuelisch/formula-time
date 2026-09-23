@@ -3,9 +3,13 @@
 - **Status:** Proposed (accepted when this PR merges)
 - **Date:** 2026-09-23
 - **Owner:** Samuel Chan
-- **Amends:** ADR-0017. The two tiers (commit hook, CI) and what each is
-  responsible for proving are unchanged; this adds one more check to both,
-  the same way ADR-0017 added lint to the gate ADR-0006 defined.
+- **Amends:** ADR-0017 and ADR-0019. The two tiers (commit hook, CI) and
+  what each is responsible for proving are unchanged; this adds one more
+  check to both, the same way ADR-0017 added lint to the gate ADR-0006
+  defined. ADR-0019 documents the release gate's step list, and the
+  release gate reuses `checks` by `workflow_call`, so the new step lands
+  there too (the precedent for adding a required `checks` step landing in
+  the release gate too).
 
 ## Context
 
@@ -18,20 +22,26 @@ off in favor of Prettier (`eslint-config-prettier`, last in
 `eslint.config.js`), so nothing else in the gate would catch it. The
 formatter never touches `.github/`, `.railway/`, the lockfile, or ADRs
 (`.prettierignore`), so the gate's `prettier --check` never covers them
-either.
+either. `.github/workflows/release.yml` runs `ci.yml`'s `checks` job via
+`workflow_call`, so the new `Format check` step also joins the release
+gate, not just a PR's.
 
 ## Decision
 
 - `package.json` gains two scripts: `format` (`prettier --write .`) and
   `format:check` (`prettier --check .`).
-- `scripts/pre-commit-check.sh`'s gate runs `prettier --check` on the files
-  the commit actually adds, copies, modifies or renames
-  (`git diff --cached --name-only --diff-filter=ACMR`, filtered to the
-  extensions Prettier has an opinion on), not the whole tree: a repo-wide
-  check would also fail on pre-existing files the commit never asked the
-  author to touch. The gate becomes `pnpm check:exact-pins && pnpm
-  typecheck && pnpm lint && <the staged-files format check> && pnpm
-  test:unit && scripts/check-adr-immutable.sh`.
+- `scripts/pre-commit-check.sh`'s gate runs `prettier --check
+  --ignore-unknown` on the files the commit actually adds, copies,
+  modifies or renames (`git diff --cached --name-only -z
+  --diff-filter=ACMR`, piped through `xargs -0` so a staged filename
+  with a space is not mis-split), not the whole tree: a repo-wide check
+  would also fail on pre-existing files the commit never asked the
+  author to touch. No extension allowlist is maintained here — Prettier
+  itself decides what it has an opinion on (`--ignore-unknown` makes a
+  file type it does not format a silent no-op rather than an error).
+  The gate becomes `pnpm check:exact-pins && pnpm typecheck && pnpm
+  lint && <the staged-files format check> && pnpm test:unit &&
+  scripts/check-adr-immutable.sh`.
 - `.github/workflows/ci.yml`'s `checks` job gains a `Format check` step
   (`pnpm format:check`) between `Lint` and `Unit tests`, in the same job,
   so it is required for merge exactly as lint is (ADR-0017).
@@ -52,3 +62,8 @@ either.
   tier: Prettier's own ignore file governs regardless of how a path
   reaches `prettier --check`, whether that's the hook's staged-file list
   or CI's whole-tree run.
+- `scripts/eslint-prettier-agree.test.ts` asserts, against ESLint's own
+  resolved config (`eslint --print-config`), that every stylistic rule
+  Prettier also has an opinion on is off or absent — proof
+  `eslint-config-prettier` stays last, not just that it appears last in
+  the source.
