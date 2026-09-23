@@ -122,10 +122,7 @@ describe("EventWriter.drainAll / stop", () => {
 
     await writer.drainAll();
 
-    expect(lines).toEqual([
-      "writer: batch inserted=100 skipped=0",
-      "writer: batch inserted=20 skipped=0",
-    ]);
+    expect(lines).toEqual(["writer: batch inserted=100 skipped=0", "writer: batch inserted=20 skipped=0"]);
   });
 
   test("stop() drains what's left and further drainOnce calls see an empty queue", async () => {

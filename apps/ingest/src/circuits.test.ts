@@ -33,15 +33,12 @@ const CIRCUIT_KEYS_2026_RACE_SESSIONS = [
 ];
 
 describe("totalLapsForCircuit", () => {
-  it.each(CIRCUIT_KEYS_2026_RACE_SESSIONS)(
-    "resolves circuit_key %i to a positive lap count",
-    (circuitKey) => {
-      expect(CIRCUITS[circuitKey]).toBeDefined();
-      const laps = totalLapsForCircuit(circuitKey);
-      expect(laps).not.toBeNull();
-      expect(laps).toBeGreaterThan(0);
-    },
-  );
+  it.each(CIRCUIT_KEYS_2026_RACE_SESSIONS)("resolves circuit_key %i to a positive lap count", (circuitKey) => {
+    expect(CIRCUITS[circuitKey]).toBeDefined();
+    const laps = totalLapsForCircuit(circuitKey);
+    expect(laps).not.toBeNull();
+    expect(laps).toBeGreaterThan(0);
+  });
 
   it("returns null for an unknown circuit_key", () => {
     expect(totalLapsForCircuit(999999)).toBeNull();

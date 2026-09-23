@@ -152,7 +152,12 @@ describe("RacesPage", () => {
 
   it("shows a Live now card linking to /live when the session status is live", async () => {
     resetStore({
-      displayed: displayedWithSession({ status: "live", country: "Italy", name: "Race", date_start: "2026-09-08T13:00:00.000Z" }),
+      displayed: displayedWithSession({
+        status: "live",
+        country: "Italy",
+        name: "Race",
+        date_start: "2026-09-08T13:00:00.000Z",
+      }),
     });
     stubFetch([]);
     renderPage();
@@ -164,7 +169,12 @@ describe("RacesPage", () => {
 
   it("shows a neutral Next race card linking to /live when the session status is upcoming", async () => {
     resetStore({
-      displayed: displayedWithSession({ status: "upcoming", country: "Italy", name: "Race", date_start: "2026-09-08T13:00:00.000Z" }),
+      displayed: displayedWithSession({
+        status: "upcoming",
+        country: "Italy",
+        name: "Race",
+        date_start: "2026-09-08T13:00:00.000Z",
+      }),
     });
     stubFetch([]);
     renderPage();
@@ -177,7 +187,12 @@ describe("RacesPage", () => {
 
   it("shows the Last session card with both links when the session status is finished", async () => {
     resetStore({
-      displayed: displayedWithSession({ status: "finished", country: "Italy", name: "Race", date_start: "2026-09-08T13:00:00.000Z" }),
+      displayed: displayedWithSession({
+        status: "finished",
+        country: "Italy",
+        name: "Race",
+        date_start: "2026-09-08T13:00:00.000Z",
+      }),
     });
     stubFetch([]);
     renderPage();

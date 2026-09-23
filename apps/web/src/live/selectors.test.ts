@@ -4,7 +4,14 @@ import { describe, expect, it } from "vitest";
 import { createTimeline } from "../replay/timeline.ts";
 import { emptyAnchors } from "./anchors.ts";
 import { emptyBuffer } from "./buffer.ts";
-import { useLiveSessionKey, useLiveSessionStatus, useRewindMode, useSessionStatus, useStatePush, useTimeline } from "./selectors.ts";
+import {
+  useLiveSessionKey,
+  useLiveSessionStatus,
+  useRewindMode,
+  useSessionStatus,
+  useStatePush,
+  useTimeline,
+} from "./selectors.ts";
 import { useLiveStore } from "./store.ts";
 import type { StatePush } from "./types.ts";
 
@@ -60,11 +67,14 @@ describe("useSessionStatus", () => {
     expect(result.current).toBeNull();
   });
 
-  it.each(["upcoming", "live", "finished"] as const)("returns %s from the displayed session's status field", (status) => {
-    resetStore({ displayed: pushWithSession({ status }) });
-    const { result } = renderHook(() => useSessionStatus());
-    expect(result.current).toBe(status);
-  });
+  it.each(["upcoming", "live", "finished"] as const)(
+    "returns %s from the displayed session's status field",
+    (status) => {
+      resetStore({ displayed: pushWithSession({ status }) });
+      const { result } = renderHook(() => useSessionStatus());
+      expect(result.current).toBe(status);
+    },
+  );
 
   it("returns null for an unrecognised status value (string-guarded)", () => {
     resetStore({ displayed: pushWithSession({ status: "Started" }) });

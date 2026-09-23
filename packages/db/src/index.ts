@@ -51,13 +51,10 @@ export type DbPoolOptions = {
 export function createDb(url?: string, pool?: DbPoolOptions): PrismaClient {
   const connectionString = url ?? process.env["DATABASE_URL"];
   if (!connectionString) {
-    throw new Error(
-      "createDb: no connection string. Pass one, or set DATABASE_URL in the environment.",
-    );
+    throw new Error("createDb: no connection string. Pass one, or set DATABASE_URL in the environment.");
   }
   // Built conditionally: `exactOptionalPropertyTypes` forbids handing an
   // explicit `undefined` to an optional property.
-  const config =
-    pool?.max === undefined ? { connectionString } : { connectionString, max: pool.max };
+  const config = pool?.max === undefined ? { connectionString } : { connectionString, max: pool.max };
   return new PrismaClient({ adapter: new PrismaPg(config) });
 }

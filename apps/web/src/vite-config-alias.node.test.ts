@@ -22,7 +22,12 @@ async function aliasWithVitest(value: string | undefined): Promise<unknown> {
   if (value === undefined) delete process.env.VITEST;
   else process.env.VITEST = value;
   try {
-    const loaded = await loadConfigFromFile({ command: "build", mode: "production" }, path.join(root, "vite.config.ts"), root, "silent");
+    const loaded = await loadConfigFromFile(
+      { command: "build", mode: "production" },
+      path.join(root, "vite.config.ts"),
+      root,
+      "silent",
+    );
     return loaded?.config.resolve?.alias;
   } finally {
     if (previous === undefined) delete process.env.VITEST;

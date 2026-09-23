@@ -1,13 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 import type { QueueItem, RawRecord } from "./types.js";
-import {
-  POLL_ROTATION,
-  RestLane,
-  buildPollUrl,
-  pickLiveSession,
-  sessionExpired,
-} from "./rest-lane.js";
+import { POLL_ROTATION, RestLane, buildPollUrl, pickLiveSession, sessionExpired } from "./rest-lane.js";
 import { EventQueue } from "../writer/queue.js";
 
 const START = Date.parse("2026-09-06T13:00:00Z");
@@ -65,9 +59,7 @@ describe("sessionExpired", () => {
 
 describe("buildPollUrl", () => {
   test("session_key only, no cursor (the live API rejects date filters)", () => {
-    expect(buildPollUrl("position", 11361, null)).toBe(
-      "https://api.openf1.org/v1/position?session_key=11361",
-    );
+    expect(buildPollUrl("position", 11361, null)).toBe("https://api.openf1.org/v1/position?session_key=11361");
   });
 
   test("a cursor is added as a date filter only when both a timestamp field and a cursor are given", () => {
@@ -91,7 +83,10 @@ describe("POLL_ROTATION", () => {
   });
 });
 
-function fakeFetcher(responses: Record<string, unknown>): { fetcher: (url: string) => Promise<unknown>; calls: string[] } {
+function fakeFetcher(responses: Record<string, unknown>): {
+  fetcher: (url: string) => Promise<unknown>;
+  calls: string[];
+} {
   const calls: string[] = [];
   return {
     calls,
@@ -601,7 +596,6 @@ describe("RestLane: fetched entry list at session selection (issue #39)", () => 
     const after = await lane.pollOnce();
     expect(after?.endpoint).not.toBe("drivers");
   });
-
 });
 
 describe("RestLane: Friday entry-list fetch (issue #39)", () => {
@@ -654,7 +648,6 @@ describe("RestLane: Friday entry-list fetch (issue #39)", () => {
     expect(calls.filter((u) => u.includes("meeting_key=1293"))).toHaveLength(1);
     expect(raceRows()).toHaveLength(1);
   });
-
 });
 
 describe("RestLane: drivers fetch budget (issue #39)", () => {

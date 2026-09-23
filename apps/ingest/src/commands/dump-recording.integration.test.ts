@@ -79,7 +79,9 @@ function groupByEndpoint<T extends { endpoint: string }>(rows: T[]): Map<string,
   return groups;
 }
 
-async function readDumpedJsonl(filePath: string): Promise<Array<{ received_at: string; payload: Record<string, unknown> }>> {
+async function readDumpedJsonl(
+  filePath: string,
+): Promise<Array<{ received_at: string; payload: Record<string, unknown> }>> {
   const contents = await readFile(filePath, "utf8");
   return contents
     .split("\n")

@@ -29,7 +29,12 @@ const SESSION: RawRecord = {
  */
 function makeFetches(
   fetcher: (url: string) => Promise<unknown>,
-  opts: { known?: number[]; onRecorded?: RecordRows; log?: LaneLog; countStat?: (stat: string, n?: number) => void } = {},
+  opts: {
+    known?: number[];
+    onRecorded?: RecordRows;
+    log?: LaneLog;
+    countStat?: (stat: string, n?: number) => void;
+  } = {},
 ): { fetches: EntryListFetches; queue: EventQueue<QueueItem> } {
   const queue = new EventQueue<QueueItem>();
   const normalizer = new LiveNormalizer();
@@ -50,7 +55,10 @@ function makeFetches(
   return { fetches, queue };
 }
 
-function fakeFetcher(responses: Record<string, unknown>): { fetcher: (url: string) => Promise<unknown>; calls: string[] } {
+function fakeFetcher(responses: Record<string, unknown>): {
+  fetcher: (url: string) => Promise<unknown>;
+  calls: string[];
+} {
   const calls: string[] = [];
   return {
     calls,
@@ -193,7 +201,9 @@ describe("EntryListFetches: pre-race refresh", () => {
     expect(await fetches.runDue(SESSION, [SESSION], START - 5 * 60_000)).toBe(true);
     expect(refreshCallCount).toBe(2);
     expect(
-      logs.some((l) => l.level === "error" && l.message.startsWith("entry list: pre-race refresh failed for session_key=11361")),
+      logs.some(
+        (l) => l.level === "error" && l.message.startsWith("entry list: pre-race refresh failed for session_key=11361"),
+      ),
     ).toBe(true);
 
     // The very next tick, still inside the T-5min..T window: retried, and this time it succeeds.
@@ -312,18 +322,45 @@ describe("EntryListFetches: Friday meeting-wide fetch", () => {
       const meetingKey = 1279 + i;
       known.push(21000 + i);
       pastMeetings.push(
-        { session_key: 20000 + i, meeting_key: meetingKey, session_type: "Practice", date_start: "2026-08-01T10:00:00Z", date_end: "2026-08-01T11:00:00Z" },
-        { session_key: 21000 + i, meeting_key: meetingKey, session_type: "Race", session_name: "Race", date_start: "2026-08-03T13:00:00Z", date_end: "2026-08-03T15:00:00Z" },
+        {
+          session_key: 20000 + i,
+          meeting_key: meetingKey,
+          session_type: "Practice",
+          date_start: "2026-08-01T10:00:00Z",
+          date_end: "2026-08-01T11:00:00Z",
+        },
+        {
+          session_key: 21000 + i,
+          meeting_key: meetingKey,
+          session_type: "Race",
+          session_name: "Race",
+          date_start: "2026-08-03T13:00:00Z",
+          date_end: "2026-08-03T15:00:00Z",
+        },
       );
     }
     const upcoming: RawRecord[] = [
-      { session_key: 30000, meeting_key: 1300, session_type: "Practice", date_start: "2026-09-08T10:00:00Z", date_end: "2026-09-08T11:00:00Z" },
-      { session_key: 30001, meeting_key: 1300, session_type: "Race", session_name: "Race", date_start: "2026-09-10T13:00:00Z", date_end: "2026-09-10T15:00:00Z" },
+      {
+        session_key: 30000,
+        meeting_key: 1300,
+        session_type: "Practice",
+        date_start: "2026-09-08T10:00:00Z",
+        date_end: "2026-09-08T11:00:00Z",
+      },
+      {
+        session_key: 30001,
+        meeting_key: 1300,
+        session_type: "Race",
+        session_name: "Race",
+        date_start: "2026-09-10T13:00:00Z",
+        date_end: "2026-09-10T15:00:00Z",
+      },
     ];
     const calls: string[] = [];
     const fetcher = async (url: string): Promise<unknown> => {
       calls.push(url);
-      if (url.includes("/drivers?meeting_key=")) return [{ session_key: 30001, meeting_key: 1300, driver_number: 1, full_name: "Lando NORRIS" }];
+      if (url.includes("/drivers?meeting_key="))
+        return [{ session_key: 30001, meeting_key: 1300, driver_number: 1, full_name: "Lando NORRIS" }];
       return [];
     };
     const { fetches } = makeFetches(fetcher, { known });
@@ -337,8 +374,21 @@ describe("EntryListFetches: Friday meeting-wide fetch", () => {
   test("a past meeting is never fetched even when its race session is known", async () => {
     const now = Date.parse("2026-09-09T12:00:00Z");
     const pastMeeting: RawRecord[] = [
-      { session_key: 20000, meeting_key: 1279, session_type: "Practice", date_start: "2026-08-01T10:00:00Z", date_end: "2026-08-01T11:00:00Z" },
-      { session_key: 21000, meeting_key: 1279, session_type: "Race", session_name: "Race", date_start: "2026-08-03T13:00:00Z", date_end: "2026-08-03T15:00:00Z" },
+      {
+        session_key: 20000,
+        meeting_key: 1279,
+        session_type: "Practice",
+        date_start: "2026-08-01T10:00:00Z",
+        date_end: "2026-08-01T11:00:00Z",
+      },
+      {
+        session_key: 21000,
+        meeting_key: 1279,
+        session_type: "Race",
+        session_name: "Race",
+        date_start: "2026-08-03T13:00:00Z",
+        date_end: "2026-08-03T15:00:00Z",
+      },
     ];
     const calls: string[] = [];
     const fetcher = async (url: string): Promise<unknown> => {

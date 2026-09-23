@@ -33,13 +33,7 @@ function makeFakeDb(pollRows: FakePollRow[], voteRows: FakeVoteRow[]) {
     },
     vote: {
       groupBy: vi.fn(
-        async ({
-          where,
-        }: {
-          by: ["pollId", "optionId"];
-          where: { pollId: { in: string[] } };
-          _count: true;
-        }) => {
+        async ({ where }: { by: ["pollId", "optionId"]; where: { pollId: { in: string[] } }; _count: true }) => {
           calls.push("vote.groupBy");
           // Nested by pollId then optionId -- no delimiter-joined string
           // key, so there is nothing to split back apart.

@@ -21,7 +21,11 @@
   --flag-yellow: #ffe600;
 
   color-scheme: dark;
-  font: 16px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
+  font:
+    16px/1.5 system-ui,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
 
   /* The one responsive breakpoint (apps/web/AGENTS.md scope rule: no
      library) -- phone-width layouts switch below this. */

@@ -9,7 +9,13 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 
 import { useBoardLeaderLap, useBoardRaceControl } from "../board/useBoardState.ts";
 import { useTimeTarget } from "../transport/TimeTarget.ts";
-import { applyOffsetToTarget, createReadingTrackers, handleLapRead, handleLightsOutRead, type ReadingTrackers } from "./applyOffset.ts";
+import {
+  applyOffsetToTarget,
+  createReadingTrackers,
+  handleLapRead,
+  handleLightsOutRead,
+  type ReadingTrackers,
+} from "./applyOffset.ts";
 import type { OcrWorker, TesseractModule } from "./capture.ts";
 import { summarizeVerdict } from "./core.ts";
 import { resolvePipelineBiasMs, type Crop } from "./policy.ts";
@@ -41,7 +47,14 @@ export interface Diagnostics {
   history: string[];
 }
 
-const EMPTY_DIAGNOSTICS: Diagnostics = { lastText: null, lastError: null, lastSampleAt: null, attempts: 0, accepted: 0, history: [] };
+const EMPTY_DIAGNOSTICS: Diagnostics = {
+  lastText: null,
+  lastError: null,
+  lastSampleAt: null,
+  attempts: 0,
+  accepted: 0,
+  history: [],
+};
 const DIAGNOSTICS_TEXT_LENGTH = 24;
 const HISTORY_LIMIT = 3;
 
@@ -107,7 +120,14 @@ export function useAligner(options: UseAlignerOptions = {}): AlignerState {
     liveRef.current = { anchors, target };
   });
 
-  const readingContext = useCallback(() => ({ anchors: liveRef.current.anchors, target: liveRef.current.target, pipelineBiasMs: pipelineBiasMsRef.current }), []);
+  const readingContext = useCallback(
+    () => ({
+      anchors: liveRef.current.anchors,
+      target: liveRef.current.target,
+      pipelineBiasMs: pipelineBiasMsRef.current,
+    }),
+    [],
+  );
 
   const onLapReading = useCallback(
     (lap: number, frameAt: number) => {

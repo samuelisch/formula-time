@@ -36,12 +36,7 @@ export interface ProjectorOptions {
 // tick that applied nothing new, and on any catch-up or rebuild tick
 // (ADR-0014). `rebuilt` is true only on the tick where the late-commit
 // detector's rebuild lands. See README: One tick.
-export type ProjectorSubscriber = (
-  state: RaceState,
-  cursor: bigint,
-  events: RaceEvent[],
-  rebuilt: boolean,
-) => void;
+export type ProjectorSubscriber = (state: RaceState, cursor: bigint, events: RaceEvent[], rebuilt: boolean) => void;
 
 const DEFAULT_TICK_MS = 250;
 const DEFAULT_BATCH_LIMIT = 5000;
@@ -99,9 +94,7 @@ export class RaceStateProjector {
   }
 
   private freshReducer(): RaceStateReducer {
-    return new RaceStateReducer(
-      createInitialState({ sessions: [sessionAsRawRecord(this.session)], drivers: [] }),
-    );
+    return new RaceStateReducer(createInitialState({ sessions: [sessionAsRawRecord(this.session)], drivers: [] }));
   }
 
   public start(): void {

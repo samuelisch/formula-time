@@ -23,7 +23,12 @@ describe("sortPolls", () => {
 
     const sorted = sortPolls([firstResolved, firstOpen, secondResolved, secondOpen]);
 
-    expect(sorted.map((poll) => poll.poll_id)).toEqual(["first-open", "second-open", "first-resolved", "second-resolved"]);
+    expect(sorted.map((poll) => poll.poll_id)).toEqual([
+      "first-open",
+      "second-open",
+      "first-resolved",
+      "second-resolved",
+    ]);
   });
 
   it("does not mutate the input array", () => {

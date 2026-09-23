@@ -49,7 +49,12 @@ export interface DriverRowProps {
 // one shared `useDriverSelection()` call in `TimingTable` rather than each
 // row calling the hook itself, so a selection change re-renders only the
 // affected rows. See README: Board layout.
-export const DriverRow = memo(function DriverRow({ number: driverNumber, delta = 0, selected, onSelect }: DriverRowProps) {
+export const DriverRow = memo(function DriverRow({
+  number: driverNumber,
+  delta = 0,
+  selected,
+  onSelect,
+}: DriverRowProps) {
   const driver = useBoardDriver(driverNumber);
   const runStatus = useBoardRunStatus(driverNumber);
   if (driver === null) return null;
@@ -66,7 +71,9 @@ export const DriverRow = memo(function DriverRow({ number: driverNumber, delta =
 
   return (
     <tr className={rowClassName}>
-      <th scope="row" className={styles.position}>{driver.position === null ? "—" : driver.position}</th>
+      <th scope="row" className={styles.position}>
+        {driver.position === null ? "—" : driver.position}
+      </th>
       <td className={cueClass}>
         {isRetired ? "" : cueText(delta)}
         {!isRetired && delta !== 0 && <span className={styles.visuallyHidden}>{cueSrText(delta)}</span>}

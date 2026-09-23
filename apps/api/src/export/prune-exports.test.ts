@@ -34,14 +34,10 @@ function makeFakeDb(exports: FakeExportRow[], events: FakeEventRow[]) {
       }),
     },
     event: {
-      findFirst: vi.fn(
-        async ({ where }: { where: { sessionKey: bigint; endpoint: { not: string } } }) => {
-          const found = events.find(
-            (e) => e.sessionKey === where.sessionKey && e.endpoint !== where.endpoint.not,
-          );
-          return found === undefined ? null : { seq: found.seq };
-        },
-      ),
+      findFirst: vi.fn(async ({ where }: { where: { sessionKey: bigint; endpoint: { not: string } } }) => {
+        const found = events.find((e) => e.sessionKey === where.sessionKey && e.endpoint !== where.endpoint.not);
+        return found === undefined ? null : { seq: found.seq };
+      }),
     },
   };
 }
@@ -109,15 +105,13 @@ describe("runPrune", () => {
 
   test("apply: a missing file is not an error, the row is still deleted", async () => {
     const missingPath = join(tmpRoot, "does-not-exist.json.gz");
-    const db = makeFakeDb(
-      [{ sessionKey: 4n, exportedAt: new Date(), path: missingPath }],
-      [],
-    );
+    const db = makeFakeDb([{ sessionKey: 4n, exportedAt: new Date(), path: missingPath }], []);
 
     const log = vi.fn();
-    await expect(
-      runPrune({ db: db as unknown as PrismaClient, apply: true, log }),
-    ).resolves.toEqual({ checked: 1, pruned: 1 });
+    await expect(runPrune({ db: db as unknown as PrismaClient, apply: true, log })).resolves.toEqual({
+      checked: 1,
+      pruned: 1,
+    });
     expect(db.deleted).toEqual([4n]);
   });
 });

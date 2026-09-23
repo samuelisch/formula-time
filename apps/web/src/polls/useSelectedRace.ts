@@ -76,7 +76,8 @@ export function useSelectedRace(): SelectedRace {
   const isSettling = paramKey === null && currentSessionKey === null && !settled;
   const fallbackKey = noSessionTimedOut && races[0] !== undefined ? String(races[0].session_key) : null;
 
-  const isCurrentSelected = paramKey === null ? currentSessionKey !== null || fallbackKey === null : paramKey === currentSessionKey;
+  const isCurrentSelected =
+    paramKey === null ? currentSessionKey !== null || fallbackKey === null : paramKey === currentSessionKey;
   const selectedKey = paramKey ?? currentSessionKey ?? fallbackKey;
   const historicalKey = !isCurrentSelected && selectedKey !== null ? selectedKey : null;
 
@@ -85,8 +86,10 @@ export function useSelectedRace(): SelectedRace {
   // while it is still `displayed` -- excluded here so it never counts as a
   // collision with itself.
   const otherRaces = currentSessionKey === null ? races : excludeSession(races, currentSessionKey);
-  const currentLabel = sessionMeta.session !== null ? raceTitleDisambiguated(sessionMeta.session, otherRaces) : "Current session";
-  const current = currentSessionKey !== null ? { sessionKey: currentSessionKey, label: currentLabel, status: sessionStatus } : null;
+  const currentLabel =
+    sessionMeta.session !== null ? raceTitleDisambiguated(sessionMeta.session, otherRaces) : "Current session";
+  const current =
+    currentSessionKey !== null ? { sessionKey: currentSessionKey, label: currentLabel, status: sessionStatus } : null;
 
   function handleRaceChange(sessionKey: string): void {
     setSearchParams((previous) => {

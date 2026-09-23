@@ -3,7 +3,13 @@
 // seam. Everything that computes a verdict or an offset lives in
 // policy.ts/core.ts; this module only calls them in the right order.
 import { createLapTracker, createOffsetTracker, type LapTracker, type OffsetTracker } from "./core.ts";
-import { applyReading, createLapVerdictPolicy, lightsLabel, type LapVerdictPolicy, type ObserveKind } from "./policy.ts";
+import {
+  applyReading,
+  createLapVerdictPolicy,
+  lightsLabel,
+  type LapVerdictPolicy,
+  type ObserveKind,
+} from "./policy.ts";
 import type { Anchors } from "../live/anchors.ts";
 import type { TimeTarget } from "../transport/TimeTarget.ts";
 
@@ -74,7 +80,12 @@ function applyObservedReading(
  * lock/apply policy; only a "first" (genuine lap-1 lock) or "flip" verdict
  * reaches the offset tracker. Returns the new status line, or null when the
  * verdict is "same" (nothing changed, no status update needed). */
-export function handleLapRead(lap: number, frameAt: number, trackers: ReadingTrackers, ctx: ReadingContext): string | null {
+export function handleLapRead(
+  lap: number,
+  frameAt: number,
+  trackers: ReadingTrackers,
+  ctx: ReadingContext,
+): string | null {
   const verdict = trackers.tracker.accept(lap);
   const action = trackers.lapPolicy.decide(verdict, lap, trackers.tracker.current());
   if (action.type === "ignore") return null;
@@ -86,6 +97,11 @@ export function handleLapRead(lap: number, frameAt: number, trackers: ReadingTra
  * observation -- unlike a lap read, there is no lock/reject phase.
  * `isRestart` comes from the sampling loop's own lights-arming gate, which
  * distinguishes a restart from the original race start. */
-export function handleLightsOutRead(frameAt: number, isRestart: boolean, trackers: ReadingTrackers, ctx: ReadingContext): string {
+export function handleLightsOutRead(
+  frameAt: number,
+  isRestart: boolean,
+  trackers: ReadingTrackers,
+  ctx: ReadingContext,
+): string {
   return applyObservedReading("lights", 0, isRestart, lightsLabel(isRestart), frameAt, trackers.offsetTracker, ctx);
 }

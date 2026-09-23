@@ -161,7 +161,10 @@ describe("BoardPage", () => {
 
   it("shows the finished banner with a replay link when the session has finished", () => {
     renderWith(
-      makePush({ session_key: "11361" }, { session: { session_key: "11361", name: "Race", country: "Italy", status: "finished" } }),
+      makePush(
+        { session_key: "11361" },
+        { session: { session_key: "11361", name: "Race", country: "Italy", status: "finished" } },
+      ),
     );
 
     expect(screen.getByText("This race has finished. Showing its final state.")).toBeInTheDocument();
@@ -174,7 +177,13 @@ describe("BoardPage", () => {
       makePush(
         {},
         {
-          session: { session_key: "11361", name: "Race", country: "Italy", status: "upcoming", date_start: "2026-09-08T12:00:00.000Z" },
+          session: {
+            session_key: "11361",
+            name: "Race",
+            country: "Italy",
+            status: "upcoming",
+            date_start: "2026-09-08T12:00:00.000Z",
+          },
           race_control: NOT_RACING_CONTROL,
           drivers: {},
           driver_order: [],
@@ -205,7 +214,10 @@ describe("BoardPage", () => {
     // never overridden by a leftover racing signal.
     it("hides the transport bar and align button when the session has finished, and shows the replay banner", () => {
       renderWith(
-        makePush({ session_key: "11361" }, { session: { session_key: "11361", name: "Race", country: "Italy", status: "finished" } }),
+        makePush(
+          { session_key: "11361" },
+          { session: { session_key: "11361", name: "Race", country: "Italy", status: "finished" } },
+        ),
       );
 
       expect(screen.queryByRole("slider", { name: "Playback position" })).not.toBeInTheDocument();
@@ -220,7 +232,13 @@ describe("BoardPage", () => {
         makePush(
           {},
           {
-            session: { session_key: "11361", name: "Race", country: "Italy", status: "upcoming", date_start: "2026-09-08T12:00:00.000Z" },
+            session: {
+              session_key: "11361",
+              name: "Race",
+              country: "Italy",
+              status: "upcoming",
+              date_start: "2026-09-08T12:00:00.000Z",
+            },
             race_control: { ...NOT_RACING_CONTROL, session_status: "SESSION STARTED" },
             drivers: {},
             driver_order: [],
@@ -239,7 +257,13 @@ describe("BoardPage", () => {
         makePush(
           {},
           {
-            session: { session_key: "11361", name: "Race", country: "Italy", status: "upcoming", date_start: "2026-09-08T12:00:00.000Z" },
+            session: {
+              session_key: "11361",
+              name: "Race",
+              country: "Italy",
+              status: "upcoming",
+              date_start: "2026-09-08T12:00:00.000Z",
+            },
             race_control: NOT_RACING_CONTROL,
             drivers: { "1": driver },
             driver_order: [1],
@@ -257,7 +281,13 @@ describe("BoardPage", () => {
         makePush(
           {},
           {
-            session: { session_key: "11361", name: "Race", country: "Italy", status: "upcoming", date_start: "2026-09-08T12:00:00.000Z" },
+            session: {
+              session_key: "11361",
+              name: "Race",
+              country: "Italy",
+              status: "upcoming",
+              date_start: "2026-09-08T12:00:00.000Z",
+            },
             race_control: NOT_RACING_CONTROL,
             drivers: {},
             driver_order: [],
@@ -267,7 +297,9 @@ describe("BoardPage", () => {
 
       expect(screen.queryByRole("slider", { name: "Playback position" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /Align with my screen/ })).not.toBeInTheDocument();
-      expect(screen.getByText("Race starts 2026-09-08. Timing appears when the session goes live.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Race starts 2026-09-08. Timing appears when the session goes live."),
+      ).toBeInTheDocument();
     });
 
     // Regression: the timeline used to be built with only a session_key, so
@@ -281,7 +313,12 @@ describe("BoardPage", () => {
       const push = makePush();
       const timeline = createTimeline(push.state.session!);
       await appendEvents(timeline, [
-        { event_id: "t1", endpoint: "position", source_time: "2026-09-08T12:00:00.000Z", payload: { driver_number: 1, position: 1 } },
+        {
+          event_id: "t1",
+          endpoint: "position",
+          source_time: "2026-09-08T12:00:00.000Z",
+          payload: { driver_number: 1, position: 1 },
+        },
       ]);
 
       const now = Date.now();
@@ -303,7 +340,10 @@ describe("BoardPage", () => {
 
     it("keeps the polls button mounted on every session status", () => {
       renderWith(
-        makePush({ session_key: "11361" }, { session: { session_key: "11361", name: "Race", country: "Italy", status: "finished" } }),
+        makePush(
+          { session_key: "11361" },
+          { session: { session_key: "11361", name: "Race", country: "Italy", status: "finished" } },
+        ),
       );
       expect(screen.getByRole("button", { name: "Polls" })).toBeInTheDocument();
     });
@@ -320,8 +360,7 @@ describe("BoardPage", () => {
     // side slot sits ahead of the table in DOM order (`Board.tsx`), so the
     // table's own match is not reliably the first one; find the "VER" that
     // is actually inside a table row instead.
-    const clickDriverRow = () =>
-      user.click(screen.getAllByText("VER").find((el) => el.closest("tr") !== null)!);
+    const clickDriverRow = () => user.click(screen.getAllByText("VER").find((el) => el.closest("tr") !== null)!);
 
     await clickDriverRow();
     expect(router.state.location.search).toBe("?driver=1");
@@ -359,7 +398,11 @@ describe("BoardPage", () => {
     // transport bar and align button: race control's own SESSION STARTED
     // is enough to mount the loader even while the row still says upcoming.
     it("mounts for an upcoming live session when race control shows SESSION STARTED", () => {
-      resetLiveStore({ live: liveSessionPush("upcoming", { race_control: { ...NOT_RACING_CONTROL, session_status: "SESSION STARTED" } }) });
+      resetLiveStore({
+        live: liveSessionPush("upcoming", {
+          race_control: { ...NOT_RACING_CONTROL, session_status: "SESSION STARTED" },
+        }),
+      });
       renderWith(makePush());
       expect(LiveTimelineLoader).toHaveBeenCalled();
     });
@@ -372,7 +415,11 @@ describe("BoardPage", () => {
 
     // "finished" wins even with race control still reading SESSION STARTED.
     it("does not mount for a live session already finished, even with race control showing SESSION STARTED", () => {
-      resetLiveStore({ live: liveSessionPush("finished", { race_control: { ...NOT_RACING_CONTROL, session_status: "SESSION STARTED" } }) });
+      resetLiveStore({
+        live: liveSessionPush("finished", {
+          race_control: { ...NOT_RACING_CONTROL, session_status: "SESSION STARTED" },
+        }),
+      });
       renderWith(makePush());
       expect(LiveTimelineLoader).not.toHaveBeenCalled();
     });
@@ -393,7 +440,9 @@ describe("BoardPage", () => {
     it("passes the live session's numeric key and current status", () => {
       resetLiveStore({ live: liveSessionPush("live") });
       renderWith(makePush());
-      expect(vi.mocked(LiveTimelineLoader).mock.calls[0]![0]).toEqual(expect.objectContaining({ sessionKey: 9999, status: "live" }));
+      expect(vi.mocked(LiveTimelineLoader).mock.calls[0]![0]).toEqual(
+        expect.objectContaining({ sessionKey: 9999, status: "live" }),
+      );
     });
   });
 });

@@ -16,7 +16,10 @@ const SESSION: RawRecord = {
   date_end: "2026-09-06T15:00:00+00:00",
 };
 
-function fakeFetcher(responses: Record<string, unknown>): { fetcher: (url: string) => Promise<unknown>; calls: string[] } {
+function fakeFetcher(responses: Record<string, unknown>): {
+  fetcher: (url: string) => Promise<unknown>;
+  calls: string[];
+} {
   const calls: string[] = [];
   return {
     calls,
@@ -372,7 +375,9 @@ describe("SessionDiscovery season coverage", () => {
 
     await discovery.refreshSessions(START);
 
-    const coverageLines = logs.filter((l) => l.message.startsWith("ingest: no lap count") || l.message.startsWith("ingest: season coverage"));
+    const coverageLines = logs.filter(
+      (l) => l.message.startsWith("ingest: no lap count") || l.message.startsWith("ingest: season coverage"),
+    );
     const errorLines = coverageLines.filter((l) => l.level === "error");
     const infoLines = coverageLines.filter((l) => l.message.startsWith("ingest: no lap count") && l.level !== "error");
     const summaryLines = coverageLines.filter((l) => l.message.startsWith("ingest: season coverage"));
@@ -382,12 +387,18 @@ describe("SessionDiscovery season coverage", () => {
     expect(errorLines[0]?.message).toContain("circuit_key=99999");
     expect(infoLines).toHaveLength(1);
     expect(infoLines[0]?.message).toContain("session_key=60003");
-    expect(summaryLines).toEqual([{ message: "ingest: season coverage 1/3 upcoming races have a lap count", level: undefined }]);
+    expect(summaryLines).toEqual([
+      { message: "ingest: season coverage 1/3 upcoming races have a lap count", level: undefined },
+    ]);
 
     logs.length = 0;
     await discovery.refreshSessions(START + 60_000);
 
-    expect(logs.filter((l) => l.message.startsWith("ingest: no lap count") || l.message.startsWith("ingest: season coverage"))).toHaveLength(0);
+    expect(
+      logs.filter(
+        (l) => l.message.startsWith("ingest: no lap count") || l.message.startsWith("ingest: season coverage"),
+      ),
+    ).toHaveLength(0);
   });
 
   test("a failed first discovery defers the check to the first success", async () => {

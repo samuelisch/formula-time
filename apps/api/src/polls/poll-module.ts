@@ -16,8 +16,7 @@ import { upsertVote } from "./vote-path.js";
 export type { PollLifecycleStatus, PollOptionPublic, PollPublic, PollTemplateKind } from "./poll-read.js";
 
 export type VoteResult =
-  | { ok: true; poll: PollPublic; option_id: string }
-  | { ok: false; status: 404 | 400 | 409; error: string };
+  { ok: true; poll: PollPublic; option_id: string } | { ok: false; status: 404 | 400 | 409; error: string };
 
 export interface PollModuleLogger {
   info(msg: string): void;
@@ -138,9 +137,7 @@ export class PollModule {
   // row a concurrent write just changed, and leave the poll stuck instead
   // of voided. Chaining guarantees anything already queued lands first.
   public async onSessionFinished(): Promise<void> {
-    this.writeChain = this.writeChain
-      .then(() => this.voidFinishedPolls())
-      .catch((err) => this.logWriteFailure(err));
+    this.writeChain = this.writeChain.then(() => this.voidFinishedPolls()).catch((err) => this.logWriteFailure(err));
     await this.writeChain;
   }
 

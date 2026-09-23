@@ -175,11 +175,8 @@ export async function dumpRecording(
 
   await writeFile(
     path.join(outDir, "session.json"),
-    JSON.stringify(
-      { session: sessionRawFromRow(session), discovered_at: new Date(now()).toISOString() },
-      null,
-      2,
-    ) + "\n",
+    JSON.stringify({ session: sessionRawFromRow(session), discovered_at: new Date(now()).toISOString() }, null, 2) +
+      "\n",
   );
 
   const { events, endpoints } = await writeEventPages(db, sessionKey, rawDir);

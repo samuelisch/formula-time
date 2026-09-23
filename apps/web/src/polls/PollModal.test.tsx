@@ -24,7 +24,11 @@ function renderModal(polls: PollModalProps["polls"], sessionKey: string | null =
   );
 }
 
-function rerenderModal(rerender: RenderResult["rerender"], polls: PollModalProps["polls"], sessionKey: string | null = "session-1") {
+function rerenderModal(
+  rerender: RenderResult["rerender"],
+  polls: PollModalProps["polls"],
+  sessionKey: string | null = "session-1",
+) {
   const queryClient = new QueryClient();
   rerender(
     <QueryClientProvider client={queryClient}>
@@ -75,7 +79,11 @@ describe("PollModal", () => {
     const { rerender } = renderModal([makePoll({ poll_id: "poll-1", status: "open" })], "session-1");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
-    rerenderModal(rerender, [makePoll({ poll_id: "poll-1", status: "resolved", winning_option_ids: ["opt-a"] })], "session-1");
+    rerenderModal(
+      rerender,
+      [makePoll({ poll_id: "poll-1", status: "resolved", winning_option_ids: ["opt-a"] })],
+      "session-1",
+    );
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     act(() => {
       usePollModalUiStore.getState().close();
@@ -83,7 +91,11 @@ describe("PollModal", () => {
 
     // A new race reusing the same poll_id/status shape must not re-pop: the
     // session change re-seeds instead of comparing against the old race.
-    rerenderModal(rerender, [makePoll({ poll_id: "poll-1", status: "resolved", winning_option_ids: ["opt-a"] })], "session-2");
+    rerenderModal(
+      rerender,
+      [makePoll({ poll_id: "poll-1", status: "resolved", winning_option_ids: ["opt-a"] })],
+      "session-2",
+    );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 

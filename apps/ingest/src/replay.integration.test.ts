@@ -25,8 +25,7 @@ import { EventQueue } from "./writer/queue.js";
 import { upsertSession } from "./writer/sessions.js";
 import { EventWriter } from "./writer/writer.js";
 
-const POC_DIR =
-  process.env["REPLAY_RECORDING_DIR"] ?? "/Users/samuelchan/code/f1-live-events-poc/poc/live-logs/11361";
+const POC_DIR = process.env["REPLAY_RECORDING_DIR"] ?? "/Users/samuelchan/code/f1-live-events-poc/poc/live-logs/11361";
 const SESSION_KEY = 11361n;
 // Mid-race: session.json date_start=2026-09-06T13:00:00+00:00,
 // date_end=2026-09-06T15:00:00+00:00. Pinning `now` here (rather than the

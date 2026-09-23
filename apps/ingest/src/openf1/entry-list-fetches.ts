@@ -19,7 +19,11 @@ export interface EntryListFetchesOptions {
    */
   enqueueDrivers: (rows: RawRecord[], expectedSessionKey: number | null) => Promise<EnqueueDriverRowsResult>;
   /** Queues and records rows already tagged to one session — the static fallback's path. */
-  enqueueRows: (endpoint: string, sessionKey: number, rows: RawRecord[]) => Promise<{ newRows: number; malformed: number }>;
+  enqueueRows: (
+    endpoint: string,
+    sessionKey: number,
+    rows: RawRecord[],
+  ) => Promise<{ newRows: number; malformed: number }>;
   /** Discovery's answer: has this session's own `sessions` upsert landed? */
   isKnownSession: (sessionKey: number) => boolean;
   countStat: CountStat;

@@ -27,7 +27,5 @@ test("the board moves", async ({ page }) => {
   const before = await gapColumnValues(page);
   expect(before.length).toBeGreaterThan(0);
 
-  await expect
-    .poll(() => gapColumnValues(page), { timeout: 30_000, intervals: [1_000] })
-    .not.toEqual(before);
+  await expect.poll(() => gapColumnValues(page), { timeout: 30_000, intervals: [1_000] }).not.toEqual(before);
 });

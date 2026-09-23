@@ -55,7 +55,12 @@ async function buildTimeline(): Promise<Timeline> {
   return timeline;
 }
 
-const bufferedSpan = { entries: [{ at: 0, push: makePush() }, { at: 180_000, push: makePush() }] };
+const bufferedSpan = {
+  entries: [
+    { at: 0, push: makePush() },
+    { at: 180_000, push: makePush() },
+  ],
+};
 
 const anchorsWithLap5: Anchors = {
   lights_out: "2000-01-01T00:00:00.000Z",
@@ -120,7 +125,11 @@ describe("useLiveTimeTarget", () => {
 
   it("seekTo() sets the delay from the target source time, floored at zero", () => {
     // sent_at/lastMessageAt both 0 so headMs (axisOf(live) + (now - lastMessageAt)) lands exactly on NOW: seekTo needs a live push to measure against.
-    resetStore({ buffer: bufferedSpan, live: makePush({ sent_at: 0 }, { latest_source_time: null }), lastMessageAt: 0 });
+    resetStore({
+      buffer: bufferedSpan,
+      live: makePush({ sent_at: 0 }, { latest_source_time: null }),
+      lastMessageAt: 0,
+    });
     const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
 
     result.current.seekTo(NOW - 5_000);
@@ -237,7 +246,10 @@ describe("useLiveTimeTarget", () => {
 
       const S2 = S + 300_000; // 5 minutes later on the source axis
       act(() => {
-        useLiveStore.setState({ live: makePush({}, { latest_source_time: new Date(S2).toISOString() }), lastMessageAt: M });
+        useLiveStore.setState({
+          live: makePush({}, { latest_source_time: new Date(S2).toISOString() }),
+          lastMessageAt: M,
+        });
       });
 
       act(() => staleSeekTo(S2 - 30_000));
@@ -256,14 +268,24 @@ describe("useLiveTimeTarget", () => {
     it("range() is [timeline.firstSourceMs, now] once a timeline is loaded", async () => {
       const timeline = await buildTimeline();
       // session_key "9999" matches the timeline; sent_at/lastMessageAt both 0 so headMs (axisOf(live) + (now - lastMessageAt)) lands exactly on NOW.
-      resetStore({ buffer: bufferedSpan, timeline, live: makePush({ sent_at: 0 }, { latest_source_time: null }), lastMessageAt: 0 });
+      resetStore({
+        buffer: bufferedSpan,
+        timeline,
+        live: makePush({ sent_at: 0 }, { latest_source_time: null }),
+        lastMessageAt: 0,
+      });
       const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
       expect(result.current.range()).toEqual({ startMs: timeline.firstSourceMs, endMs: NOW });
     });
 
     it("anchors() comes from the timeline when one is loaded, overriding the stream-derived anchors", async () => {
       const timeline = await buildTimeline();
-      resetStore({ buffer: bufferedSpan, anchors: anchorsWithLap5, timeline, live: makePush({}, { latest_source_time: null }) });
+      resetStore({
+        buffer: bufferedSpan,
+        anchors: anchorsWithLap5,
+        timeline,
+        live: makePush({}, { latest_source_time: null }),
+      });
       const { result } = renderHook(() => useLiveTimeTarget(() => NOW));
       const anchors = result.current.anchors();
       expect(anchors).not.toEqual(anchorsWithLap5);

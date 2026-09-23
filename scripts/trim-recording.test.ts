@@ -60,7 +60,10 @@ describe("trimRecording", () => {
 
     trimRecording(inDir, outDir, WINDOW);
 
-    const kept = readFileSync(join(outDir, "raw", "laps.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    const kept = readFileSync(join(outDir, "raw", "laps.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
     expect(kept.map((r) => r.payload.lap_number)).toEqual([1, 2, 3]);
   });
 
@@ -71,7 +74,9 @@ describe("trimRecording", () => {
 
     trimRecording(inDir, outDir, WINDOW);
 
-    const kept = readFileSync(join(outDir, "raw", "drivers.jsonl"), "utf8").trim().split("\n");
+    const kept = readFileSync(join(outDir, "raw", "drivers.jsonl"), "utf8")
+      .trim()
+      .split("\n");
     expect(kept).toHaveLength(2);
   });
 

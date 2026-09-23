@@ -48,7 +48,11 @@ interface Snapshot {
 
 const EMPTY_SNAPSHOT: Snapshot = { timeline: null, headSeq: 0 };
 
-export function useSessionTimeline(sessionKey: number, status: SessionStatus, session: RawRecord): UseSessionTimelineResult {
+export function useSessionTimeline(
+  sessionKey: number,
+  status: SessionStatus,
+  session: RawRecord,
+): UseSessionTimelineResult {
   // `timeline` and `headSeq` are one state value, not two `useState`s, so
   // `publish` commits them together in the same render (it runs from a
   // promise continuation, outside React's automatic batching).

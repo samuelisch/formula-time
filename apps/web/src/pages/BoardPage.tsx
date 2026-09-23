@@ -70,7 +70,9 @@ export function BoardPage() {
         </p>
       )}
       {status === "upcoming" && !isRacing && (
-        <p className={styles.banner}>Race starts {date(stringField(session ?? {}, "date_start"))}. Timing appears when the session goes live.</p>
+        <p className={styles.banner}>
+          Race starts {date(stringField(session ?? {}, "date_start"))}. Timing appears when the session goes live.
+        </p>
       )}
       {shouldMountTimelineLoader && liveSessionKey !== null && (
         <LiveTimelineLoader sessionKey={liveSessionKey} status={liveSessionStatus ?? "live"} />

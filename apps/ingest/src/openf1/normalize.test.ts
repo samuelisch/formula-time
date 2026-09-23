@@ -66,24 +66,26 @@ describe("LiveNormalizer", () => {
 
   test("carries sourceTime from the endpoint's configured timestamp field", () => {
     const normalizer = new LiveNormalizer();
-    const { rows: [event] } = normalizer.normalize("laps", [
-      { driver_number: 1, lap_number: 1, date_start: "2026-09-06T13:00:00Z" },
-    ]);
+    const {
+      rows: [event],
+    } = normalizer.normalize("laps", [{ driver_number: 1, lap_number: 1, date_start: "2026-09-06T13:00:00Z" }]);
     expect(event?.sourceTime).toBe("2026-09-06T13:00:00Z");
   });
 
   test("stints infers sourceTime from the matching lap's date_start, seen earlier on the `laps` endpoint", () => {
     const normalizer = new LiveNormalizer();
-    normalizer.normalize("laps", [
-      { driver_number: 44, lap_number: 3, date_start: "2026-09-06T13:10:00Z" },
-    ]);
-    const { rows: [stint] } = normalizer.normalize("stints", [{ driver_number: 44, lap_start: 3 }]);
+    normalizer.normalize("laps", [{ driver_number: 44, lap_number: 3, date_start: "2026-09-06T13:10:00Z" }]);
+    const {
+      rows: [stint],
+    } = normalizer.normalize("stints", [{ driver_number: 44, lap_start: 3 }]);
     expect(stint?.sourceTime).toBe("2026-09-06T13:10:00Z");
   });
 
   test("stints with no matching lap seen yet gets a null sourceTime, not a throw", () => {
     const normalizer = new LiveNormalizer();
-    const { rows: [stint] } = normalizer.normalize("stints", [{ driver_number: 99, lap_start: 1 }]);
+    const {
+      rows: [stint],
+    } = normalizer.normalize("stints", [{ driver_number: 99, lap_start: 1 }]);
     expect(stint?.sourceTime).toBeNull();
   });
 
@@ -117,7 +119,9 @@ describe("LiveNormalizer", () => {
 
   test("an endpoint with no configured timestamp field gets a null sourceTime", () => {
     const normalizer = new LiveNormalizer();
-    const { rows: [event] } = normalizer.normalize("drivers", [{ driver_number: 1 }]);
+    const {
+      rows: [event],
+    } = normalizer.normalize("drivers", [{ driver_number: 1 }]);
     expect(event?.sourceTime).toBeNull();
   });
 
@@ -132,7 +136,9 @@ describe("LiveNormalizer", () => {
   // position/intervals/pit/race_control/weather.
   test("overtakes carries sourceTime from its `date` field (real capture: mqtt-probe .../topics/v1_overtakes.jsonl)", () => {
     const normalizer = new LiveNormalizer();
-    const { rows: [event] } = normalizer.normalize("overtakes", [
+    const {
+      rows: [event],
+    } = normalizer.normalize("overtakes", [
       {
         meeting_key: 1293,
         session_key: 11361,

@@ -127,10 +127,13 @@ describe("RaceControlFeed", () => {
   });
 
   it("keys rows by event_id", () => {
-    renderWith([
-      { event_id: "e1", payload: yellowFlag },
-      { event_id: "e2", payload: safetyCarMessage },
-    ], true);
+    renderWith(
+      [
+        { event_id: "e1", payload: yellowFlag },
+        { event_id: "e2", payload: safetyCarMessage },
+      ],
+      true,
+    );
 
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
   });

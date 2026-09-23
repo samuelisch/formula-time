@@ -68,13 +68,21 @@ describe("ConnectionPill", () => {
   });
 
   it("renders nothing when the session is upcoming", () => {
-    resetStore({ connection: "open", lastMessageAt: Date.now(), displayed: displayedWithSession({ status: "upcoming" }) });
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ status: "upcoming" }),
+    });
     render(<ConnectionPill />);
     expect(screen.queryByText(/connected|connecting|catching up|reconnecting|last update/i)).not.toBeInTheDocument();
   });
 
   it("renders nothing when the session has finished", () => {
-    resetStore({ connection: "open", lastMessageAt: Date.now(), displayed: displayedWithSession({ status: "finished" }) });
+    resetStore({
+      connection: "open",
+      lastMessageAt: Date.now(),
+      displayed: displayedWithSession({ status: "finished" }),
+    });
     render(<ConnectionPill />);
     expect(screen.queryByText(/connected|connecting|catching up|reconnecting|last update/i)).not.toBeInTheDocument();
   });
@@ -188,7 +196,11 @@ describe("ConnectionPill", () => {
       const { rerender } = render(<ConnectionPill />);
       const connecting = screen.getByRole("status").getAttribute("aria-label");
 
-      resetStore({ connection: "open", lastMessageAt: Date.now(), displayed: displayedWithSession({ status: "live" }) });
+      resetStore({
+        connection: "open",
+        lastMessageAt: Date.now(),
+        displayed: displayedWithSession({ status: "live" }),
+      });
       rerender(<ConnectionPill />);
       const open = screen.getByRole("status").getAttribute("aria-label");
 

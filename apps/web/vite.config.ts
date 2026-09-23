@@ -63,7 +63,9 @@ function cspHeadersPlugin(apiOrigin: string | undefined): Plugin {
           `VITE_API_URL "${apiOrigin}" is not a valid Content-Security-Policy source (expected "http(s)://host", with no ';', quote, or whitespace) -- refusing to build a broken CSP into dist/_headers`,
         );
       }
-      headersPath = path.isAbsolute(config.build.outDir) ? config.build.outDir : path.join(config.root, config.build.outDir);
+      headersPath = path.isAbsolute(config.build.outDir)
+        ? config.build.outDir
+        : path.join(config.root, config.build.outDir);
       headersPath = path.join(headersPath, "_headers");
     },
     closeBundle() {

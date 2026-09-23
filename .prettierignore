@@ -1,0 +1,39 @@
+# Build output and dependencies: generated, never hand-edited.
+dist/
+node_modules/
+packages/db/src/generated/
+
+# OCR worker assets vendored as static files, not source.
+apps/web/public/ocr/
+
+# Recorded network fixtures for e2e tests: real captured bytes, not source.
+apps/web/e2e/fixtures/
+
+# ADRs are binding, numbered decisions; the ADR-guard hook refuses edits to
+# accepted ones, and reformatting one would count as such an edit.
+docs/decisions-adr/
+
+# pnpm's own lockfile serializer, not a hand-edited or reviewed source file;
+# reformatting it churns thousands of lines that the next `pnpm install`
+# only partially re-touches, fighting the tool that owns the file.
+pnpm-lock.yaml
+
+# GitHub Actions refuses to run any workflow for a ref whose workflow files
+# it cannot validate, and the Claude review action specifically refuses to
+# run when its own workflow file differs from the default branch's bytes —
+# reformatting .github/workflows/*.yml in this same PR broke both the PR's
+# own CI and its own review. Never reformatted, for the same reason
+# .railway/ (platform config with the same self-referential exposure) never
+# is either.
+.github/
+.railway/
+
+# Markdown: remark (Prettier's markdown formatter) does not treat a literal
+# "|" inside an inline code span as protected, so reformatting a GFM table
+# whose cell text contains one (e.g. a path glob like `implementor-<api|
+# ingest|web>.md`) splits it into extra columns — a content change, not a
+# format-only one. It also collapses the hanging indent on a wrapped list
+# item's continuation line, changing how the list nests. Markdown formatting
+# was never part of this task's measured style (print width, trailing
+# commas, quotes — all TS/JS concepts), so every *.md file is left alone.
+*.md

@@ -11,7 +11,10 @@ const ANCHORS_WITH_LIGHTS_OUT: Anchors = {
   restarts: [],
 };
 
-function fakeTarget(overrides: { anchors?: Anchors; playback?: { playing: boolean; play(): void; pause(): void } | null }): TimeTarget {
+function fakeTarget(overrides: {
+  anchors?: Anchors;
+  playback?: { playing: boolean; play(): void; pause(): void } | null;
+}): TimeTarget {
   return {
     displayedAt: () => null,
     seekTo: vi.fn(),

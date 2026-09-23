@@ -55,16 +55,30 @@ function main() {
     process.exit(2);
   }
 
-  const cell = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+  const cell = (s) =>
+    String(s ?? "")
+      .replace(/\|/g, "\\|")
+      .replace(/\r?\n/g, " ");
   // The search is a pre-filter only, widened a day earlier than the period
   // so the 200-PR cap isn't hit on a busy week; the real boundary is
   // applied locally below, since GitHub's search index handles the date
   // in its own timezone and can lag behind a same-day query.
-  const raw = execFileSync("gh", [
-    "pr", "list", "--state", "merged", "--limit", "200",
-    "--search", `merged:>=${shiftDate(start, -1)}`,
-    "--json", "number,title,body,mergedAt,url",
-  ], { encoding: "utf8" });
+  const raw = execFileSync(
+    "gh",
+    [
+      "pr",
+      "list",
+      "--state",
+      "merged",
+      "--limit",
+      "200",
+      "--search",
+      `merged:>=${shiftDate(start, -1)}`,
+      "--json",
+      "number,title,body,mergedAt,url",
+    ],
+    { encoding: "utf8" },
+  );
 
   const line = (body, key) => {
     const m = body?.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
@@ -75,15 +89,20 @@ function main() {
   const prs = JSON.parse(raw)
     .filter((p) => inPeriod(p.mergedAt, start, endArg))
     .sort((a, b) => a.mergedAt.localeCompare(b.mergedAt))
-    .map((p) => ({ ...p, summary: line(p.body, "Summary"), friction: line(p.body, "Friction"), agent: line(p.body, "Agent") }));
+    .map((p) => ({
+      ...p,
+      summary: line(p.body, "Summary"),
+      friction: line(p.body, "Friction"),
+      agent: line(p.body, "Agent"),
+    }));
 
-  const header = endArg
-    ? `# Retro — PRs merged from ${start} to ${endArg}\n`
-    : `# Retro — PRs merged since ${start}\n`;
+  const header = endArg ? `# Retro — PRs merged from ${start} to ${endArg}\n` : `# Retro — PRs merged since ${start}\n`;
   console.log(header);
   console.log(`| PR | Agent | Summary | Friction |\n|---|---|---|---|`);
   for (const p of prs) {
-    console.log(`| [#${p.number}](${p.url}) | ${cell(p.agent || "?")} | ${cell(p.summary || `(missing) ${p.title}`)} | ${cell(p.friction || "(missing)")} |`);
+    console.log(
+      `| [#${p.number}](${p.url}) | ${cell(p.agent || "?")} | ${cell(p.summary || `(missing) ${p.title}`)} | ${cell(p.friction || "(missing)")} |`,
+    );
   }
   const missing = prs.filter((p) => !p.summary || !p.friction);
   if (missing.length) console.log(`\nMissing lines: ${missing.map((p) => `#${p.number}`).join(", ")}`);

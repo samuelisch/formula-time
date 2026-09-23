@@ -66,7 +66,9 @@ export function expectsFire(kind: LightsFixture["kind"]): boolean {
 export function checkFixture(fixture: LightsFixture): string | null {
   const fires = replayFixture(fixture);
   if (!expectsFire(fixture.kind)) {
-    return fires.length === 0 ? null : `${fixture.file}: ${fixture.kind} must never fire, fired at ${fires.join(", ")} ms`;
+    return fires.length === 0
+      ? null
+      : `${fixture.file}: ${fixture.kind} must never fire, fired at ${fires.join(", ")} ms`;
   }
   if (fixture.lights_out_at_ms === null) return `${fixture.file}: ${fixture.kind} needs a marked lights_out_at_ms`;
   if (fires.length !== 1) {
@@ -82,7 +84,12 @@ export function checkFixture(fixture: LightsFixture): string | null {
 // --- Self-test of the checker on synthetic traces (runs even with no fixtures on disk) ---
 function synthetic(kind: LightsFixture["kind"], counts: number[], lightsOutAt: number | null): LightsFixture {
   return {
-    schema: 1, file: `synthetic-${kind}`, kind, sample_ms: 100, lit_thresholds: [0.25], lights_out_at_ms: lightsOutAt,
+    schema: 1,
+    file: `synthetic-${kind}`,
+    kind,
+    sample_ms: 100,
+    lit_thresholds: [0.25],
+    lights_out_at_ms: lightsOutAt,
     samples: counts.map((count, i) => [i * 100, count, 0]),
   };
 }
@@ -134,84 +141,51 @@ describe("checkFixture: self-test of the checker on synthetic traces", () => {
 //   skip  race-start-zandvoort.mov
 
 describe("real fixtures replayed through createLightsOutDetector().pushSummary", () => {
-  it.skip(
-    "extra-formation-lap-monza.mov: extra-formation-lap needs a marked lights_out_at_ms",
-    () => {
-      expect(checkFixture(extraFormationLapMonza as LightsFixture)).toBeNull();
-    },
-  );
+  it.skip("extra-formation-lap-monza.mov: extra-formation-lap needs a marked lights_out_at_ms", () => {
+    expect(checkFixture(extraFormationLapMonza as LightsFixture)).toBeNull();
+  });
 
-  it.skip(
-    "extra-formation-lap-zandvoort.mov: extra-formation-lap needs a marked lights_out_at_ms",
-    () => {
-      expect(checkFixture(extraFormationLapZandvoort as LightsFixture)).toBeNull();
-    },
-  );
+  it.skip("extra-formation-lap-zandvoort.mov: extra-formation-lap needs a marked lights_out_at_ms", () => {
+    expect(checkFixture(extraFormationLapZandvoort as LightsFixture)).toBeNull();
+  });
 
-  it.skip(
-    "lap-change.mov: lap-change must never fire, fired at 4500, 4600, 4700, 4800, 5100 ms",
-    () => {
-      expect(checkFixture(lapChange as LightsFixture)).toBeNull();
-    },
-  );
+  it.skip("lap-change.mov: lap-change must never fire, fired at 4500, 4600, 4700, 4800, 5100 ms", () => {
+    expect(checkFixture(lapChange as LightsFixture)).toBeNull();
+  });
 
-  it.skip(
-    "race-restart-monza.mov: expected exactly one fire near 12200 ms, got []",
-    () => {
-      expect(checkFixture(raceRestartMonza as LightsFixture)).toBeNull();
-    },
-  );
+  it.skip("race-restart-monza.mov: expected exactly one fire near 12200 ms, got []", () => {
+    expect(checkFixture(raceRestartMonza as LightsFixture)).toBeNull();
+  });
 
   it("race-restart-zandvoort.mov: fires exactly once, at the marked lights-out", () => {
     expect(checkFixture(raceRestartZandvoort as LightsFixture)).toBeNull();
   });
 
-  it.skip(
-    "race-start-china.mov: expected exactly one fire near 16300 ms, got [2700, 2800, 16300, 16600, 16700, 16800, 16900, 17000, 17100, 17200, 17300, 17700]",
-    () => {
-      expect(checkFixture(raceStartChina as LightsFixture)).toBeNull();
-    },
-  );
+  it.skip("race-start-china.mov: expected exactly one fire near 16300 ms, got [2700, 2800, 16300, 16600, 16700, 16800, 16900, 17000, 17100, 17200, 17300, 17700]", () => {
+    expect(checkFixture(raceStartChina as LightsFixture)).toBeNull();
+  });
 
-  it.skip(
-    "race-start-las-vegas-night.mov: expected exactly one fire near 12800 ms, got [9600, 9700, 9800, 9900, 10000, 10100, 10200, 10300, 10400, 10500, 10600, 10700, 10800, 10900, 11000, 11100, 11200, 11300, 11400, 11500, 13900, 14100]",
-    () => {
-      expect(checkFixture(raceStartLasVegasNight as LightsFixture)).toBeNull();
-    },
-  );
+  it.skip("race-start-las-vegas-night.mov: expected exactly one fire near 12800 ms, got [9600, 9700, 9800, 9900, 10000, 10100, 10200, 10300, 10400, 10500, 10600, 10700, 10800, 10900, 11000, 11100, 11200, 11300, 11400, 11500, 13900, 14100]", () => {
+    expect(checkFixture(raceStartLasVegasNight as LightsFixture)).toBeNull();
+  });
 
-  it.skip(
-    "race-start-monza.mov: expected exactly one fire near 18500 ms, got [16400, 17400]",
-    () => {
-      expect(checkFixture(raceStartMonza as LightsFixture)).toBeNull();
-    },
-  );
+  it.skip("race-start-monza.mov: expected exactly one fire near 18500 ms, got [16400, 17400]", () => {
+    expect(checkFixture(raceStartMonza as LightsFixture)).toBeNull();
+  });
 
-  it.skip(
-    "race-start-qatar-night.mov: expected exactly one fire near 5500 ms, got []",
-    () => {
-      expect(checkFixture(raceStartQatarNight as LightsFixture)).toBeNull();
-    },
-  );
+  it.skip("race-start-qatar-night.mov: expected exactly one fire near 5500 ms, got []", () => {
+    expect(checkFixture(raceStartQatarNight as LightsFixture)).toBeNull();
+  });
 
-  it.skip(
-    "race-start-singapore-night.mov: expected exactly one fire near 9100 ms, got [4500, 4600, 4700, 4800, 4900, 5000, 5100, 5200, 5300, 5400, 5500, 5600, 5700, 5800, 5900, 6000, 6100, 6200, 6300, 6400, 9100, 9200, 9300, 9400, 9500, 9600, 9700, 9800, 9900, 10000, 10100, 10300, 10400, 10500, 10600, 10700, 10800, 10900, 11000, 11100]",
-    () => {
-      expect(checkFixture(raceStartSingaporeNight as LightsFixture)).toBeNull();
-    },
-  );
+  it.skip("race-start-singapore-night.mov: expected exactly one fire near 9100 ms, got [4500, 4600, 4700, 4800, 4900, 5000, 5100, 5200, 5300, 5400, 5500, 5600, 5700, 5800, 5900, 6000, 6100, 6200, 6300, 6400, 9100, 9200, 9300, 9400, 9500, 9600, 9700, 9800, 9900, 10000, 10100, 10300, 10400, 10500, 10600, 10700, 10800, 10900, 11000, 11100]", () => {
+    expect(checkFixture(raceStartSingaporeNight as LightsFixture)).toBeNull();
+  });
 
-  it.skip(
-    "race-start-spa.mov: expected exactly one fire near 14900 ms, got [16500, 16600, 16700, 16800, 16900, 17200, 17300]",
-    () => {
-      expect(checkFixture(raceStartSpa as LightsFixture)).toBeNull();
-    },
-  );
+  it.skip("race-start-spa.mov: expected exactly one fire near 14900 ms, got [16500, 16600, 16700, 16800, 16900, 17200, 17300]", () => {
+    expect(checkFixture(raceStartSpa as LightsFixture)).toBeNull();
+  });
 
-  it.skip(
-    "race-start-zandvoort.mov: expected exactly one fire near 15200 ms, got [15100, 15200]",
-    () => {
-      expect(checkFixture(raceStartZandvoort as LightsFixture)).toBeNull();
-    },
-  );
+  it.skip("race-start-zandvoort.mov: expected exactly one fire near 15200 ms, got [15100, 15200]", () => {
+    expect(checkFixture(raceStartZandvoort as LightsFixture)).toBeNull();
+  });
 });

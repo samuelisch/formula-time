@@ -48,7 +48,13 @@ export function RaceSelect({ current, races, value, onChange, id }: RaceSelectPr
   const labels = optionLabels(historicalRaces);
 
   return (
-    <select id={id} aria-label="Select race" className={styles.select} value={value} onChange={(event) => onChange(event.target.value)}>
+    <select
+      id={id}
+      aria-label="Select race"
+      className={styles.select}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
       {current !== null ? (
         <option value={current.sessionKey}>
           {current.label}

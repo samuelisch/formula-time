@@ -162,74 +162,74 @@ export function createSessionLifecycle(opts: SessionLifecycleOptions): SessionLi
   }
 
   async function runCheck(): Promise<void> {
-      const candidate = await opts.pickSession(opts.db);
-      if (candidate === null) {
-        if (!warnedNoSession) {
-          opts.log("no session found (upcoming, live, or finished) -- waiting");
-          warnedNoSession = true;
-        }
-        return;
+    const candidate = await opts.pickSession(opts.db);
+    if (candidate === null) {
+      if (!warnedNoSession) {
+        opts.log("no session found (upcoming, live, or finished) -- waiting");
+        warnedNoSession = true;
       }
+      return;
+    }
 
-      if (session !== null && candidate.sessionKey === session.sessionKey) {
-        const previous = session;
-        session = candidate;
-        // The session row is metadata the fold carries, refreshed on every
-        // lifecycle check: compare only the fields that travel on the wire,
-        // and push a fresh copy to the projector (and the poll module, for
-        // total_laps/meeting_name) the moment any of them changes, rather
-        // than waiting for a restart to re-pick the row.
-        const changed =
-          candidate.status !== previous.status ||
-          candidate.totalLaps !== previous.totalLaps ||
-          candidate.meetingName !== previous.meetingName ||
-          candidate.circuitShortName !== previous.circuitShortName ||
-          candidate.location !== previous.location ||
-          candidate.dateStart.getTime() !== previous.dateStart.getTime() ||
-          candidate.dateEnd.getTime() !== previous.dateEnd.getTime();
-        if (changed) {
-          projector?.updateSession(candidate);
-          try {
-            opts.polls.updateSession({ totalLaps: candidate.totalLaps, meetingName: candidate.meetingName });
-          } catch (err) {
-            logPollHookFailure("updateSession", err);
-          }
-        }
-        if (candidate.status === "finished") {
-          await notifyFinished();
-        }
-        return;
-      }
-
-      // Retire the outgoing session's polls before the new one loads.
-      projector?.stop();
-      projector = null;
-      if (session !== null) {
-        await notifyFinished();
-      }
-
-      try {
-        await opts.polls.start({
-          sessionKey: candidate.sessionKey,
-          totalLaps: candidate.totalLaps,
-          country: candidate.country,
-          meetingName: candidate.meetingName,
-        });
-      } catch (err) {
-        logPollHookFailure("start", err);
-      }
-
+    if (session !== null && candidate.sessionKey === session.sessionKey) {
+      const previous = session;
       session = candidate;
-      finishedNotified = false;
-      // A session that is already finished when first seen (restart after
-      // the race, or pickSession's most-recent fallback) still had its
-      // open/locked polls reloaded by start(); void them now, before the
-      // projector's first push, or they stay votable forever.
+      // The session row is metadata the fold carries, refreshed on every
+      // lifecycle check: compare only the fields that travel on the wire,
+      // and push a fresh copy to the projector (and the poll module, for
+      // total_laps/meeting_name) the moment any of them changes, rather
+      // than waiting for a restart to re-pick the row.
+      const changed =
+        candidate.status !== previous.status ||
+        candidate.totalLaps !== previous.totalLaps ||
+        candidate.meetingName !== previous.meetingName ||
+        candidate.circuitShortName !== previous.circuitShortName ||
+        candidate.location !== previous.location ||
+        candidate.dateStart.getTime() !== previous.dateStart.getTime() ||
+        candidate.dateEnd.getTime() !== previous.dateEnd.getTime();
+      if (changed) {
+        projector?.updateSession(candidate);
+        try {
+          opts.polls.updateSession({ totalLaps: candidate.totalLaps, meetingName: candidate.meetingName });
+        } catch (err) {
+          logPollHookFailure("updateSession", err);
+        }
+      }
       if (candidate.status === "finished") {
         await notifyFinished();
       }
-      projector = new RaceStateProjector({ source: opts.source, session: candidate, log: opts.log });
-      wireProjector(projector, candidate);
+      return;
+    }
+
+    // Retire the outgoing session's polls before the new one loads.
+    projector?.stop();
+    projector = null;
+    if (session !== null) {
+      await notifyFinished();
+    }
+
+    try {
+      await opts.polls.start({
+        sessionKey: candidate.sessionKey,
+        totalLaps: candidate.totalLaps,
+        country: candidate.country,
+        meetingName: candidate.meetingName,
+      });
+    } catch (err) {
+      logPollHookFailure("start", err);
+    }
+
+    session = candidate;
+    finishedNotified = false;
+    // A session that is already finished when first seen (restart after
+    // the race, or pickSession's most-recent fallback) still had its
+    // open/locked polls reloaded by start(); void them now, before the
+    // projector's first push, or they stay votable forever.
+    if (candidate.status === "finished") {
+      await notifyFinished();
+    }
+    projector = new RaceStateProjector({ source: opts.source, session: candidate, log: opts.log });
+    wireProjector(projector, candidate);
   }
 
   return {

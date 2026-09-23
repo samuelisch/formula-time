@@ -20,7 +20,8 @@ function pillState(
   now: number,
 ): { text: string; announce: string; tone: PillTone } {
   if (connection === "connecting") return { text: "connecting…", announce: "connecting…", tone: "neutral" };
-  if (connection === "reconnecting") return { text: "Live · reconnecting…", announce: "Live · reconnecting…", tone: "warn" };
+  if (connection === "reconnecting")
+    return { text: "Live · reconnecting…", announce: "Live · reconnecting…", tone: "warn" };
   if (catchingUp) return { text: "Live · catching up", announce: "Live · catching up", tone: "live" };
 
   if (lastMessageAt !== null && now - lastMessageAt >= QUIET_AFTER_MS) {

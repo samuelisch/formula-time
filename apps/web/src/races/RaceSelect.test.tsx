@@ -76,11 +76,23 @@ describe("RaceSelect", () => {
 
   it("labels the current session Upcoming or Finished per its status", () => {
     const { rerender } = render(
-      <RaceSelect current={{ sessionKey: "9999", label: "Japan · Race", status: "upcoming" }} races={[]} value="9999" onChange={vi.fn()} />,
+      <RaceSelect
+        current={{ sessionKey: "9999", label: "Japan · Race", status: "upcoming" }}
+        races={[]}
+        value="9999"
+        onChange={vi.fn()}
+      />,
     );
     expect(screen.getByRole("option", { name: /Upcoming/ })).toBeInTheDocument();
 
-    rerender(<RaceSelect current={{ sessionKey: "9999", label: "Japan · Race", status: "finished" }} races={[]} value="9999" onChange={vi.fn()} />);
+    rerender(
+      <RaceSelect
+        current={{ sessionKey: "9999", label: "Japan · Race", status: "finished" }}
+        races={[]}
+        value="9999"
+        onChange={vi.fn()}
+      />,
+    );
     expect(screen.getByRole("option", { name: /Finished/ })).toBeInTheDocument();
   });
 
@@ -116,7 +128,12 @@ describe("RaceSelect", () => {
   it("calls onChange with the selected session_key", () => {
     const onChange = vi.fn();
     render(
-      <RaceSelect current={{ sessionKey: "9999", label: "Japan · Race", status: "live" }} races={races} value="9999" onChange={onChange} />,
+      <RaceSelect
+        current={{ sessionKey: "9999", label: "Japan · Race", status: "live" }}
+        races={races}
+        value="9999"
+        onChange={onChange}
+      />,
     );
 
     const select = screen.getByRole("combobox");

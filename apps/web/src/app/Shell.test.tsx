@@ -119,7 +119,12 @@ describe("Shell", () => {
     resetStore({
       connection: "open",
       lastMessageAt: Date.now(),
-      displayed: displayedWithSession({ status: "live", name: "Race", country: "Spain", meeting_name: "Spanish Grand Prix" }),
+      displayed: displayedWithSession({
+        status: "live",
+        name: "Race",
+        country: "Spain",
+        meeting_name: "Spanish Grand Prix",
+      }),
     });
     renderShell();
     expect(screen.getByText("Spanish Grand Prix")).toBeInTheDocument();
@@ -130,7 +135,12 @@ describe("Shell", () => {
     resetStore({
       connection: "open",
       lastMessageAt: Date.now(),
-      displayed: displayedWithSession({ status: "finished", name: "Race", country: "Spain", meeting_name: "Spanish Grand Prix" }),
+      displayed: displayedWithSession({
+        status: "finished",
+        name: "Race",
+        country: "Spain",
+        meeting_name: "Spanish Grand Prix",
+      }),
     });
     renderShell();
     expect(screen.getByText("Spanish Grand Prix · finished")).toBeInTheDocument();

@@ -30,7 +30,9 @@ describe("checkRecordingRoot", () => {
   });
 
   test("mkdir rejecting EACCES is not-writable, carrying the error's message", async () => {
-    const fs = fakeFs({ mkdir: vi.fn().mockRejectedValue(new Error("EACCES: permission denied, mkdir '/data/live-logs'")) });
+    const fs = fakeFs({
+      mkdir: vi.fn().mockRejectedValue(new Error("EACCES: permission denied, mkdir '/data/live-logs'")),
+    });
     const result = await checkRecordingRoot({ dir: "/data/live-logs", liveLogDirExplicit: true, fs });
     expect(result).toEqual({
       ok: false,

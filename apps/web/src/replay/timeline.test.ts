@@ -105,7 +105,12 @@ describe("timeline.ts appendEvents", () => {
     const events = tenEventFixture();
     const pagedTimeline = await buildPaged(events, 3);
 
-    for (const targetMs of [Date.parse(isoAt(0)) - 1, Date.parse(isoAt(20)), Date.parse(isoAt(46)), Date.parse(isoAt(70))]) {
+    for (const targetMs of [
+      Date.parse(isoAt(0)) - 1,
+      Date.parse(isoAt(20)),
+      Date.parse(isoAt(46)),
+      Date.parse(isoAt(70)),
+    ]) {
       const boundary = truncationBoundary(pagedTimeline.events, targetMs);
       const truncated = await foldRace(pagedTimeline.events.slice(0, boundary), SESSION);
       expect(foldAt(pagedTimeline, targetMs)).toEqual(truncated.finalState);
@@ -148,9 +153,19 @@ describe("timeline.ts appendEvents", () => {
     // e2/e4 (before the boundary) land on page 1 and e6 (after it) on page 2.
     const events: RaceEvent[] = [
       event("e1", "laps", 0, { driver_number: 1, lap_number: 1 }),
-      { event_id: "e2", endpoint: "race_control", source_time: null, payload: { category: "Flag", message: "before-1" } },
+      {
+        event_id: "e2",
+        endpoint: "race_control",
+        source_time: null,
+        payload: { category: "Flag", message: "before-1" },
+      },
       event("e3", "laps", 10, { driver_number: 1, lap_number: 2 }),
-      { event_id: "e4", endpoint: "race_control", source_time: null, payload: { category: "Flag", message: "before-2" } },
+      {
+        event_id: "e4",
+        endpoint: "race_control",
+        source_time: null,
+        payload: { category: "Flag", message: "before-2" },
+      },
       event("e5", "laps", 50, { driver_number: 1, lap_number: 3 }), // the truncation boundary for target=20s
       { event_id: "e6", endpoint: "race_control", source_time: null, payload: { category: "Flag", message: "after" } },
     ];
@@ -167,10 +182,7 @@ describe("timeline.ts appendEvents", () => {
     const scrubbed = foldAt(timeline, targetMs);
 
     expect(scrubbed).toEqual(truncated.finalState);
-    expect(scrubbed.race_control.recent_messages.map((m) => m.payload["message"])).toEqual([
-      "before-1",
-      "before-2",
-    ]);
+    expect(scrubbed.race_control.recent_messages.map((m) => m.payload["message"])).toEqual(["before-1", "before-2"]);
     expect(leaderLap(scrubbed)).toBe(2);
   });
 

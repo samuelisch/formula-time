@@ -81,7 +81,10 @@ afterEach(() => {
 describe("RaceStateProjector", () => {
   test("cursor advances to the last applied seq and the subscriber sees the final state", async () => {
     const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3)];
-    const source = new FakeSource(rows, rows.map((r) => r.eventId));
+    const source = new FakeSource(
+      rows,
+      rows.map((r) => r.eventId),
+    );
     const projector = tracked(
       new RaceStateProjector({
         source,
@@ -157,7 +160,10 @@ describe("RaceStateProjector", () => {
 
   test("the first caught-up publish carries a session refresh made before it, not the original row", async () => {
     const rows = [driverRow(1, 1)];
-    const source = new FakeSource(rows, rows.map((r) => r.eventId));
+    const source = new FakeSource(
+      rows,
+      rows.map((r) => r.eventId),
+    );
     const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }));
 
     const seen: Array<{ events: RaceEvent[]; rebuilt: boolean }> = [];
@@ -204,10 +210,11 @@ describe("RaceStateProjector", () => {
     // snapshot: the state is the fold, the events are already in the log
     // the client backfills").
     const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3)];
-    const source = new FakeSource(rows, rows.map((r) => r.eventId));
-    const projector = tracked(
-      new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }),
+    const source = new FakeSource(
+      rows,
+      rows.map((r) => r.eventId),
     );
+    const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }));
 
     const seen: Array<{ events: RaceEvent[]; rebuilt: boolean }> = [];
     projector.subscribe((_state, _cursor, events, rebuilt) => seen.push({ events, rebuilt }));
@@ -223,7 +230,10 @@ describe("RaceStateProjector", () => {
 
   test("a tick after catch-up publishes exactly the newly applied rows, as RaceEvent, in seq order (issue #114)", async () => {
     const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3)];
-    const source = new FakeSource(rows, [rows[0] as EventRow].map((r) => r.eventId)); // only row 1 visible at first
+    const source = new FakeSource(
+      rows,
+      [rows[0] as EventRow].map((r) => r.eventId),
+    ); // only row 1 visible at first
     const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 20, log: noopLog }));
 
     const seen: RaceEvent[][] = [];
@@ -250,9 +260,7 @@ describe("RaceStateProjector", () => {
   test("a tick that applies nothing new publishes events: [] (issue #114)", async () => {
     const rows = [driverRow(1, 1)];
     const source = new FakeSource(rows, []); // nothing visible yet -- startup tick catches up with no rows
-    const projector = tracked(
-      new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }),
-    );
+    const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }));
     const seen: RaceEvent[][] = [];
     projector.subscribe((_state, _cursor, events) => seen.push(events));
 
@@ -265,7 +273,10 @@ describe("RaceStateProjector", () => {
 
   test("a full batch triggers an immediate second read before any subscriber call", async () => {
     const rows = [driverRow(1, 1), driverRow(2, 2), driverRow(3, 3)];
-    const source = new FakeSource(rows, rows.map((r) => r.eventId));
+    const source = new FakeSource(
+      rows,
+      rows.map((r) => r.eventId),
+    );
     const order: string[] = [];
     const originalReadAfter = source.readAfter.bind(source);
     source.readAfter = async (sessionKey, afterSeq, limit) => {
@@ -514,7 +525,10 @@ describe("RaceStateProjector", () => {
 
   test("a rejected read is caught, logged, and retried on the next tick -- no stall, no crash", async () => {
     const rows = [driverRow(1, 1)];
-    const source = new FakeSource(rows, rows.map((r) => r.eventId));
+    const source = new FakeSource(
+      rows,
+      rows.map((r) => r.eventId),
+    );
     const originalReadAfter = source.readAfter.bind(source);
     let calls = 0;
     source.readAfter = async (sessionKey, afterSeq, limit) => {
@@ -576,9 +590,7 @@ describe("RaceStateProjector", () => {
       };
 
       const publishes: number[] = [];
-      const projector = tracked(
-        new RaceStateProjector({ source, session: SESSION, tickMs: 10, log: noopLog }),
-      );
+      const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 10, log: noopLog }));
       projector.subscribe(() => publishes.push(publishes.length));
 
       projector.start(); // generation 1

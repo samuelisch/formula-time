@@ -30,7 +30,8 @@ async function postVote(variables: VoteVariables): Promise<VoteResponse> {
   });
   const payload: unknown = await response.json();
   if (!response.ok) {
-    const message = typeof (payload as VoteErrorPayload).error === "string" ? (payload as VoteErrorPayload).error : "Vote rejected";
+    const message =
+      typeof (payload as VoteErrorPayload).error === "string" ? (payload as VoteErrorPayload).error : "Vote rejected";
     throw new Error(message);
   }
   return payload as VoteResponse;

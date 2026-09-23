@@ -1,10 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseLapText, createLapTracker, decideCorrection, regionChanged,
-  chooseAnchorTarget, compensateTarget,
-  redFractionGrid, createLightsOutDetector, countLit, changedFraction,
-  createOffsetTracker, predictFlipWall,
-  findLapLine, cropFromBBox, summarizeVerdict,
+  parseLapText,
+  createLapTracker,
+  decideCorrection,
+  regionChanged,
+  chooseAnchorTarget,
+  compensateTarget,
+  redFractionGrid,
+  createLightsOutDetector,
+  countLit,
+  changedFraction,
+  createOffsetTracker,
+  predictFlipWall,
+  findLapLine,
+  cropFromBBox,
+  summarizeVerdict,
 } from "./core.ts";
 
 describe("parseLapText: OCR text is noisy; the parser is the guard", () => {
@@ -184,7 +194,8 @@ describe("redFractionGrid: saturated-red per cell", () => {
     const px: number[] = [];
     for (let y = 0; y < 2; y++) {
       for (let x = 0; x < 4; x++) {
-        if (x < 2) px.push(200, 20, 20, 255); // saturated LED red
+        if (x < 2)
+          px.push(200, 20, 20, 255); // saturated LED red
         else px.push(230, 200, 40, 255); // yellow: r-g too small -> not red
       }
     }
@@ -211,7 +222,10 @@ describe("createLightsOutDetector: scalar ramp-then-collapse (validated on real 
     // Real-clip fixture: red-tile counts at 3fps from the owner's Zandvoort start
     // recording (2026-09-06). Baseline signage ~7-9, lights ramp to 19, collapse
     // at index 45 (t=15.0s) — the detector must fire there and ONLY there.
-    const realCounts = [4,4,5,5,4,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,8,8,8,8,8,9,8,8,7,9,9,12,12,15,14,18,18,19,16,14,15,7,4,8,8,4,5,8,10];
+    const realCounts = [
+      4, 4, 5, 5, 4, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 9, 8, 8, 7, 9, 9, 12, 12,
+      15, 14, 18, 18, 19, 16, 14, 15, 7, 4, 8, 8, 4, 5, 8, 10,
+    ];
     const detector = createLightsOutDetector();
     const fired: number[] = [];
     for (let i = 0; i < realCounts.length; i += 1) {
@@ -225,7 +239,15 @@ describe("createLightsOutDetector: scalar ramp-then-collapse (validated on real 
     // Second real clip (race-start-2, 10fps, union color test): slow ramp 1->11
     // as lights come on, collapse to 0 at index 213 — must fire there and nowhere
     // else despite long dead stretches.
-    const counts2 = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,2,2,2,2,2,2,2,1,1,2,1,1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,2,2,2,3,4,3,2,2,2,4,5,4,2,2,3,4,4,4,6,6,7,7,7,7,7,8,8,8,7,7,9,10,11,10,8,8,8,9,9,11,10,11,11,10,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,1,1,0,0,1];
+    const counts2 = [
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 2, 1, 1, 1, 1,
+      1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 4, 3, 2, 2, 2, 4, 5, 4, 2, 2, 3, 4, 4, 4, 6, 6, 7,
+      7, 7, 7, 7, 8, 8, 8, 7, 7, 9, 10, 11, 10, 8, 8, 8, 9, 9, 11, 10, 11, 11, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 0, 0, 1,
+    ];
     const detector = createLightsOutDetector();
     const fired: number[] = [];
     for (let i = 0; i < counts2.length; i += 1) {
@@ -237,7 +259,11 @@ describe("createLightsOutDetector: scalar ramp-then-collapse (validated on real 
   it("racing footage never fires the lights detector", () => {
     // Negative real clip (lap-change, 10fps): racing footage with wild red churn
     // (cars, cuts, counts bouncing 5..68) — must NEVER fire.
-    const counts3 = [5,29,5,5,5,5,5,5,5,5,5,5,5,7,6,5,5,5,5,6,6,7,5,5,5,5,5,5,4,5,5,5,5,5,10,9,11,9,9,10,18,25,15,11,13,6,6,7,9,8,12,12,15,13,16,9,8,11,17,17,28,30,30,41,32,29,26,28,27,29,35,42,49,44,39,41,41,40,44,48,43,50,59,68,58,48,36,36,31,44,65];
+    const counts3 = [
+      5, 29, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 7, 6, 5, 5, 5, 5, 6, 6, 7, 5, 5, 5, 5, 5, 5, 4, 5, 5, 5, 5, 5, 10, 9, 11,
+      9, 9, 10, 18, 25, 15, 11, 13, 6, 6, 7, 9, 8, 12, 12, 15, 13, 16, 9, 8, 11, 17, 17, 28, 30, 30, 41, 32, 29, 26, 28,
+      27, 29, 35, 42, 49, 44, 39, 41, 41, 40, 44, 48, 43, 50, 59, 68, 58, 48, 36, 36, 31, 44, 65,
+    ];
     const detector = createLightsOutDetector();
     const fired: number[] = [];
     for (let i = 0; i < counts3.length; i += 1) {
@@ -250,7 +276,10 @@ describe("createLightsOutDetector: scalar ramp-then-collapse (validated on real 
     // pushSummary (the fixture-replay path) is the SAME decision as push(grid):
     // a trace of {count, changed} reproduces the grid path exactly. This is what
     // lets poc/fixtures/lights hold compact per-sample summaries of real footage.
-    const realCounts = [4,4,5,5,4,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,8,8,8,8,8,9,8,8,7,9,9,12,12,15,14,18,18,19,16,14,15,7,4,8,8,4,5,8,10];
+    const realCounts = [
+      4, 4, 5, 5, 4, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 9, 8, 8, 7, 9, 9, 12, 12,
+      15, 14, 18, 18, 19, 16, 14, 15, 7, 4, 8, 8, 4, 5, 8, 10,
+    ];
     const detector = createLightsOutDetector();
     const fired: number[] = [];
     let previous: number[] | null = null;
@@ -288,13 +317,19 @@ describe("createOffsetTracker: the offset is the state; events are evidence", ()
   it("seeds, nudges via EMA, and re-seeds exactly on lights", () => {
     const tracker = createOffsetTracker();
     expect(tracker.offsetMs()).toBeNull(); // no estimate before any observation
-    expect(tracker.observe("2026-08-23T13:00:00.000Z", Date.parse("2026-08-23T13:00:20.000Z"), "lights")).toBe("seeded");
+    expect(tracker.observe("2026-08-23T13:00:00.000Z", Date.parse("2026-08-23T13:00:20.000Z"), "lights")).toBe(
+      "seeded",
+    );
     expect(tracker.offsetMs()).toBe(20000); // lights observation seeds the offset exactly
     // Noisy flips pull the estimate slowly (EMA gain 0.3)
-    expect(tracker.observe("2026-08-23T13:01:30.000Z", Date.parse("2026-08-23T13:01:51.000Z"), "flip")).toBe("accepted");
+    expect(tracker.observe("2026-08-23T13:01:30.000Z", Date.parse("2026-08-23T13:01:51.000Z"), "flip")).toBe(
+      "accepted",
+    );
     expect(tracker.offsetMs()).toBe(20300); // one +1s-noisy flip moves the estimate only 300ms
     // A lights observation snaps the estimate
-    expect(tracker.observe("2026-08-23T13:03:00.000Z", Date.parse("2026-08-23T13:03:19.000Z"), "lights")).toBe("seeded");
+    expect(tracker.observe("2026-08-23T13:03:00.000Z", Date.parse("2026-08-23T13:03:19.000Z"), "lights")).toBe(
+      "seeded",
+    );
     expect(tracker.offsetMs()).toBe(19000); // lights re-seeds exactly
     expect(tracker.observationCount()).toBe(3);
   });
@@ -317,7 +352,9 @@ describe("discard guard and re-lock", () => {
     const tracker2 = createOffsetTracker();
     tracker2.observe("2026-08-23T13:00:00.000Z", Date.parse("2026-08-23T13:00:20.000Z"), "lights");
     tracker2.observe("2026-08-23T13:00:00.000Z", wildWall, "flip");
-    expect(tracker2.observe("2026-08-23T13:01:00.000Z", Date.parse("2026-08-23T13:01:20.500Z"), "flip")).toBe("accepted");
+    expect(tracker2.observe("2026-08-23T13:01:00.000Z", Date.parse("2026-08-23T13:01:20.500Z"), "flip")).toBe(
+      "accepted",
+    );
     expect(tracker2.observe("2026-08-23T13:00:00.000Z", wildWall, "flip")).toBe("discarded"); // streak restarted at 1
   });
 
@@ -382,7 +419,9 @@ describe("summarizeVerdict: the status sentence policy.ts produces, collapsed to
     expect(summarizeVerdict("Locked on lap 3 — aligning at the next lap change")).toBe("locked");
   });
   it("a rejected misread names the expected lap", () => {
-    expect(summarizeVerdict("Seeing lap 9 on screen, expected 4 — will re-lock if it persists")).toBe("rejected: expected 4");
+    expect(summarizeVerdict("Seeing lap 9 on screen, expected 4 — will re-lock if it persists")).toBe(
+      "rejected: expected 4",
+    );
   });
   it("no anchor yet names the lap", () => {
     expect(summarizeVerdict("Lap 5 — no anchor yet, will retry at the next lap")).toBe("no anchor for lap 5");

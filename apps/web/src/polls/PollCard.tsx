@@ -84,7 +84,9 @@ export function PollCard({ poll }: PollCardProps) {
             const pct = poll.total_votes > 0 ? Math.round((votes / poll.total_votes) * 100) : 0;
             const isMine = myPick === option.id;
             const won = winners.includes(option.id);
-            const rowClass = [styles.row, isMine ? styles.mine : "", won ? styles.winner : ""].filter(Boolean).join(" ");
+            const rowClass = [styles.row, isMine ? styles.mine : "", won ? styles.winner : ""]
+              .filter(Boolean)
+              .join(" ");
 
             return (
               <button

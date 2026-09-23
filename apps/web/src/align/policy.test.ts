@@ -189,7 +189,10 @@ describe("applyReading", () => {
   });
 
   it("observes the target and sets the delay, clamped to zero, on a numeric offset", () => {
-    const tracker = fakeTracker({ observe: vi.fn().mockReturnValue("accepted"), offsetMs: vi.fn().mockReturnValue(-500) });
+    const tracker = fakeTracker({
+      observe: vi.fn().mockReturnValue("accepted"),
+      offsetMs: vi.fn().mockReturnValue(-500),
+    });
     const setDelayMs = vi.fn();
     const anchors: Anchors = { lights_out: "2026-01-01T00:00:00.000Z", laps: [], restarts: [] };
     const status = applyReading({
@@ -219,7 +222,10 @@ describe("applyReading", () => {
       ["relock", "Lights out: re-locked — delay 2.0s"],
     ];
     for (const [verdict, expected] of cases) {
-      const tracker = fakeTracker({ observe: vi.fn().mockReturnValue(verdict), offsetMs: vi.fn().mockReturnValue(2_000) });
+      const tracker = fakeTracker({
+        observe: vi.fn().mockReturnValue(verdict),
+        offsetMs: vi.fn().mockReturnValue(2_000),
+      });
       const status = applyReading({
         anchors,
         kind: "lights",
@@ -238,7 +244,10 @@ describe("applyReading", () => {
   });
 
   it("does not call setDelayMs while the tracker has no offset yet (discarded, first sample)", () => {
-    const tracker = fakeTracker({ observe: vi.fn().mockReturnValue("discarded"), offsetMs: vi.fn().mockReturnValue(null) });
+    const tracker = fakeTracker({
+      observe: vi.fn().mockReturnValue("discarded"),
+      offsetMs: vi.fn().mockReturnValue(null),
+    });
     const setDelayMs = vi.fn();
     const anchors: Anchors = { lights_out: "2026-01-01T00:00:00.000Z", laps: [], restarts: [] };
     applyReading({

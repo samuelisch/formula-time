@@ -49,7 +49,8 @@ export function RaceControlFeed({ defaultOpen = false }: RaceControlFeedProps = 
   const count = messages.length;
   const lastPayload = count === 0 ? null : messages[count - 1]!.payload;
   const lastTime = lastPayload === null ? null : stringField(lastPayload, "date");
-  const summary = count === 0 ? "Race control · 0 messages" : `Race control · ${count} messages · last ${clock(lastTime)}`;
+  const summary =
+    count === 0 ? "Race control · 0 messages" : `Race control · ${count} messages · last ${clock(lastTime)}`;
   const newestFirst = [...messages].reverse();
 
   return (
@@ -71,7 +72,9 @@ export function RaceControlFeed({ defaultOpen = false }: RaceControlFeedProps = 
                 <li key={event_id} className={cx(styles.row, category === "SafetyCar" && styles.safetyCar)}>
                   <span className={styles.time}>{clock(stringField(payload, "date"))}</span>
                   <span className={styles.category}>
-                    {flag !== null && <span className={styles.dot} style={{ background: dotColour(flag) }} aria-hidden="true" />}
+                    {flag !== null && (
+                      <span className={styles.dot} style={{ background: dotColour(flag) }} aria-hidden="true" />
+                    )}
                     {category ?? "—"}
                   </span>
                   <span className={styles.message}>{stringField(payload, "message") ?? "—"}</span>

@@ -165,7 +165,15 @@ describe("useCapture", () => {
 
     const canvas = document.createElement("canvas");
     vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
-      x: 0, y: 0, width: 100, height: 100, top: 0, left: 0, right: 100, bottom: 100, toJSON: () => ({}),
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      top: 0,
+      left: 0,
+      right: 100,
+      bottom: 100,
+      toJSON: () => ({}),
     });
     act(() => result.current.previewCanvasRef(canvas));
 
@@ -194,7 +202,15 @@ describe("useCapture", () => {
 
     const canvas = document.createElement("canvas");
     vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
-      x: 0, y: 0, width: 100, height: 100, top: 0, left: 0, right: 100, bottom: 100, toJSON: () => ({}),
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      top: 0,
+      left: 0,
+      right: 100,
+      bottom: 100,
+      toJSON: () => ({}),
     });
     act(() => result.current.previewCanvasRef(canvas));
 

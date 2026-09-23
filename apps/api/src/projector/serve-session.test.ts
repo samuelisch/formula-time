@@ -126,7 +126,12 @@ describe("createSessionLifecycle", () => {
       await lifecycle.check();
       await vi.advanceTimersByTimeAsync(0); // first tick: fold + publish
 
-      expect(polls.start).toHaveBeenCalledWith({ sessionKey: 42n, totalLaps: 50, country: "Testland", meetingName: null });
+      expect(polls.start).toHaveBeenCalledWith({
+        sessionKey: 42n,
+        totalLaps: 50,
+        country: "Testland",
+        meetingName: null,
+      });
       expect(calls.indexOf("start")).toBeLessThan(calls.indexOf("push"));
     });
 
@@ -522,7 +527,12 @@ describe("createSessionLifecycle", () => {
       await lifecycle.check(); // key changed: onSessionFinished (for 1) then start (for 2)
 
       expect(calls).toEqual(["start", "onSessionFinished", "start"]);
-      expect(polls.start).toHaveBeenLastCalledWith({ sessionKey: 2n, totalLaps: 50, country: "Testland", meetingName: null });
+      expect(polls.start).toHaveBeenLastCalledWith({
+        sessionKey: 2n,
+        totalLaps: 50,
+        country: "Testland",
+        meetingName: null,
+      });
     });
 
     test("a check() that overlaps one still in flight returns without a second pickSession", async () => {
@@ -738,10 +748,7 @@ describe("createSessionLifecycle", () => {
       vi.useFakeTimers();
       const log = vi.fn();
       const sess = fakeSession();
-      const pickSession = vi
-        .fn()
-        .mockRejectedValueOnce(new Error("connection terminated"))
-        .mockResolvedValueOnce(sess);
+      const pickSession = vi.fn().mockRejectedValueOnce(new Error("connection terminated")).mockResolvedValueOnce(sess);
 
       const lifecycle = createSessionLifecycle({
         db: fakePrisma(),
@@ -780,10 +787,7 @@ describe("createSessionLifecycle", () => {
       vi.useFakeTimers();
       const log = vi.fn();
       const sess = fakeSession({ sessionKey: 7n });
-      const pickSession = vi
-        .fn()
-        .mockResolvedValueOnce(sess)
-        .mockRejectedValueOnce(new Error("connection terminated"));
+      const pickSession = vi.fn().mockResolvedValueOnce(sess).mockRejectedValueOnce(new Error("connection terminated"));
 
       const lifecycle = createSessionLifecycle({
         db: fakePrisma(),

@@ -145,8 +145,16 @@ describe("deriveAnchors", () => {
       anchors,
       push({
         recentMessages: [
-          raceControlMessage({ category: "SessionStatus", message: "SESSION STARTED", date: "2026-09-08T12:00:00.000Z" }),
-          raceControlMessage({ category: "SessionStatus", message: "AFTER RED FLAG", date: "2026-09-08T12:20:00.000Z" }),
+          raceControlMessage({
+            category: "SessionStatus",
+            message: "SESSION STARTED",
+            date: "2026-09-08T12:00:00.000Z",
+          }),
+          raceControlMessage({
+            category: "SessionStatus",
+            message: "AFTER RED FLAG",
+            date: "2026-09-08T12:20:00.000Z",
+          }),
         ],
       }),
       seen,
@@ -159,8 +167,16 @@ describe("deriveAnchors", () => {
       anchors,
       push({
         recentMessages: [
-          raceControlMessage({ category: "SessionStatus", message: "SESSION STARTED", date: "2026-09-08T12:00:00.000Z" }),
-          raceControlMessage({ category: "SessionStatus", message: "SESSION STARTED", date: "2026-09-08T11:59:00.000Z" }),
+          raceControlMessage({
+            category: "SessionStatus",
+            message: "SESSION STARTED",
+            date: "2026-09-08T12:00:00.000Z",
+          }),
+          raceControlMessage({
+            category: "SessionStatus",
+            message: "SESSION STARTED",
+            date: "2026-09-08T11:59:00.000Z",
+          }),
         ],
       }),
       seen,
@@ -175,7 +191,11 @@ describe("deriveAnchors", () => {
       push({
         recentMessages: [
           raceControlMessage({ category: "Flag", message: "SESSION STARTED", date: "2026-09-08T12:00:00.000Z" }),
-          raceControlMessage({ category: "SessionStatus", message: "SESSION ABORTED", date: "2026-09-08T12:05:00.000Z" }),
+          raceControlMessage({
+            category: "SessionStatus",
+            message: "SESSION ABORTED",
+            date: "2026-09-08T12:05:00.000Z",
+          }),
         ],
       }),
       seen,
@@ -234,7 +254,12 @@ describe("deriveTimelineAnchors", () => {
       raceControlEvent("e2", "SESSION STARTED", "2026-09-06T13:00:00.000Z"), // earlier, out of order
       raceControlEvent("e3", "SESSION STARTED", "2026-09-06T13:00:00.000Z"), // duplicate date
       raceControlEvent("e4", "SAFETY CAR DEPLOYED", "2026-09-06T13:02:00.000Z"), // not a restart
-      { event_id: "e5", endpoint: "laps", source_time: "2026-09-06T13:03:00.000Z", payload: { category: "SessionStatus", message: "SESSION STARTED", date: "2026-09-06T13:03:00.000Z" } }, // wrong endpoint
+      {
+        event_id: "e5",
+        endpoint: "laps",
+        source_time: "2026-09-06T13:03:00.000Z",
+        payload: { category: "SessionStatus", message: "SESSION STARTED", date: "2026-09-06T13:03:00.000Z" },
+      }, // wrong endpoint
     ];
     const anchors = deriveTimelineAnchors(folded({ events }));
     expect(anchors.restarts).toEqual(["2026-09-06T13:00:00.000Z", "2026-09-06T13:05:00.000Z"]);

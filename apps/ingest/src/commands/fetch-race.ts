@@ -201,7 +201,9 @@ async function fetchOneSession(
       const name = meetingRow?.["meeting_name"];
       return typeof name === "string" && name.length > 0 ? new Map([[meetingKey, name]]) : new Map();
     } catch (error) {
-      log(`fetch-race: meetings fetch failed for meeting_key=${meetingKey}: ${error instanceof Error ? error.message : String(error)}`);
+      log(
+        `fetch-race: meetings fetch failed for meeting_key=${meetingKey}: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return new Map();
     }
   };
@@ -237,7 +239,11 @@ async function fetchOneSession(
           `fetch-race: session=${sessionKeyNum} endpoint=${endpoint} rows=${rows.length} new=${normalized.length} emitted=${emitted.length}`,
         );
         if (shouldRecord && normalized.length > 0) {
-          await recorder.appendRows(sessionKeyNum, endpoint, normalized.map((row) => row.payload));
+          await recorder.appendRows(
+            sessionKeyNum,
+            endpoint,
+            normalized.map((row) => row.payload),
+          );
         }
       }
 
@@ -375,8 +381,7 @@ if (isMain) {
       // load-recording.ts uses — a partial run (some sessions fetched, some
       // not found/refused) still wrote what it could.
       const allFailed =
-        result.sessionsAttempted > 0 &&
-        result.sessionsSkipped + result.sessionsNotFound === result.sessionsAttempted;
+        result.sessionsAttempted > 0 && result.sessionsSkipped + result.sessionsNotFound === result.sessionsAttempted;
       process.exit(allFailed ? 1 : 0);
     })
     .catch(async (error: unknown) => {

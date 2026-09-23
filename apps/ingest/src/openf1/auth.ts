@@ -29,11 +29,7 @@ interface TokenResponse {
 }
 
 function isTokenResponse(value: unknown): value is TokenResponse {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as RawRecord)["access_token"] === "string"
-  );
+  return typeof value === "object" && value !== null && typeof (value as RawRecord)["access_token"] === "string";
 }
 
 // Fact, measured 2026-09-09 from inside the ingest container against the

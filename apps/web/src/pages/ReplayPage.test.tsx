@@ -87,7 +87,9 @@ function stubFetch(
   return fetchMock;
 }
 
-function renderPage(queryClient: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })): QueryClient {
+function renderPage(
+  queryClient: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+): QueryClient {
   const router = createMemoryRouter([{ path: "/races/:session_key", element: <ReplayPage /> }], {
     initialEntries: ["/races/11361"],
   });
@@ -286,9 +288,7 @@ describe("ReplayPage -- start notice", () => {
     stubFetch(RACE_FILE_WITH_GAP);
     renderPage();
 
-    const slider = (await waitFor(() =>
-      screen.getByRole("slider", { name: "Playback position" }),
-    )) as HTMLInputElement;
+    const slider = (await waitFor(() => screen.getByRole("slider", { name: "Playback position" }))) as HTMLInputElement;
     const lightsOutMs = Date.parse(isoAt(GAP_MINUTES * 60));
 
     await user.click(screen.getByRole("button", { name: "Jump to race start" }));

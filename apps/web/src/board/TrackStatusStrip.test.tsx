@@ -106,7 +106,7 @@ describe("TrackStatusStrip", () => {
   // A screen reader needs this to be a live region, since the strip mounts
   // and unmounts as the track status changes rather than always being
   // present with changing text.
-  it("carries role=\"status\" so a screen reader announces a track-status change", () => {
+  it('carries role="status" so a screen reader announces a track-status change', () => {
     renderWith({ safety_car: "SC" });
     expect(screen.getByRole("status")).toHaveTextContent("SAFETY CAR");
   });
