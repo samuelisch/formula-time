@@ -114,21 +114,25 @@ the code does, not a summary of intent.
 
 Each `drivers` row is tagged to the `session_key` in its own payload,
 never to the session or meeting the fetch was made for — every OpenF1
-`drivers` row carries its own `session_key` and `meeting_key` fields.
-Rows are grouped by that key and each group runs through the normal
-`enqueueRows` path, so dedup and malformed handling stay identical to
-every other endpoint. A row naming a session `isKnownSession` doesn't
-recognize is dropped and counted `unknownSession`, never written: the FK
-on `events.session_key` would otherwise fail the writer's whole batch,
-which the writer then requeues forever. A row whose own key differs from
-the session the fetch targeted is still written, tagged to the session it
+`drivers` row carries its own `session_key` and `meeting_key` fields. A
+row with no numeric `session_key` of its own can't be tagged or written;
+it's counted `malformed`, same meaning as everywhere else. Rows are
+grouped by their own key and each group runs through the normal
+`enqueueRows` path, so dedup handling stays identical to every other
+endpoint. A row naming a session `isKnownSession` doesn't recognize is
+dropped and counted `unknownSession`, never written: the FK on
+`events.session_key` would otherwise fail the writer's whole batch, which
+the writer then requeues forever. A row whose own key differs from the
+session the fetch targeted is still written, tagged to the session it
 names, and counted `foreign`.
 
 The static list (`openf1/entry-list.ts`, `ENTRY_LIST_2026`) is a
 season-bound snapshot, not a feed — a driver swap or livery change after
 `ENTRY_LIST_SEASON` won't reach it. `entry-list.test.ts` fails once the
 calendar year passes that value, so a stale roster is a red test, not a
-silent guess.
+silent guess. Emitting it through the normal `drivers` event path, rather
+than treating a driver as a table, matches the domain model (HLD §7:
+drivers are events; a swap arrives as a new row).
 
 ## Session upsert
 

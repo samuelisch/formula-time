@@ -92,9 +92,9 @@ export class EntryListFetches {
 
   /**
    * Fetches `drivers?session_key=<selected>`; a mismatched row is still
-   * written, tagged to the session it names, and counted `foreign`. Zero
-   * rows or a failure emits the static fallback once, then retries every
-   * 5 minutes until a fetch returns rows.
+   * written, tagged to the session it names, counted `foreign`. Zero rows
+   * or a failure emits the static fallback once, retrying every 5 minutes
+   * until a fetch returns rows — dedup makes the fallback overlap harmless.
    */
   private async trySelectionFetch(nowMs: number): Promise<boolean> {
     if (this.entryListSessionKey === null || this.entryListSatisfied) return false;
