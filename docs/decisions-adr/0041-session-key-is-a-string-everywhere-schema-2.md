@@ -42,6 +42,11 @@ disagreed on this one field's type.
    `normalizedSessionRow` keeps handling both: a schema-1 file's numeric
    `session_key` is turned into a string; a schema-2 file's is already one
    and passes through unchanged.
+5. `apps/web/src/replay/foldRace.ts`'s `foldRace` widens its session
+   parameter to `RawRecord | SessionWire`, since `RaceFile.session` is now
+   `SessionWire`: a named interface with no index signature, so a caller
+   passing a schema-2 file's session straight to the shared, `RawRecord`-typed
+   `createTimeline` would otherwise fail to typecheck.
 
 ## Consequences
 

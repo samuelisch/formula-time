@@ -154,12 +154,10 @@ export interface RaceEventsPage {
 
 /**
  * The exported race file's body (ADR-0009 §1, ADR-0026, ADR-0041). `session`
- * is `SessionWire`, built by the same `sessionToWire` mapping the live push
- * uses, so a folded state and a live state carry the same field types
- * (`session_key` a string on both, ADR-0009 §5). `schema` is `2`: a file
- * written under `schema: 1` carried `session_key` as a JSON number instead
- * (ADR-0041); the browser fold reads either (`apps/web/src/replay/timeline.ts`
- * `normalizedSessionRow`).
+ * is `SessionWire` (same `sessionToWire` mapping as the live push, ADR-0009
+ * §5). `schema` is `2`: a `schema: 1` file carried `session_key` as a JSON
+ * number instead; the browser fold reads either
+ * (`apps/web/src/replay/timeline.ts` `normalizedSessionRow`).
  */
 export interface RaceFile {
   schema: 2;

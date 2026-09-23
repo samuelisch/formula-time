@@ -132,13 +132,10 @@ function yieldToEventLoop(): Promise<void> {
 
 /**
  * Normalizes the session row before it becomes `state.session`: a schema-1
- * export file (written before ADR-0041) carries `session_key` as a JSON
- * number, while a schema-2 file and the live push both carry it as a string
- * (`sessionToWire`, `packages/domain/src/wire.ts`) -- so a folded
- * `RaceState` from an old cached file would otherwise disagree with a live
- * one on this field's type (ADR-0009 §5 "must stay identical to the
- * server's"). A schema-2 file's session_key is already a string and passes
- * through unchanged.
+ * file (ADR-0041) carries `session_key` as a JSON number, unlike a schema-2
+ * file or the live push, both already a string -- so an old cached file's
+ * fold would otherwise disagree with a live one (ADR-0009 §5). A schema-2
+ * row passes through unchanged.
  */
 function normalizedSessionRow(session: RawRecord): RawRecord {
   const sessionKey = session["session_key"];
