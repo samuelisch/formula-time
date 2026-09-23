@@ -247,7 +247,7 @@ Read from `main.ts` and `http/health.ts`.
 | `delta diff failed, falling back to a state push for this tick` | building this tick's JSON Patch delta threw; that delta socket gets the full state frame instead, same as a keyframe tick |
 | `slow client dropped` | a socket with more than 1 MiB unsent was destroyed and removed |
 | `socket write failed, dropping socket` | one socket's write threw; it is dropped, the rest of the fan-out's write loop continues |
-| `poll write failed: …` | a poll module write (open, lock, resolve or void) threw; the write chain still resolves, and each write is conditional on the poll's current status, so it is safely retried on a later tick |
+| `poll write failed` | error level: a poll module write (open, lock, resolve or void) threw; the write chain still resolves, and each write is conditional on the poll's current status, so it is safely retried on a later tick |
 | `polls not opened: total_laps unknown` | the served session has drivers but no `total_laps` yet, so no poll opens; logged once, retried once a `total_laps` refresh lands |
 | `export skipped …: no timing events` | a finished session has no non-`drivers` event yet; logged once per process, re-checked every tick |
 | `export re-exported …` | a finished session's `events` gained rows after its last export; the file and row are rewritten |

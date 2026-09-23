@@ -85,7 +85,13 @@ const source = prismaEventSource(db);
 // database from an idle session without adding a query to every probe.
 const dbProbe = createDbProbe({ probe: () => db.$queryRaw`SELECT 1`, log });
 
-const pollModule = new PollModule({ db, log: { info: (msg) => app.log.info(msg) } });
+const pollModule = new PollModule({
+  db,
+  log: {
+    info: (msg) => app.log.info(msg),
+    error: (msg, fields) => app.log.error(fields ?? {}, msg),
+  },
+});
 
 const fanout = new Fanout({ log });
 fanout.heartbeat();

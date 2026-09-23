@@ -21,6 +21,7 @@ export type VoteResult =
 
 export interface PollModuleLogger {
   info(msg: string): void;
+  error(msg: string, fields?: Record<string, unknown>): void;
 }
 
 interface InternalPoll {
@@ -125,8 +126,10 @@ export class PollModule {
     // The chain must always resolve: an unhandled rejection here would
     // poison it forever, and each write is already retryable on the next
     // tick since every updateMany in this file is conditional on the
-    // poll's current status rather than assuming success.
-    this.log.info(`poll write failed: ${err instanceof Error ? err.message : String(err)}`);
+    // poll's current status rather than assuming success. Logged at error
+    // level so a write that did not land is findable in a query for it.
+    const error = err instanceof Error ? err.message : String(err);
+    this.log.error("poll write failed", { error });
   }
 
   // Routed through the same writeChain as onState: an unchained write here

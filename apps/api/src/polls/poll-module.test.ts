@@ -87,7 +87,7 @@ function makeFakeDb() {
 }
 
 function fakeLog() {
-  return { info: vi.fn() };
+  return { info: vi.fn(), error: vi.fn() };
 }
 
 function driver(overrides: Partial<DriverState> & { driver_number: number }): DriverState {
@@ -288,6 +288,44 @@ describe("PollModule.onState — locking", () => {
     expect(module.publicPolls().every((p) => p.status === "open")).toBe(true);
 
     // The next onState is unaffected — the chain kept running.
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, position: 1, current_lap: 5 }) },
+        driver_order: [1],
+      }),
+    );
+    await module.waitForIdle();
+    expect(module.publicPolls().every((p) => p.status === "locked")).toBe(true);
+  });
+
+  it("a rejected write in a lock logs through error, not info, so it is findable in a query for it", async () => {
+    const db = makeFakeDb();
+    const log = fakeLog();
+    const module = new PollModule({ db: db as unknown as PrismaClient, log });
+    await module.start({ sessionKey: SESSION_KEY, totalLaps: 10, country: "Dutch", meetingName: null }); // locks_at_lap = 5
+
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, position: 1, current_lap: 1 }) },
+        driver_order: [1],
+      }),
+    );
+    await module.waitForIdle();
+
+    db.failNextUpdateMany();
+    module.onState(
+      raceState({
+        drivers: { "1": driver({ driver_number: 1, position: 1, current_lap: 5 }) },
+        driver_order: [1],
+      }),
+    );
+    await module.waitForIdle();
+
+    expect(log.error).toHaveBeenCalledTimes(1);
+    expect(log.error).toHaveBeenCalledWith("poll write failed", { error: "simulated db failure" });
+    expect(log.info).not.toHaveBeenCalled();
+
+    // The next tick's write is unaffected — the retry the failure log promised.
     module.onState(
       raceState({
         drivers: { "1": driver({ driver_number: 1, position: 1, current_lap: 5 }) },
