@@ -1,11 +1,8 @@
-// The REST lane. Lifted from
-// `../f1-live-events-poc/poc/ts/live_capture.ts` (`OPENF1_BASE`,
-// `POLL_ROTATION`, `pickLiveSession`, `sessionExpired`, `buildPollUrl`,
-// `Fetcher`, the polling-loop shape) and
-// `../f1-live-events-poc/poc/live-recorder/recorder.ts` (discovery, the
-// "poll the full endpoint every time, dedup by eventId" cadence — the live
-// API rejects every date filter; apps/ingest/AGENTS.md). Does NOT lift
-// `LiveRace` / `state_authority` / `session_registry`: ingest never folds.
+// The REST lane: the tick loop, the session selection, and the weighted
+// rotation. Lifted from `../f1-live-events-poc/poc/ts/live_capture.ts`
+// (`POLL_ROTATION`, `buildPollUrl`, `Fetcher`, the loop shape). Discovery
+// is in discovery.ts, the drivers fetches in entry-list-fetches.ts; ingest
+// never folds, so `LiveRace` / `state_authority` are not lifted.
 
 import path from "node:path";
 
@@ -20,14 +17,12 @@ import type { LaneLog } from "../log.js";
 import type { EventQueue } from "../writer/queue.js";
 import { isRaceSession } from "../writer/sessions.js";
 
-// The live window and the two predicates over it moved to discovery.ts with
-// the snapshot that uses them; re-exported here so every existing import
-// (the loaders, the tests) keeps working.
+// The live window and its two predicates live with the snapshot that uses
+// them; re-exported so the loaders and the tests keep their imports.
 export { OPENF1_BASE, pickLiveSession, sessionExpired } from "./discovery.js";
 
 // Weighted rotation: hot endpoints appear most often. 21 slots; at a 2.2s
-// tick a full cycle ~46s (~27 req/min) — "REST (cadence unchanged from the
-// POC, the safety net)" (apps/ingest/AGENTS.md).
+// tick a full cycle is ~46s (~27 req/min). See README: Rules.
 export const POLL_ROTATION: string[] = [
   "position", "intervals", "laps", "race_control",
   "position", "intervals", "weather",
@@ -37,11 +32,9 @@ export const POLL_ROTATION: string[] = [
   "position", "intervals", "position", "intervals",
 ];
 
-// The live API rejects every date filter (apps/ingest/AGENTS.md); the rest
-// lane always calls this with `cursor: null` and relies on the normalizer's
-// per-endpoint dedup + `event.createMany({ skipDuplicates: true })` instead.
-// The cursor parameter is kept (lifted from the POC signature) because a
-// future incremental source could still use it.
+// The live API rejects every date filter, so the lane always calls this
+// with `cursor: null` and relies on the normalizer's dedup instead. The
+// parameter is kept from the POC signature. See README: OpenF1 facts.
 export function buildPollUrl(endpoint: string, sessionKey: number, cursor: string | null): string {
   const field = endpointConfigs[endpoint]?.timestampField;
   const params = new URLSearchParams({ session_key: String(sessionKey) });
@@ -63,36 +56,16 @@ export interface RestLaneOptions {
   tickMs?: number;
   /** Discovery cadence while no session is in its window. Default: every 60 s. */
   discoveryIntervalMs?: number;
-  /**
-   * The jsonl recorder's root directory (config.ts's `LIVE_LOG_DIR`) — used
-   * only to name the recording directory in the closed-recording log line
-   * ("recording closed <session_key> rows=<n> path=<dir>"); the lane never
-   * touches the filesystem itself, the recorder does.
-   */
+  /** The recorder's root (`LIVE_LOG_DIR`), used only to name the directory in the closed-recording log line. */
   liveLogDir?: string;
-  /**
-   * Sessions upsert — called for every session row discovery sees.
-   * `meetingNames` is this tick's `meeting_key -> meeting_name` map (see
-   * `refreshMeetingNames`), for `sessionFieldsFromRaw`'s join.
-   */
+  /** Sessions upsert, called for every race row discovery sees, with this tick's `meeting_key -> meeting_name` map. */
   onSession?: (session: RawRecord, nowMs: number, meetingNames: ReadonlyMap<number, string>) => void | Promise<void>;
-  /**
-   * Called once, when a session is newly selected as the one being followed
-   * (`this.sessionKey` changes) — NOT on every discovery tick like
-   * `onSession`. This is where a per-session, one-time side effect (writing
-   * the jsonl recorder's `session.json`) belongs, so it doesn't re-run every
-   * 60s while nothing is live.
-   */
+  /** Called once when a session is newly selected, not every discovery tick: where writing the recorder's `session.json` belongs. */
   onSessionSelected?: (session: RawRecord, nowMs: number) => void | Promise<void>;
   /**
-   * The jsonl recorder callback, passed straight through to every
-   * `enqueueRows`/`enqueueDriverRows` call this lane makes, so a row is
-   * recorded at the moment it is queued. Also called directly, outside
-   * `enqueueRows`, for the followed session's own `meetings` row, once, the
-   * first tick it is available (endpoint `"meetings"`) — that row is never
-   * queued to `events` (`meetings` isn't a stored endpoint), only recorded,
-   * so a later `pnpm ingest:load` of this session's recording can source
-   * `meeting_name` too (`meetingNamesFromRecording`, load-recording.ts).
+   * The jsonl recorder callback, passed through to every enqueue call, so a
+   * row is recorded the moment it is queued. Also called for the followed
+   * session's `meetings` row, recorded but never queued.
    */
   onRecorded?: RecordRows;
   onLog?: LaneLog;
@@ -125,17 +98,11 @@ export class RestLane {
   private readonly log: LaneLog;
   private readonly discovery: SessionDiscovery;
   private readonly entryList: EntryListFetches;
-  // Every OpenF1 REST call made (discovery, meetings, entry list, the
-  // rotation poll), and the new rows / errors it produced, since the last
-  // takeStats() call — feeds main.ts's per-minute composed line. Discovery
-  // and the entry-list fetches count into these through `countStat`, so
-  // there is one set of counters and one takeStats().
+  // Every REST call this lane, discovery and the entry-list fetches make,
+  // and the rows and errors they produced, since the last takeStats().
   private stats: RestLaneStats = { polls: 0, rows: 0, errors: 0, unjoined: 0 };
-
-  // Rows recorded (via onRecorded, i.e. written into the jsonl recording) for
-  // the currently followed session only — reset when a NEW session is
-  // selected, reported once in the closed-recording log line at window
-  // close.
+  // Rows recorded for the currently followed session only — reset when a NEW
+  // session is selected, reported once in the closed-recording log line.
   private followedRecordedRows = 0;
 
   private normalizer = new LiveNormalizer();
@@ -145,16 +112,11 @@ export class RestLane {
 
   private running = false;
   private timer: NodeJS.Timeout | null = null;
-  // Tracks the tick currently awaiting the network so `stop()` can wait for
-  // it instead of returning while a `pollOnce`/`discoverOnce` is still
-  // in-flight — otherwise it enqueues rows after the writer has already
-  // drained and the process has exited (SIGTERM race).
+  // The tick currently awaiting the network, so `stop()` can wait for it
+  // instead of enqueueing rows after the writer drained (SIGTERM race).
   private currentTick: Promise<void> | null = null;
 
-  public constructor(
-    private readonly queue: EventQueue<QueueItem>,
-    opts: RestLaneOptions = {},
-  ) {
+  public constructor(private readonly queue: EventQueue<QueueItem>, opts: RestLaneOptions = {}) {
     this.fetcher = opts.fetcher ?? defaultFetcher;
     this.now = opts.now ?? Date.now;
     this.tickMs = opts.tickMs ?? 2200;
@@ -198,22 +160,15 @@ export class RestLane {
     return stats;
   }
 
-  /**
-   * The REST lane's current normalizer instance (MQTT lane): each
-   * message goes through the shared LiveNormalizer with the CURRENT session
-   * key from the REST lane's selection — REST is the authority on
-   * which session is live, so MQTT rides the SAME normalizer instance rather
-   * than keeping its own dedup state, and it's swapped out from under the
-   * caller exactly when REST's is: on `ensureLiveSession`'s new-session reset.
-   */
+  /** The normalizer the MQTT lane rides: REST is the authority on which session is live, so MQTT shares this instance, swapped out on a new selection. */
   public getNormalizer(): LiveNormalizer {
     return this.normalizer;
   }
 
   /**
-   * `sessions?year=<current>`, every 60 s until a session is inside
-   * its ±30 min window. Upserts every session it sees, and selects the
-   * live session (if any) for the rotation.
+   * One discovery tick: refresh the snapshot, upsert every session it sees,
+   * select the live one for the rotation, then the idle loop's own Friday
+   * check and the followed session's `meetings` row.
    */
   public async discoverOnce(): Promise<{ sessionCount: number; live: boolean }> {
     const nowMs = this.now();
@@ -222,36 +177,23 @@ export class RestLane {
     const { rows, upserted } = refreshed;
 
     // The one-drivers-fetch-per-tick rule holds here too: a session
-    // discovered inside its live window fetches its entry list at selection,
-    // and Friday's meeting-wide fetch then waits for the next tick.
+    // discovered inside its window fetches its entry list at selection, and
+    // Friday's meeting-wide fetch waits for the next tick.
     const selectionFetched = await this.ensureLiveSession(rows, nowMs, upserted);
-
-    // Friday: checked on every discovery tick — this is the idle (60s)
-    // loop's own extra fetch, not competing with the rotation budget (there
-    // is no rotation while idle).
     if (!selectionFetched) await this.entryList.checkFridayFetch(this.discovery.sessions(), nowMs);
 
-    // After ensureLiveSession, so a session selected THIS tick is already
-    // this.session/this.sessionKey — see SessionDiscovery's
-    // recordFollowedMeetingRow for why this can't run any earlier.
+    // After ensureLiveSession: a session selected THIS tick is already
+    // this.session/this.sessionKey.
     await this.discovery.recordFollowedMeetingRow(this.session, this.sessionKey);
 
     return { sessionCount: rows.length, live: this.sessionKey !== null };
   }
 
   /**
-   * The `onRecorded` callback handed to every `enqueueRows`/
-   * `enqueueDriverRows` call this lane makes, and also called directly
-   * for the followed session's own `meetings` row (never queued, so it
-   * never goes through `enqueueRows`). Counts a successfully recorded row
-   * toward the closed-recording log line's `rows=<n>` when it belongs to
-   * the currently followed session — the recorder itself keeps no count
-   * (apps/ingest/src/openf1/recorder.ts), so the lane is the only place
-   * that knows how many rows it forwarded. A rejected recording attempt is
-   * logged at error level with the endpoint as a field and swallowed here:
-   * the row is already queued (or, for `meetings`, was never meant to be)
-   * regardless of whether it was ever written to disk, and one failed
-   * write must not stop the lane.
+   * The `onRecorded` callback handed to every enqueue call, and to discovery
+   * for the `meetings` row. Counts a recorded row toward the closed-recording
+   * line's `rows=<n>`; a rejected write is logged and swallowed, since the
+   * row is queued either way.
    */
   private readonly recordRows = async (sessionKey: number, endpoint: string, rows: RawRecord[]): Promise<void> => {
     try {
@@ -266,51 +208,34 @@ export class RestLane {
   };
 
   /** Returns whether it made a drivers fetch this tick (the selection fetch). */
-  private async ensureLiveSession(
-    sessions: RawRecord[],
-    nowMs: number,
-    upserted: Set<RawRecord>,
-  ): Promise<boolean> {
+  private async ensureLiveSession(sessions: RawRecord[], nowMs: number, upserted: Set<RawRecord>): Promise<boolean> {
     const live = pickLiveSession(sessions, nowMs);
     if (!live) return false;
-    if (!isRaceSession(live)) {
-      // Only race sessions are captured: a practice or qualifying session
-      // inside its live window is left unselected, so the REST rotation
-      // never polls it. Not an error — this is the common case whenever a
-      // practice/quali session is the only one currently in its window.
-      return false;
-    }
+    // Only race sessions are captured: a practice or qualifying session in
+    // its window is left unselected. Not an error, the common practice day.
+    if (!isRaceSession(live)) return false;
     if (!upserted.has(live)) {
-      // Its sessions upsert failed this tick (thrown, caught, and logged
-      // above) — selecting it anyway would mean every later event insert
-      // fails its FK forever against a `sessions` row that doesn't exist.
-      // Leave sessionKey null; the next discoverOnce() retries the upsert.
+      // Its sessions upsert failed this tick — selecting it anyway would
+      // fail every later event insert's FK. The next tick retries it.
       this.log("rest: session not selected: upsert failed");
       return false;
     }
     const key = Number(live["session_key"]);
     if (!Number.isFinite(key)) return false;
-    if (this.sessionKey !== key) {
-      this.session = live;
-      this.sessionKey = key;
-      this.normalizer = new LiveNormalizer();
-      this.rotationIndex = 0;
-      this.followedRecordedRows = 0;
-      this.log(
-        `rest: following session_key=${key} (${String(live["country_name"] ?? "?")})`,
-      );
-      // Once per newly-selected session — NOT on every discovery tick like
-      // onSession: recorder.writeSession() running from onSession would
-      // re-stamp session.json for every session of the year every 60s while
-      // nothing is live.
-      await this.onSessionSelected?.(live, nowMs);
+    if (this.sessionKey === key) return false;
 
-      // The entry list's selection fetch belongs to this new session: the
-      // fetches reset their retry state and attempt it immediately. Returns
-      // whether it fetched, charging the tick's one-drivers-fetch budget.
-      return this.entryList.onSessionSelected(key, nowMs);
-    }
-    return false;
+    this.session = live;
+    this.sessionKey = key;
+    this.normalizer = new LiveNormalizer();
+    this.rotationIndex = 0;
+    this.followedRecordedRows = 0;
+    this.log(`rest: following session_key=${key} (${String(live["country_name"] ?? "?")})`);
+    // Once per newly-selected session, never per discovery tick: from
+    // onSession this would re-stamp session.json for the whole year.
+    await this.onSessionSelected?.(live, nowMs);
+    // The entry list's selection fetch belongs to this new session; its
+    // return value charges the tick's one-drivers-fetch budget.
+    return this.entryList.onSessionSelected(key, nowMs);
   }
 
   /** One rotation step: fetch, normalize, enqueue. `null` when no session is active. */
@@ -328,23 +253,18 @@ export class RestLane {
       return null;
     }
 
-    // Budget rule: a due drivers fetch takes this tick's one
-    // request instead of the rotation poll — `rotationIndex` is left
-    // untouched so the rotation resumes at the same endpoint next tick,
-    // nothing is skipped.
+    // Budget rule: a due drivers fetch takes this tick's one request instead
+    // of the rotation poll. `rotationIndex` is untouched, so the rotation
+    // resumes at the same endpoint next tick and nothing is skipped.
     if (await this.entryList.runDue(this.session, this.discovery.sessions(), nowMs)) {
       return { endpoint: "drivers", rows: 0, newRows: 0, malformed: 0 };
     }
 
-    // The idle discovery loop is off while live; refresh the sessions
-    // snapshot on its cadence as this tick's one request, so a late upsert
-    // (a race session that failed while FP1 went live) becomes known and
-    // Friday's retry can fire on a later tick.
+    // The idle discovery loop is off while live; refresh the snapshot on
+    // its cadence as this tick's one request, so a late upsert becomes known
+    // and a `meetings` row arriving after selection is still recorded.
     if (this.discovery.sessionsRefreshDue(nowMs)) {
       await this.discovery.refreshSessions(nowMs);
-      // Already following (pollOnce only runs while live) — this covers a
-      // meetings row that becomes available on a later tick than
-      // selection (e.g. this tick's fetch is the first to succeed).
       await this.discovery.recordFollowedMeetingRow(this.session, this.sessionKey);
       return { endpoint: "sessions", rows: 0, newRows: 0, malformed: 0 };
     }
@@ -370,33 +290,17 @@ export class RestLane {
     return { endpoint, rows: rawRows.length, newRows, malformed };
   }
 
-  /** Thin wrapper around the free `enqueueRows()`, which now records through `onRecorded` itself — once per call, only when there's something new. */
-  private async enqueueAndRecord(
-    endpoint: string,
-    sessionKey: number,
-    rows: RawRecord[],
-  ): Promise<{ newRows: number; malformed: number }> {
+  /** The lane's one normalize-enqueue-record path, through the current normalizer. */
+  private async enqueueAndRecord(endpoint: string, sessionKey: number, rows: RawRecord[]): Promise<{ newRows: number; malformed: number }> {
     const result = await enqueueRows(this.normalizer, this.queue, endpoint, sessionKey, rows, this.recordRows);
     this.countStat("unjoined", result.unjoined);
     return { newRows: result.newRows, malformed: result.malformed };
   }
 
-  /**
-   * `enqueueDriverRows`, which now records through `onRecorded` itself —
-   * once per session_key group that wrote something, so a real fetched
-   * entry list is recorded exactly like the static fallback and every
-   * rotation poll. Rows naming a session not yet upserted are dropped (see
-   * `knownSessionKeys`).
-   */
+  /** The same path for `drivers` rows, tagged to the `session_key` in their own payload. */
   private async enqueueAndRecordDrivers(rows: RawRecord[], expectedSessionKey: number | null): Promise<EnqueueDriverRowsResult> {
-    const result = await enqueueDriverRows(
-      this.normalizer,
-      this.queue,
-      rows,
-      expectedSessionKey,
-      (key) => this.discovery.isKnownSession(key),
-      this.recordRows,
-    );
+    const isKnown = (key: number): boolean => this.discovery.isKnownSession(key);
+    const result = await enqueueDriverRows(this.normalizer, this.queue, rows, expectedSessionKey, isKnown, this.recordRows);
     this.countStat("unjoined", result.unjoined);
     return result;
   }
@@ -430,11 +334,7 @@ export class RestLane {
     }
   }
 
-  /**
-   * Stops scheduling further ticks and resolves once any tick already
-   * in-flight (awaiting the network) has finished — so its rows are in the
-   * queue before the caller drains and exits (SIGTERM path in main.ts).
-   */
+  /** Stops scheduling ticks and resolves once any in-flight tick has finished, so its rows are queued before the caller drains (SIGTERM). */
   public async stop(): Promise<void> {
     this.running = false;
     if (this.timer) clearTimeout(this.timer);

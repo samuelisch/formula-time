@@ -41,7 +41,7 @@ flowchart LR
 
 | Rule | Value | File |
 |---|---|---|
-| Live window | 30 min either side of `date_start`/`date_end` | `openf1/rest-lane.ts`, `writer/sessions.ts`: `LIVE_WINDOW_MS = 30 * 60 * 1000` |
+| Live window | 30 min either side of `date_start`/`date_end` | `openf1/discovery.ts`, `writer/sessions.ts`: `LIVE_WINDOW_MS = 30 * 60 * 1000` |
 | Race sessions only | `session_name === "Race"`, exact and case-sensitive | `writer/sessions.ts`: `isRaceSession` |
 | Session status | `upcoming` before the window, `live` inside it, `finished` after | `writer/sessions.ts`: `computeSessionStatus` |
 | REST tick by tier | 2,200 ms with no OpenF1 credentials, 1,100 ms with both `OPENF1_LOGIN` and `OPENF1_PASSWORD`; `REST_TICK_MS` overrides either | `config.ts`: `loadConfig` (`tierDefaultTickMs`, `restTickMs`) |
@@ -66,13 +66,13 @@ the issue text without checking it against this file.
 | Budget rule | At most one drivers fetch per tick, taken before the rotation poll | — | — | — |
 | Static list | `openf1/entry-list.ts`, season-bound (`ENTRY_LIST_2026`); logs its season once at startup | — | — | — |
 
-Read from `openf1/rest-lane.ts`: `tryEntryListSelectionFetch`,
-`tryPreRaceRefresh`, `checkFridayFetch`, `runFridayFetch`,
-`runDueDriversFetch`. `runDueDriversFetch` tries the selection retry, then
-the pre-race refresh, then the Friday fetch, and returns as soon as one of
-them makes a request — `pollOnce` spends the tick's one request there before
-it ever reaches the rotation, so the budget rule above is what the code
-does, not a summary of intent.
+Read from `openf1/entry-list-fetches.ts`: `trySelectionFetch`,
+`tryPreRaceRefresh`, `checkFridayFetch`, `runFridayFetch`, `runDue`.
+`runDue` tries the selection retry, then the pre-race refresh, then the
+Friday fetch, and returns as soon as one of them makes a request —
+`RestLane.pollOnce` (`openf1/rest-lane.ts`) spends the tick's one request
+there before it ever reaches the rotation, so the budget rule above is what
+the code does, not a summary of intent.
 
 ## Configuration
 
@@ -162,8 +162,15 @@ does, not a summary of intent.
 ## Reading order
 
 `main.ts` → `config.ts` → `writer/queue.ts` and `writer/writer.ts` →
-`openf1/normalize.ts` → `openf1/enqueue.ts` → `openf1/rest-lane.ts` →
+`openf1/normalize.ts` → `openf1/enqueue.ts` → `openf1/discovery.ts` →
+`openf1/rest-lane.ts` → `openf1/entry-list-fetches.ts` →
 `openf1/mqtt-lane.ts` → `writer/sessions.ts` → `commands/`.
+
+`openf1/rest-lane.ts` is the tick loop, the session selection and the
+weighted rotation. The `sessions?year=`/`meetings?year=` snapshot it reads
+is `openf1/discovery.ts` (`SessionDiscovery`), and the three drivers fetches
+are `openf1/entry-list-fetches.ts` (`EntryListFetches`); the lane constructs
+both and neither imports the lane.
 
 See also [`../../docs/architecture.md`](../../docs/architecture.md) and
 [`../../docs/glossary.md`](../../docs/glossary.md).
