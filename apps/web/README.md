@@ -237,6 +237,17 @@ force a re-lock. Alignment is experimental by decision.
   `SAMPLE_MS` interval can never observe a commit whose ref sync hasn't
   run yet.
 
+## Narrow-viewport detection
+
+`src/lib/useNarrowViewport.ts` tracks whether the viewport is at or under
+`--bp-narrow` (`index.css`, 640px), for the few places that must know the
+breakpoint in JS rather than through a pure CSS media query alone: the
+align panel's default-collapsed state and the poll modal's bottom-sheet
+variant. Everything else collapses with plain CSS and needs no hook.
+jsdom has no `window.matchMedia`, so the hook reads defensively -- any
+test that never installs a stub (`src/test/matchMedia.ts`) simply gets
+`false`, the same as an environment with no matching media feature.
+
 ## Reading order
 
 `src/app/router.tsx` and `src/app/Shell.tsx` → `src/live/useLiveStream.ts` →
