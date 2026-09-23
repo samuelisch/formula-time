@@ -229,6 +229,7 @@ field.
 | `NODE_ENV` | unset | `"production"` switches the viewer cookie to `SameSite=None; Secure` |
 | `EXPORT_DIR` | `./exports` | where the exporter writes and the races routes serve gzip files from |
 | `GIT_SHA` | `RAILWAY_GIT_COMMIT_SHA`, else `"unknown"` | the `build` field on `/health` |
+| `LOG_LEVEL` | `info` | pino's level; per-request logging is off regardless of level, replaced by one `warn` line per response with status ≥ 400 (ADR-0022 names this config name for ingest; this service reads it the same way) |
 
 Read from `main.ts` and `http/health.ts`.
 
@@ -237,6 +238,7 @@ Read from `main.ts` and `http/health.ts`.
 | Line | Meaning |
 |---|---|
 | `api: last 60s` | every 60 s: `viewers`, `delta_viewers`, `pushes`, `state_bytes_gz`, `delta_bytes_gz`, `slow_drops`, `cursor`, `caught_up`, `session_key`, `build` |
+| `request failed` | warn level: a response's status was ≥ 400; `method`, `url`, `statusCode`, `reqId`. Per-request logging is otherwise off (`LOG_LEVEL` above) |
 | `fold complete` | the projector finished its first full read from cursor 0 |
 | `late commit detected` | the detector found a row below the cursor it had not applied; the fold rebuilds from zero |
 | `rebuild failed, keeping previous state` | the rebuild's own read failed; the previous fold keeps serving and the next detector pass retries |
