@@ -227,6 +227,10 @@ export class SessionDiscovery {
    * instead of clearing it.
    */
   private async refreshMeetingNames(years: number[]): Promise<void> {
+    // A meeting cannot appear under two different years, but the fetches
+    // are concatenated from separate responses, so dedupe by meeting_key
+    // defensively rather than trust that (same rationale as refreshSessions).
+    const seenKeys = new Set<number>();
     const rows: RawRecord[] = [];
     for (const year of years) {
       let meetings: unknown;
@@ -245,7 +249,14 @@ export class SessionDiscovery {
         this.lastMeetingRows = [];
         return;
       }
-      rows.push(...(meetings as RawRecord[]));
+      for (const meeting of meetings as RawRecord[]) {
+        const key = Number(meeting["meeting_key"]);
+        if (Number.isFinite(key)) {
+          if (seenKeys.has(key)) continue;
+          seenKeys.add(key);
+        }
+        rows.push(meeting);
+      }
     }
     this.lastMeetingRows = rows;
     const map = new Map<number, string>();
