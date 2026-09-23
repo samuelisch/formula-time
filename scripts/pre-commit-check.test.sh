@@ -106,9 +106,38 @@ fi
 
 # --- prettier --check runs on staged files, between lint and the unit
 # tests, and only when the commit actually stages a file Prettier handles.
-# These three cases run against $repo_root's own git index (not a synthetic
-# repo below), so they stage and unstage a scratch file rather than relying
-# on trap-based cleanup, which would clobber the stub_dir trap set above.
+# `make_repo` (below) builds an isolated fixture repo under mktemp -d, with
+# its own pnpm-lock.yaml, a stub node_modules/.pnpm so the "missing install"
+# branch never fires, and a stub check-adr-immutable.sh so the full gate
+# chain runs to completion; the stub pnpm on PATH intercepts every `pnpm`
+# call regardless of which repo the hook runs in, so a genuine prettier
+# install is never needed. The two cases that stage a real file Prettier
+# would genuinely reformat run against $repo_root's own git index instead
+# (staging and unstaging a scratch file directly, not via `trap`, since a
+# new `trap ... EXIT` here would clobber the stub_dir cleanup trap set
+# above) — only because a real file with real content reads better as a
+# regression test than a fixture's empty stand-in; the stub pnpm still
+# intercepts the actual `prettier --check` call either way.
+
+# Real git repos under mktemp -d, independent of the real main checkout or
+# any real worktree, each with its own pnpm-lock.yaml and (except the
+# no-install one) a node_modules/.pnpm directory and a stub
+# scripts/check-adr-immutable.sh so the full gate chain runs to completion.
+
+make_repo() {
+  local dir="$1" with_install="$2"
+  git init -q "$dir"
+  : > "$dir/pnpm-lock.yaml"
+  mkdir -p "$dir/scripts"
+  cat > "$dir/scripts/check-adr-immutable.sh" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$dir/scripts/check-adr-immutable.sh"
+  if [ "$with_install" = "yes" ]; then
+    mkdir -p "$dir/node_modules/.pnpm"
+  fi
+}
 
 scratch_format_file="$repo_root/scripts/.pre-commit-check-test-scratch.ts"
 echo 'export const x = 1;' > "$scratch_format_file"
@@ -139,8 +168,35 @@ fi
 git -C "$repo_root" reset -q -- "$scratch_format_file"
 rm -f "$scratch_format_file"
 
+# A staged .html file must reach the same check: the filter used to be an
+# extension allowlist that omitted html (apps/web/index.html is tracked,
+# not .prettierignore'd, and Prettier formats .html by default), so this is
+# a regression test for that gap, not just another instance of the .ts case.
+scratch_html_file="$repo_root/apps/web/.pre-commit-check-test-scratch.html"
+echo '<!doctype html><title>x</title>' > "$scratch_html_file"
+git -C "$repo_root" add "$scratch_html_file"
+
 rm -f "$MARKER_FILE" "$CALLS_FILE"
 jq -cn --arg cmd 'git commit -m x' '{tool_input:{command:$cmd}}' | (cd "$repo_root" && "$hook") >/dev/null 2>&1
+calls=$(tr '\n' ' ' < "$CALLS_FILE")
+if [ "$calls" = "check:exact-pins typecheck lint prettier test:unit " ]; then
+  echo "PASS: a staged .html file also reaches prettier --check (no extension allowlist)"
+else
+  echo "FAIL: expected 'check:exact-pins typecheck lint prettier test:unit ' but got ($calls)"
+  fail=1
+fi
+
+git -C "$repo_root" reset -q -- "$scratch_html_file"
+rm -f "$scratch_html_file"
+
+# Isolated fixture, not $repo_root's live index: a contributor with
+# unrelated files already staged when running this script directly would
+# otherwise see a spurious result here.
+no_staged_repo=$(mktemp -d)
+make_repo "$no_staged_repo" yes
+
+rm -f "$MARKER_FILE" "$CALLS_FILE"
+jq -cn --arg cmd 'git commit -m x' '{tool_input:{command:$cmd}}' | (cd "$no_staged_repo" && "$hook") >/dev/null 2>&1
 calls=$(tr '\n' ' ' < "$CALLS_FILE")
 if [ "$calls" = "check:exact-pins typecheck lint test:unit " ]; then
   echo "PASS: no staged file Prettier handles skips the format check"
@@ -148,27 +204,9 @@ else
   echo "FAIL: expected 'check:exact-pins typecheck lint test:unit ' (nothing staged) but got ($calls)"
   fail=1
 fi
+rm -rf "$no_staged_repo"
 
 # --- tree resolution: which tree does the gate actually run against? ---
-# Real git repos under mktemp -d, independent of the real main checkout or
-# any real worktree, each with its own pnpm-lock.yaml and (except the
-# no-install one) a node_modules/.pnpm directory and a stub
-# scripts/check-adr-immutable.sh so the full gate chain runs to completion.
-
-make_repo() {
-  local dir="$1" with_install="$2"
-  git init -q "$dir"
-  : > "$dir/pnpm-lock.yaml"
-  mkdir -p "$dir/scripts"
-  cat > "$dir/scripts/check-adr-immutable.sh" <<'STUB'
-#!/usr/bin/env bash
-exit 0
-STUB
-  chmod +x "$dir/scripts/check-adr-immutable.sh"
-  if [ "$with_install" = "yes" ]; then
-    mkdir -p "$dir/node_modules/.pnpm"
-  fi
-}
 
 main_repo=$(mktemp -d)
 worktree_repo=$(mktemp -d)
