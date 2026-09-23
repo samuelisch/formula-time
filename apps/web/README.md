@@ -56,7 +56,14 @@ built; only the first join and a `rebuilt` push start it over from seq 0
 - **The time-target seam** (`src/transport/TimeTarget.ts`): `range()`,
   `displayedAt()`, `seekTo()`, `nudge()`, `anchors()`, `playback()`, and
   `notice()`, plus `syncOffsetMs()` and `rewindMode()`. `useLiveTimeTarget`
-  and `useReplayTimeTarget` are its two implementations.
+  and `useReplayTimeTarget` are its two implementations. `notice()` exists
+  because without it the live store's `bufferShort` -- a "showing the
+  oldest" warning -- had nowhere to surface, so a viewer nudging past the
+  buffered span landed on stale data silently; live returns the
+  buffered-delay message, replay (whose whole fold is always seekable)
+  returns null. `TimeTarget.ts` is a plain `.ts` file, same as
+  `useBoardState.ts`, so `TimeTargetProvider` is built with `createElement`
+  rather than JSX.
 
 ## Timeline fold
 
@@ -140,6 +147,33 @@ file) or across many `appendEvents` calls as pages arrive from
   worth of events, never the whole timeline. `timeline.events` is already
   deduped (by `appendEvents`), so no duplicate `event_id` can reach the
   fresh reducer built here.
+
+## Transport slider
+
+`src/transport/SliderWithTicks.tsx` is the transport bar's position
+slider: a native range input with lap ticks drawn as a track overlay, a
+snap "resistance" near each tick, and a tooltip showing the current lap
+above the thumb. Shared by both `TimeTarget` implementations --
+`TransportBar` builds `ticks` from `target.anchors().laps` and passes it
+the same way for live and replay. The snap/label math lives in
+`sliderMath.ts`, unit tested on its own.
+
+- **Snap only on a pointer drag.** The native `step` (100ms) also fires a
+  `change` event on every arrow-key press, and snapping unconditionally
+  there could pull a keyboard step onto a tick that is not on the 100ms
+  grid, making the control appear stuck. A
+  `pointerdown`/`pointerup`/`pointercancel`/`onLostPointerCapture`/`onBlur`
+  set on the input tracks whether the current `change` came from a drag
+  (the last two clear it if a drag is interrupted -- e.g. focus moves away
+  mid-drag -- so it cannot leave a later keyboard step snapping); keyboard
+  and programmatic changes pass the raw stepped value straight through.
+- **`ticks` vs. `allTicks`.** Deliberately separate: `TransportBar`
+  filters `ticks` to `range()` so a tick never renders past the slider's
+  own bounds, but the current-lap tooltip must still find the viewer's
+  actual lap even when that lap's own anchor sits before `range.startMs`
+  (live's rolling buffer can open mid-lap) -- `allTicks` is the unfiltered
+  list for that lookup only, defaulting to `ticks` when the caller has
+  nothing more complete to give.
 
 ## Board layout
 
@@ -319,6 +353,47 @@ make a re-exported race's URL distinct from the cached one
   the data (`src/align/applyOffset.ts`).
 - **Nudge** moves the delay by a step (`src/transport/TimeTarget.ts`).
 - **Seek** moves the delay to a moment (`src/transport/TimeTarget.ts`).
+- **`TransportBar`'s `syncOffsetMs()` reading.** For both live and replay,
+  `syncOffsetMs()` is the seam's own delay reading, so the bar never
+  derives it from `range()`/`displayedAt()` itself: on replay it's
+  relative to the un-nudged clock (0 for a fold played straight through);
+  on live it's the store's applied delay, reading `0.0s` exactly when
+  parked at the edge. Live still checks `range`/`displayedAt` for `—`:
+  live's `syncOffsetMs()` defaults to 0 before a target has any data, so
+  the delay alone can't tell "no data yet" from "no delay".
+- **`useLiveTimeTarget`'s timeline reach.** Once a full-race timeline is
+  loaded (`LiveTimelineLoader` hands it to the store), `range()` spans the
+  whole race from `timeline.firstSourceMs`, and `anchors()` comes from the
+  timeline's lap markers rather than only the laps seen since this tab
+  connected -- so a late joiner's "Race start" and lap jumps work for the
+  whole race, not just what this tab has seen. This is true whenever a
+  timeline exists, not only once `seekTo`/`nudge` have actually put the
+  store into timeline mode: the timeline's lap markers are a superset of
+  the stream-derived ones, and a viewer still at the live edge needs
+  `anchors().lights_out` to press "Race start" in the first place. Whether
+  the delay currently resolves through the buffer or the timeline is the
+  store's `mode` (`reselect` in `live/store.ts`); the hook only reports it
+  via `rewindMode()`, it never decides it.
+- **`useLiveTimeTarget`'s live-edge formula.** The live edge on the
+  source axis, for display only (the slider's bounds): the newest push's
+  own axis time, plus however much wall-clock time has elapsed since it
+  arrived, or `now()` before the first push -- the exact formula the
+  store's `headAxisOf` computes internally, so `range()` can never
+  disagree with where the store actually is. `seekTo`/`nudge` do not use
+  this: they hand the source time straight to the store's own
+  `seekToAxis`/`nudgeDelay`, which read the store's current state at call
+  time rather than this render's snapshot -- a push (or several) landing
+  between a render and a click must not throw the result off.
+- **`useReplayTimeTarget`'s sync-offset accumulator.** The net effect of
+  every `seekTo`/`nudge` call on a fold, in ms. Ticking while playing
+  advances the real position (`playback.sourceMs`) and an "un-nudged,
+  played straight through" reference by the same amount every frame, so
+  their difference never moves except at the instant of a seek, where it
+  steps by exactly how far that seek actually moved the (clamped)
+  position -- no separate wall-clock tracking needed, just an accumulator
+  reset to 0 whenever `folded` changes identity (a revisit to a cached
+  fold -- TanStack Query's `staleTime: Infinity` can hand back the same
+  `FoldedRace` object -- must not resurface a stale offset).
 
 ## Alignment
 

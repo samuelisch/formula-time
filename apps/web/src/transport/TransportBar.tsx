@@ -96,12 +96,10 @@ export function TransportBar() {
 
   // For both live and replay, `syncOffsetMs()` is the seam's own delay
   // reading, so the bar never derives it from `range()`/`displayedAt()`
-  // itself: on replay it's relative to the un-nudged clock (0 for a fold
-  // played straight through); on live it's the store's applied delay,
-  // reading `0.0s` exactly when parked at the edge. Live still checks
-  // `range`/`displayedAt` for `—`: live's `syncOffsetMs()` defaults to 0
-  // before a target has any data, so the delay alone can't tell "no data
-  // yet" from "no delay".
+  // itself. Live still checks `range`/`displayedAt` for `—`: live's
+  // `syncOffsetMs()` defaults to 0 before a target has any data, so the
+  // delay alone can't tell "no data yet" from "no delay".
+  // See README: Delay, offset, nudge, seek.
   const syncOffsetMs = target.syncOffsetMs();
   const positionLabel =
     playback === null
