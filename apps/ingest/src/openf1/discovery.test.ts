@@ -192,7 +192,7 @@ describe("SessionDiscovery.refreshSessions", () => {
   });
 });
 
-describe("SessionDiscovery unchanged-row skip (issue #362)", () => {
+describe("SessionDiscovery unchanged-row skip", () => {
   test("two ticks with identical rows call onSession once per row on the first tick and zero times on the second", async () => {
     const { fetcher } = fakeFetcher({ sessions: [SESSION] });
     const onSession = vi.fn();

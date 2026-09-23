@@ -43,11 +43,9 @@ export interface SessionFields {
 }
 
 /**
- * True when two `SessionFields` snapshots would write the same row: every
- * key compared, `Date` fields by `getTime()`, everything else by `===`. A
- * null-to-value change in a naming field counts as a difference. Discovery
- * uses this to skip a redundant upsert for a row unchanged since the last
- * one that landed.
+ * True when two `SessionFields` snapshots would write the same row:
+ * compared field by field, `Date` fields by `getTime()`, everything else
+ * by `===`. See README: Session upsert.
  */
 export function sameSessionFields(a: SessionFields, b: SessionFields): boolean {
   return (

@@ -57,9 +57,10 @@ export interface SessionDiscoveryOptions {
   /** How long a `sessions?year=` snapshot stays fresh — the lane's discovery cadence. */
   intervalMs: number;
   /**
-   * Sessions upsert — called for every race session row this sees.
-   * `meetingNames` is this tick's `meeting_key -> meeting_name` map, for
-   * `sessionFieldsFromRaw`'s join.
+   * Sessions upsert — called for every race session row whose fields
+   * changed since the last successful upsert, and for every row on the
+   * first discovery. `meetingNames` is this tick's `meeting_key ->
+   * meeting_name` map, for `sessionFieldsFromRaw`'s join.
    */
   onSession?: ((session: RawRecord, nowMs: number, meetingNames: ReadonlyMap<number, string>) => void | Promise<void>) | undefined;
   /** The lane's recorder wrapper, used only for the followed session's own `meetings` row. */
@@ -206,13 +207,10 @@ export class SessionDiscovery {
     // Refreshed alongside the sessions snapshot, once per tick.
     await this.refreshMeetingNames(years);
 
-    // Only race sessions are captured (isRaceSession): a practice,
-    // qualifying or sprint row is never upserted or added to
-    // `knownSessionKeys`, so a drivers row tagged to it is dropped
-    // downstream as unknownSession. `upserted` tracks which rows are safe
-    // to select this tick — written now, or already known unchanged since
-    // the last write — so the lane never selects a session whose row has
-    // never landed.
+    // Only race sessions are captured (isRaceSession). `upserted` tracks
+    // which rows are safe to select this tick — written now, or already
+    // known unchanged since the last write — so the lane never selects a
+    // session whose row has never landed. See README: Session upsert.
     const upserted = new Set<RawRecord>();
     for (const row of rows) {
       if (!isRaceSession(row)) continue;

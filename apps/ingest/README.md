@@ -396,7 +396,7 @@ unavailable field.
 | `rest: poll endpoint=... rows=... new=... malformed=...` | info | One rotation tick's fetch result | `rows`, `new` |
 | `rest: poll ... failed: ...` | error | A rotation tick's fetch threw | — |
 | `rest: session discovery failed: ...` | error | The `sessions` discovery fetch threw | — |
-| `rest: session row skipped: ...` | info | One discovered session row failed validation and was not upserted | — |
+| `rest: session row skipped: ...` | info | One discovered session row failed validation, or its `onSession` write itself failed, and was not upserted | — |
 | `rest: session ... left its live window; releasing` | info | The followed session's window closed; the REST lane stops following it | — |
 | `rest: meetings fetch failed: ...` | error | The `meetings` discovery fetch threw | — |
 | `rest: recording failed: ...` | error | The jsonl recorder threw while appending REST rows | `endpoint` |
