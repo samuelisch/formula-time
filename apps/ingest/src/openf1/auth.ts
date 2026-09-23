@@ -1,9 +1,7 @@
-// Sponsor auth, lifted from
-// `../f1-live-events-poc/poc/live-recorder/recorder.ts`. AGENTS.md: "The
-// sponsor bearer token expires in 3600 s: refresh before expiry and on every
-// reconnect." OPENF1_LOGIN/OPENF1_PASSWORD unset -> unauthenticated fallback
-// (historical use only; live will 401 — see apps/ingest/AGENTS.md "free tier
-// locks out during any live session").
+// Sponsor auth: the bearer token expires in 3600 s, refreshed before
+// expiry and on every reconnect (see README: OpenF1 facts).
+// OPENF1_LOGIN/OPENF1_PASSWORD unset falls back to unauthenticated
+// requests — historical use only, since the free tier locks out live.
 
 import type { LaneLog } from "../log.js";
 import type { Fetcher, RawRecord } from "./types.js";
@@ -103,9 +101,8 @@ export class OpenF1Auth {
 
 /**
  * Wraps `fetch` with the bearer token (when configured), retries once on
- * 401/403 with a fresh token, and treats 404 as "no data yet" — a fact, not
- * an error (apps/ingest/AGENTS.md: "The live API rejects all date filters; a
- * 404 there means no data yet, not an error.").
+ * 401/403 with a fresh token, and treats 404 as "no data yet" — a fact,
+ * not an error (see README: OpenF1 facts).
  */
 export function createOpenF1Fetcher(auth: OpenF1Auth, opts: { fetchImpl?: FetchLike } = {}): Fetcher {
   const fetchImpl = opts.fetchImpl ?? fetch;

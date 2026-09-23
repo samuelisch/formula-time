@@ -1,12 +1,7 @@
-// Lifted from `../f1-live-events-poc/poc/ts/file_fetcher.ts`. A `Fetcher`
-// (ADR-0001 §4: "the Postgres fetcher answers the same virtual URLs the file
-// fetcher does") that serves the rest lane from a live-recorder capture
-// instead of the network — this is what `LIVE_SOURCE=<directory>` selects
-// (config seam), used by tests and manual replay.
-//
-// Accepts either layout — no session key needs to be known up front:
-//   root mode:    <dir>/<session_key>/{session.json, raw/<endpoint>.jsonl}
-//   single mode:  <dir>/{session.json, raw/<endpoint>.jsonl}
+// A `Fetcher` (ADR-0001 §4) that serves the rest lane from a
+// live-recorder capture instead of the network — `LIVE_SOURCE=<dir>`
+// selects it. Accepts either layout: `<dir>/<session_key>/{session.json,
+// raw/<endpoint>.jsonl}` or `<dir>/{session.json, raw/<endpoint>.jsonl}`.
 
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -98,12 +93,10 @@ export interface RecordedRow {
 }
 
 /**
- * The loader needs `received_at` (dropped by `readJsonl` above,
- * kept out of the `Fetcher` contract on purpose — ADR-0001 §4's fetcher
- * seam answers the same virtual URLs the network fetcher does, payloads
- * only) to sort a whole recording into time order before emitting. Sibling
- * reader, not a change to `createFileFetcher`'s behaviour: same
- * root-vs-single-session candidate-path resolution, one endpoint at a time.
+ * The loader needs `received_at`, dropped by `readJsonl` and kept out of
+ * the `Fetcher` contract on purpose (ADR-0001 §4: payloads only), to sort
+ * a recording into time order before emitting. Same candidate-path
+ * resolution as `createFileFetcher`, one endpoint at a time.
  */
 export async function readRecordingEndpoint(
   dir: string,

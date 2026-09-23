@@ -19,12 +19,10 @@ export type Sleep = (ms: number) => Promise<void>;
 const defaultSleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Enforces a minimum spacing between successive calls through `fetcher`:
- * at most 3 requests per second and 30 per minute. `now`/`sleep`
- * are injectable so a test can drive a fake clock without a real
- * wait — `sleep` advancing a shared fake `now` is what makes "8 requests
- * take >= 14.7s of fake time" (7 gaps of 2.1s) provable without the test
- * actually taking 14.7 real seconds.
+ * Enforces a minimum spacing between successive calls through `fetcher`.
+ * `now`/`sleep` are injectable so a test can drive a fake clock — `sleep`
+ * advancing a shared fake `now` is what makes elapsed-time assertions
+ * provable without the test taking that long for real.
  */
 export function withSpacing(
   fetcher: Fetcher,
