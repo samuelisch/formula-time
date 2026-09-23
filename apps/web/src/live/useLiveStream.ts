@@ -42,6 +42,41 @@ function seqIsNewer(candidate: string, than: string): boolean {
   return Number(candidate) > Number(than);
 }
 
+// Counts a frame a listener could not use: bad JSON, or JSON that is not
+// an object shaped like the frame it was received as. Read by tests only.
+export let malformedFrames = 0;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/** Parses `data`, or returns `null` and counts the frame malformed if it
+ * is not valid JSON or `isValid` rejects the parsed value's shape. */
+function parseFrame<T>(data: string, isValid: (value: unknown) => value is T): T | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    malformedFrames += 1;
+    return null;
+  }
+  if (!isValid(parsed)) {
+    malformedFrames += 1;
+    return null;
+  }
+  return parsed;
+}
+
+function isStatePush(value: unknown): value is StatePush {
+  return isRecord(value) && value.type === "state";
+}
+function isDeltaPush(value: unknown): value is DeltaPush {
+  return isRecord(value) && value.type === "delta";
+}
+function isStatusFrame(value: unknown): value is { catching_up: boolean } {
+  return isRecord(value) && typeof value.catching_up === "boolean";
+}
+
 export function useLiveStream(options: UseLiveStreamOptions = {}): void {
   const EventSourceImpl = options.EventSourceImpl ?? globalThis.EventSource;
 
@@ -84,7 +119,12 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
     };
 
     const handleState = (event: MessageEvent<string>): void => {
-      const push = JSON.parse(event.data) as StatePush;
+      const push = parseFrame(event.data, isStatePush);
+      if (push === null) {
+        pendingGap = true;
+        fetchSnapshot();
+        return;
+      }
       if (pendingGap) {
         push.rebuilt = true;
         pendingGap = false;
@@ -93,7 +133,12 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
     };
     const handleDelta = (event: MessageEvent<string>): void => {
       if (fetchingSnapshot) return;
-      const frame = JSON.parse(event.data) as DeltaPush;
+      const frame = parseFrame(event.data, isDeltaPush);
+      if (frame === null) {
+        pendingGap = true;
+        fetchSnapshot();
+        return;
+      }
       const next = applyDelta(useLiveStore.getState().live, frame);
       if (next === null) {
         pendingGap = true;
@@ -103,7 +148,8 @@ export function useLiveStream(options: UseLiveStreamOptions = {}): void {
       useLiveStore.getState().onState(next, Date.now());
     };
     const handleStatus = (event: MessageEvent<string>): void => {
-      const status = JSON.parse(event.data) as { catching_up: boolean };
+      const status = parseFrame(event.data, isStatusFrame);
+      if (status === null) return;
       useLiveStore.getState().onStatus(status);
     };
 
