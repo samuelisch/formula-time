@@ -248,12 +248,15 @@ describe("ReplayPage -- start notice", () => {
   // The recording in this fixture starts 54 minutes before the leader
   // reaches lap 1 -- a position event with no lap yet, then the lap-1 event
   // 54 minutes later -- matching how a real recording opens well before
-  // lights-out.
+  // lights-out. `date_start` sits 50 minutes into the gap, close enough to
+  // lights-out (4 min) that this is an on-time start under
+  // `FORMATION_WINDOW_MS`, so the cut lands at `date_start` -- still well
+  // after the recording's first row, and still before lights-out.
   const GAP_MINUTES = 54;
   const RACE_FILE_WITH_GAP: RaceFile = {
     schema: 1,
     exported_at: "2026-09-06T15:10:00.000Z",
-    session: { ...SESSION, total_laps: 1 },
+    session: { ...SESSION, date_start: isoAt(50 * 60), total_laps: 1 },
     events: [
       event("g1", "position", 0, { driver_number: 1, position: 1 }),
       event("g2", "laps", GAP_MINUTES * 60, { driver_number: 1, lap_number: 1 }),
@@ -266,13 +269,13 @@ describe("ReplayPage -- start notice", () => {
     events: [event("p1", "position", 0, { driver_number: 1, position: 1 })],
   };
 
-  it('shows "This replay starts 54 min before lights out" while the displayed position is before lights-out', async () => {
+  it('shows "This replay starts at the formation lap" while the displayed position is before lights-out', async () => {
     stubFetch(RACE_FILE_WITH_GAP);
     renderPage();
 
     await waitFor(() => screen.getByRole("slider", { name: "Playback position" }));
 
-    expect(screen.getByText(/This replay starts 54 min before lights out\./)).toBeInTheDocument();
+    expect(screen.getByText(/This replay starts at the formation lap\./)).toBeInTheDocument();
   });
 
   it("clicking the notice's link jumps to the lights-out anchor and hides the notice", async () => {
