@@ -46,7 +46,8 @@ export type CountStat = (stat: "polls" | "rows" | "errors" | "unjoined", n?: num
 
 export interface SessionDiscoveryOptions {
   fetcher: Fetcher;
-  year: number;
+  /** Test override: pins the fetch year regardless of the clock. Production omits this (or passes `undefined`) and lets `yearOf` read the year off `nowMs` at each fetch. */
+  year?: number | undefined;
   /** How long a `sessions?year=` snapshot stays fresh — the lane's discovery cadence. */
   intervalMs: number;
   /**
@@ -63,7 +64,7 @@ export interface SessionDiscoveryOptions {
 
 export class SessionDiscovery {
   private readonly fetcher: Fetcher;
-  private readonly year: number;
+  private readonly yearOverride: number | undefined;
   private readonly intervalMs: number;
   private readonly onSession: SessionDiscoveryOptions["onSession"];
   private readonly onRecorded: RecordRows;
@@ -101,7 +102,7 @@ export class SessionDiscovery {
 
   public constructor(opts: SessionDiscoveryOptions) {
     this.fetcher = opts.fetcher;
-    this.year = opts.year;
+    this.yearOverride = opts.year;
     this.intervalMs = opts.intervalMs;
     this.onSession = opts.onSession;
     this.onRecorded = opts.onRecorded;
@@ -134,6 +135,23 @@ export class SessionDiscovery {
     return nowMs >= this.nextSessionsRefreshAt;
   }
 
+  /** The calendar year a fetch made at `nowMs` reads, UTC. */
+  private yearOf(nowMs: number): number {
+    return new Date(nowMs).getUTCFullYear();
+  }
+
+  /**
+   * The year(s) a discovery fetch reads this tick. In December (UTC month
+   * 11) both the current and the next year are fetched, so a January race
+   * is discovered before its Friday instead of only after the rollover.
+   * The constructor `year` override pins a single year and skips this.
+   */
+  private yearsToFetch(nowMs: number): number[] {
+    if (this.yearOverride !== undefined) return [this.yearOverride];
+    const year = this.yearOf(nowMs);
+    return new Date(nowMs).getUTCMonth() === 11 ? [year, year + 1] : [year];
+  }
+
   /**
    * `sessions?year=` plus the upsert of every race row: refreshes the
    * snapshot (every row returned, race or not) and `knownSessionKeys`
@@ -142,22 +160,37 @@ export class SessionDiscovery {
    */
   public async refreshSessions(nowMs: number): Promise<{ rows: RawRecord[]; upserted: Set<RawRecord> } | null> {
     this.nextSessionsRefreshAt = nowMs + this.intervalMs;
-    let sessions: unknown;
-    this.countStat("polls");
-    try {
-      sessions = await this.fetcher(`${OPENF1_BASE}/sessions?year=${this.year}`);
-    } catch (error) {
-      this.countStat("errors");
-      this.log(`rest: session discovery failed: ${error instanceof Error ? error.message : String(error)}`, {
-        level: "error",
-      });
-      return null;
+    const years = this.yearsToFetch(nowMs);
+    // A session cannot appear under two different years, but the fetches
+    // are concatenated from separate responses, so dedupe by session_key
+    // defensively rather than trust that.
+    const seenKeys = new Set<number>();
+    const rows: RawRecord[] = [];
+    for (const year of years) {
+      let sessions: unknown;
+      this.countStat("polls");
+      try {
+        sessions = await this.fetcher(`${OPENF1_BASE}/sessions?year=${year}`);
+      } catch (error) {
+        this.countStat("errors");
+        this.log(`rest: session discovery failed: ${error instanceof Error ? error.message : String(error)}`, {
+          level: "error",
+        });
+        return null;
+      }
+      if (!Array.isArray(sessions)) return null;
+      for (const row of sessions as RawRecord[]) {
+        const key = Number(row["session_key"]);
+        if (Number.isFinite(key)) {
+          if (seenKeys.has(key)) continue;
+          seenKeys.add(key);
+        }
+        rows.push(row);
+      }
     }
-    if (!Array.isArray(sessions)) return null;
-    const rows = sessions as RawRecord[];
 
     // Refreshed alongside the sessions snapshot, once per tick.
-    await this.refreshMeetingNames();
+    await this.refreshMeetingNames(years);
 
     // Only race sessions are captured (isRaceSession): a practice,
     // qualifying or sprint row is never upserted or added to
@@ -187,28 +220,33 @@ export class SessionDiscovery {
   }
 
   /**
-   * `meetings?year=<current>`, once per discovery tick. See README:
-   * Session upsert. A fetch failure or non-array response leaves the
-   * previous tick's map in place instead of clearing it.
+   * `meetings?year=`, once per discovery tick per year in `years` (the
+   * same December-rollover years `refreshSessions` fetched). See README:
+   * Session upsert. A fetch failure or non-array response for any year
+   * aborts the refresh and leaves the previous tick's map in place
+   * instead of clearing it.
    */
-  private async refreshMeetingNames(): Promise<void> {
-    let meetings: unknown;
-    this.countStat("polls");
-    try {
-      meetings = await this.fetcher(`${OPENF1_BASE}/meetings?year=${this.year}`);
-    } catch (error) {
-      this.countStat("errors");
-      this.log(`rest: meetings fetch failed: ${error instanceof Error ? error.message : String(error)}`, {
-        level: "error",
-      });
-      this.lastMeetingRows = [];
-      return;
+  private async refreshMeetingNames(years: number[]): Promise<void> {
+    const rows: RawRecord[] = [];
+    for (const year of years) {
+      let meetings: unknown;
+      this.countStat("polls");
+      try {
+        meetings = await this.fetcher(`${OPENF1_BASE}/meetings?year=${year}`);
+      } catch (error) {
+        this.countStat("errors");
+        this.log(`rest: meetings fetch failed: ${error instanceof Error ? error.message : String(error)}`, {
+          level: "error",
+        });
+        this.lastMeetingRows = [];
+        return;
+      }
+      if (!Array.isArray(meetings)) {
+        this.lastMeetingRows = [];
+        return;
+      }
+      rows.push(...(meetings as RawRecord[]));
     }
-    if (!Array.isArray(meetings)) {
-      this.lastMeetingRows = [];
-      return;
-    }
-    const rows = meetings as RawRecord[];
     this.lastMeetingRows = rows;
     const map = new Map<number, string>();
     for (const meeting of rows) {

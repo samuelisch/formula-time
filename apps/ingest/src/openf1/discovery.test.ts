@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 
-import { SessionDiscovery } from "./discovery.js";
+import { OPENF1_BASE, SessionDiscovery } from "./discovery.js";
 import type { CountStat } from "./discovery.js";
 import type { RawRecord } from "./types.js";
 
@@ -32,6 +32,7 @@ function fakeFetcher(responses: Record<string, unknown>): { fetcher: (url: strin
 function makeDiscovery(
   fetcher: (url: string) => Promise<unknown>,
   opts: {
+    year?: number;
     onSession?: (session: RawRecord, nowMs: number, meetingNames: ReadonlyMap<number, string>) => void | Promise<void>;
     onRecorded?: (sessionKey: number, endpoint: string, rows: RawRecord[]) => Promise<void>;
     countStat?: CountStat;
@@ -41,7 +42,7 @@ function makeDiscovery(
 ): SessionDiscovery {
   return new SessionDiscovery({
     fetcher,
-    year: 2026,
+    year: opts.year ?? 2026,
     intervalMs: opts.intervalMs ?? 60_000,
     onSession: opts.onSession,
     onRecorded: opts.onRecorded ?? (async (): Promise<void> => {}),
@@ -164,6 +165,108 @@ describe("SessionDiscovery.refreshSessions", () => {
     await discovery.refreshSessions(START);
 
     expect(countStat.mock.calls.filter((c) => c[0] === "polls")).toHaveLength(2);
+  });
+});
+
+describe("SessionDiscovery year selection", () => {
+  const RACE_2026: RawRecord = {
+    session_key: 50001,
+    session_name: "Race",
+    meeting_key: 1500,
+    circuit_key: 39,
+    date_start: "2026-12-10T13:00:00Z",
+    date_end: "2026-12-10T15:00:00Z",
+  };
+  const RACE_2027: RawRecord = {
+    session_key: 50002,
+    session_name: "Race",
+    meeting_key: 1501,
+    circuit_key: 39,
+    date_start: "2027-01-18T13:00:00Z",
+    date_end: "2027-01-18T15:00:00Z",
+  };
+
+  test("in December, fetches both the current and next year's sessions and meetings, and upserts race rows from both", async () => {
+    const nowMs = Date.parse("2026-12-15T00:00:00Z");
+    const calls: string[] = [];
+    const fetcher = async (url: string): Promise<unknown> => {
+      calls.push(url);
+      const parsed = new URL(url);
+      const endpoint = parsed.pathname.split("/").at(-1) ?? "";
+      if (endpoint === "sessions") return url.includes("year=2026") ? [RACE_2026] : [RACE_2027];
+      return [];
+    };
+    const onSession = vi.fn();
+    const discovery = new SessionDiscovery({
+      fetcher,
+      intervalMs: 60_000,
+      onSession,
+      onRecorded: async (): Promise<void> => {},
+      countStat: (): void => {},
+      log: (): void => {},
+    });
+
+    const result = await discovery.refreshSessions(nowMs);
+
+    expect(calls).toContain(`${OPENF1_BASE}/sessions?year=2026`);
+    expect(calls).toContain(`${OPENF1_BASE}/sessions?year=2027`);
+    expect(calls).toContain(`${OPENF1_BASE}/meetings?year=2026`);
+    expect(calls).toContain(`${OPENF1_BASE}/meetings?year=2027`);
+    expect(onSession).toHaveBeenCalledWith(RACE_2026, nowMs, expect.any(Map));
+    expect(onSession).toHaveBeenCalledWith(RACE_2027, nowMs, expect.any(Map));
+    expect(result?.rows).toHaveLength(2);
+  });
+
+  test("outside December, fetches only the current year", async () => {
+    const nowMs = Date.parse("2027-01-03T00:00:00Z");
+    const { fetcher, calls } = fakeFetcher({ sessions: [RACE_2027] });
+    const discovery = new SessionDiscovery({
+      fetcher,
+      intervalMs: 60_000,
+      onRecorded: async (): Promise<void> => {},
+      countStat: (): void => {},
+      log: (): void => {},
+    });
+
+    await discovery.refreshSessions(nowMs);
+
+    expect(calls.filter((u) => u.includes("/sessions?"))).toEqual([`${OPENF1_BASE}/sessions?year=2027`]);
+    expect(calls.filter((u) => u.includes("/meetings?"))).toEqual([`${OPENF1_BASE}/meetings?year=2027`]);
+  });
+
+  test("a constructor year override pins the fetch even in December", async () => {
+    const nowMs = Date.parse("2026-12-15T00:00:00Z");
+    const { fetcher, calls } = fakeFetcher({ sessions: [RACE_2026] });
+    const discovery = new SessionDiscovery({
+      fetcher,
+      year: 2026,
+      intervalMs: 60_000,
+      onRecorded: async (): Promise<void> => {},
+      countStat: (): void => {},
+      log: (): void => {},
+    });
+
+    await discovery.refreshSessions(nowMs);
+
+    expect(calls.filter((u) => u.includes("/sessions?"))).toEqual([`${OPENF1_BASE}/sessions?year=2026`]);
+    expect(calls.filter((u) => u.includes("/meetings?"))).toEqual([`${OPENF1_BASE}/meetings?year=2026`]);
+  });
+
+  test("counts each of December's two years as its own poll", async () => {
+    const nowMs = Date.parse("2026-12-15T00:00:00Z");
+    const { fetcher } = fakeFetcher({ sessions: [RACE_2026] });
+    const countStat = vi.fn();
+    const discovery = new SessionDiscovery({
+      fetcher,
+      intervalMs: 60_000,
+      onRecorded: async (): Promise<void> => {},
+      countStat,
+      log: (): void => {},
+    });
+
+    await discovery.refreshSessions(nowMs);
+
+    expect(countStat.mock.calls.filter((c) => c[0] === "polls")).toHaveLength(4);
   });
 });
 

@@ -127,7 +127,9 @@ export class RestLane {
     this.log = opts.onLog ?? ((): void => {});
     this.discovery = new SessionDiscovery({
       fetcher: this.fetcher,
-      year: opts.year ?? new Date().getUTCFullYear(),
+      // Test override only — SessionDiscovery reads the year off nowMs at
+      // each fetch (ADR-0040: it owns the snapshot and the year with it).
+      year: opts.year,
       intervalMs: this.discoveryIntervalMs,
       onSession: opts.onSession,
       onRecorded: this.recordRows,
