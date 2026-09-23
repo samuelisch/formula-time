@@ -42,6 +42,6 @@ the file split between `discovery.ts`, `entry-list-fetches.ts` and
 - A January race is discovered, and upserted, before its Friday practice
   session — the api can open its polls without a redeploy at the year
   boundary.
-- The startup coverage line (season coverage check) reads the same
-  post-fetch snapshot, so a race pulled in by the December lookahead is
-  covered by that check too.
+- A race pulled in by the December lookahead is upserted and known like
+  any other, so anything that reads the discovery snapshot after the
+  fetch sees it.
