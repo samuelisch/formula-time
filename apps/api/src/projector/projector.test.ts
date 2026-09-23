@@ -140,9 +140,48 @@ describe("RaceStateProjector", () => {
     expect(session?.["location"]).toBeNull();
   });
 
-  test("updateSession replaces state.session and publishes once with no events", async () => {
+  test("a session refresh before the first tick completes does not publish", () => {
     const source = new FakeSource([], []);
     const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }));
+
+    const seen: Array<{ events: RaceEvent[]; rebuilt: boolean }> = [];
+    projector.subscribe((_state, _cursor, events, rebuilt) => seen.push({ events, rebuilt }));
+
+    const live: Session = { ...SESSION, status: "live", totalLaps: 58 };
+    projector.updateSession(live);
+
+    expect(seen).toHaveLength(0);
+    expect(projector.snapshot().session).toMatchObject({ status: "live", total_laps: 58 });
+    expect(projector.currentSession()).toEqual(live);
+  });
+
+  test("the first caught-up publish carries a session refresh made before it, not the original row", async () => {
+    const rows = [driverRow(1, 1)];
+    const source = new FakeSource(rows, rows.map((r) => r.eventId));
+    const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }));
+
+    const seen: Array<{ events: RaceEvent[]; rebuilt: boolean }> = [];
+    projector.subscribe((_state, _cursor, events, rebuilt) => seen.push({ events, rebuilt }));
+
+    const live: Session = { ...SESSION, status: "live", totalLaps: 58 };
+    projector.updateSession(live);
+    expect(seen).toHaveLength(0);
+
+    projector.start();
+    await vi.waitFor(() => expect(projector.status().caughtUp).toBe(true));
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.events).toEqual([]);
+    expect(seen[0]?.rebuilt).toBe(false);
+    expect(projector.snapshot().session).toMatchObject({ status: "live", total_laps: 58 });
+  });
+
+  test("updateSession after catch-up replaces state.session and publishes once with no events", async () => {
+    const source = new FakeSource([], []);
+    const projector = tracked(new RaceStateProjector({ source, session: SESSION, tickMs: 100_000, log: noopLog }));
+
+    projector.start();
+    await vi.waitFor(() => expect(projector.status().caughtUp).toBe(true));
 
     const seen: Array<{ events: RaceEvent[]; rebuilt: boolean }> = [];
     projector.subscribe((_state, _cursor, events, rebuilt) => seen.push({ events, rebuilt }));
