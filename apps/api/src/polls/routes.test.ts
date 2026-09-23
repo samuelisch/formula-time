@@ -3,7 +3,7 @@
 // per-env viewer cookie attributes — plus the routes vote-burst and
 // vote-path integration tests already cover the vote business logic
 // itself, which this file does not repeat.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { PrismaClient } from "@formula-time/db";
 
@@ -15,7 +15,7 @@ async function build(): Promise<FastifyInstance> {
   // in this file reaches PollModule.vote()'s 404 branch without touching
   // the db — the fake below never needs a real implementation.
   const db = {} as unknown as PrismaClient;
-  const module = new PollModule({ db, log: { info: () => {} } });
+  const module = new PollModule({ db, log: { info: vi.fn(), error: vi.fn() } });
   const app = Fastify();
   await app.register(registerPolls(module, db), { prefix: "/api" });
   await app.ready();

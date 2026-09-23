@@ -66,6 +66,11 @@ Measured 2026-09-22 on main at 9e83fe0:
   since `updateSession()`'s own publish guard only changes when the
   *out-of-tick* publish fires, not whether the session row itself is kept
   current.
+- ADR-0024 quotes `Fastify({ logger: true, trustProxy: TRUST_PROXY })`
+  verbatim; that constructor call now reads as this ADR's decision point 1
+  describes. ADR-0024's own decision — `trustProxy`'s resolution to the
+  private address ranges, and the vote route's per-IP rate limit — is
+  unaffected by this change.
 
 ## References
 
