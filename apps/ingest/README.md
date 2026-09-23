@@ -81,7 +81,7 @@ The row's Grand Prix name isn't on the session record itself — it lives on
 OpenF1's `meetings` rows — so callers join it in via a `meetingNames` map
 built separately: `RestLane` fetches `meetings?year=` once per discovery
 tick, and the loader and `fetch-race` fetch `meetings?meeting_key=` once
-per session. A `session_key` missing from that map, or no fetch made at
+per session. A `meeting_key` missing from that map, or no fetch made at
 all, leaves `meetingName` null rather than guessing.
 
 A rerun must not blank out a naming column (`meetingName`,
