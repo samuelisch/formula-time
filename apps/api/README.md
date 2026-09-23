@@ -173,6 +173,17 @@ ticks. An already-exported session is re-exported the same way once
 the historical-race route sends is `"<session_key>-<exported_at ms>"`, so a
 re-export changes it (`export/exporter.ts`).
 
+The file's top-level `schema` field (`packages/domain/src/wire.ts`'s
+`RaceFile`) versions the document's `session` object: `schema: 2` carries
+`session` as `SessionWire`, the same eleven-field mapping (`sessionToWire`)
+the live push's `state.session` uses, `session_key` a string on both
+(ADR-0009 §5, ADR-0041). `schema: 1` is the shape written before ADR-0041 --
+`session_key` a JSON number -- and stays on disk until its own re-export
+conditions below are met; no coordinated re-export was run when ADR-0041
+landed. `apps/web/src/replay/timeline.ts`'s `normalizedSessionRow` reads
+either, turning a schema-1 file's numeric `session_key` into a string so a
+folded state always matches a live one.
+
 The exporter runs its own 5 s tick, independent of the projector's tick,
 and never overlaps ticks: one that starts while a previous pass is still
 running returns immediately (ADR-0001 §2 invariant 2). The database is the

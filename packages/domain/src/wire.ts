@@ -153,11 +153,9 @@ export interface RaceEventsPage {
 }
 
 /**
- * The exported race file's body (ADR-0009 §1, ADR-0026, ADR-0041). `session`
- * is `SessionWire` (same `sessionToWire` mapping as the live push, ADR-0009
- * §5). `schema` is `2`: a `schema: 1` file carried `session_key` as a JSON
- * number instead; the browser fold reads either
- * (`apps/web/src/replay/timeline.ts` `normalizedSessionRow`).
+ * The exported race file's body (ADR-0009 §1, ADR-0026, ADR-0041). `schema`
+ * versions `session`'s shape; see `apps/api/README.md` "Exports" for what
+ * each schema carries and who still reads the older one.
  */
 export interface RaceFile {
   schema: 2;
