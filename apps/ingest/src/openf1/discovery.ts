@@ -15,10 +15,6 @@ import type { SessionFields } from "../writer/sessions.js";
 // lap count logs at error level instead of info.
 const COVERAGE_SOON_MS = 14 * 24 * 60 * 60 * 1000;
 
-// The window the coverage check calls "soon": a race inside it without a
-// lap count logs at error level instead of info.
-const COVERAGE_SOON_MS = 14 * 24 * 60 * 60 * 1000;
-
 export const OPENF1_BASE = "https://api.openf1.org/v1";
 
 // OpenF1 serves live data from 30 minutes before `date_start` to 30 minutes
