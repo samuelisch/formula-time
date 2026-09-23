@@ -8,6 +8,7 @@ import type { Session } from "@formula-time/db";
 import {
   createInitialState,
   RaceStateReducer,
+  sessionToWire,
   type RaceEvent,
   type RaceState,
   type RawRecord,
@@ -47,23 +48,14 @@ const DEFAULT_BATCH_LIMIT = 5000;
 const DEFAULT_DETECTOR_EVERY_TICKS = 40;
 const DEFAULT_DETECTOR_WINDOW = 2000n;
 
+// BigInt does not survive JSON.stringify (the fan-out's one-serialize-per-push
+// rule): session_key travels as a string, via the shared sessionToWire
+// mapping (ADR-0041) also used by the exporter, so the two cannot disagree.
+// `RaceState.session` stays a `RawRecord` (the reducer accepts any session
+// metadata shape); `SessionWire` has no index signature, so the cast is the
+// same widening `sessionAsRawRecord`'s own object literal did before it.
 function sessionAsRawRecord(session: Session): RawRecord {
-  // BigInt does not survive JSON.stringify (the fan-out's one-serialize-per-push
-  // rule): session_key travels as a string, same as everywhere else this
-  // service puts a bigint on the wire (main.ts's push, this file's logging).
-  return {
-    session_key: session.sessionKey.toString(),
-    name: session.name,
-    country: session.country,
-    circuit_key: session.circuitKey,
-    date_start: session.dateStart.toISOString(),
-    date_end: session.dateEnd.toISOString(),
-    total_laps: session.totalLaps,
-    status: session.status,
-    meeting_name: session.meetingName,
-    circuit_short_name: session.circuitShortName,
-    location: session.location,
-  };
+  return sessionToWire(session) as unknown as RawRecord;
 }
 
 export class RaceStateProjector {

@@ -12,7 +12,7 @@ import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 
 import type { PrismaClient, Session } from "@formula-time/db";
-import type { RaceEvent, RaceFile, RawRecord } from "@formula-time/domain";
+import { sessionToWire, type RaceEvent, type RaceFile, type RawRecord } from "@formula-time/domain";
 
 export type ExporterLog = (msg: string, fields?: Record<string, unknown>) => void;
 
@@ -76,26 +76,15 @@ async function readAllEvents(db: PrismaClient, sessionKey: bigint): Promise<Race
   return events;
 }
 
-/** ADR-0009 §1, exactly: `schema`, top-level `exported_at`, the session
- * fields, and `events` -- the four `RaceEvent` fields the fold reads
- * (`packages/domain`), nothing else. BigInt keys serialise as numbers. */
+/** ADR-0009 §1, ADR-0041: `schema`, top-level `exported_at`, the session
+ * fields (via the shared `sessionToWire` mapping, so `session_key` is a
+ * string here exactly as on the live push), and `events` -- the four
+ * `RaceEvent` fields the fold reads (`packages/domain`), nothing else. */
 function buildDoc(session: Session, exportedAt: Date, events: RaceEvent[]): RaceFile {
   return {
-    schema: 1,
+    schema: 2,
     exported_at: exportedAt.toISOString(),
-    session: {
-      session_key: Number(session.sessionKey),
-      name: session.name,
-      country: session.country,
-      circuit_key: session.circuitKey,
-      date_start: session.dateStart.toISOString(),
-      date_end: session.dateEnd.toISOString(),
-      total_laps: session.totalLaps,
-      status: session.status,
-      meeting_name: session.meetingName,
-      circuit_short_name: session.circuitShortName,
-      location: session.location,
-    },
+    session: sessionToWire(session),
     events,
   };
 }

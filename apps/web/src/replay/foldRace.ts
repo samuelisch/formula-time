@@ -6,7 +6,7 @@
 // `Timeline` page by page while a session is still live. See that module's
 // header for the design notes; this file is now a thin wrapper: fold the
 // whole event log in one `appendEvents` call and attach the final state.
-import type { RawRecord, RaceEvent, RaceState } from "@formula-time/domain";
+import type { RawRecord, RaceEvent, RaceState, SessionWire } from "@formula-time/domain";
 
 import {
   appendEvents,
@@ -34,8 +34,14 @@ export interface FoldedRace extends Timeline {
  * effect is yielding to the event loop between chunks (`timeline.ts`'s
  * `appendEvents`).
  */
-export async function foldRace(rawEvents: RaceEvent[], rawSession: RawRecord): Promise<FoldedRace> {
-  const timeline = createTimeline(rawSession);
+export async function foldRace(
+  rawEvents: RaceEvent[],
+  rawSession: RawRecord | SessionWire,
+): Promise<FoldedRace> {
+  // A schema-2 export document's `session` is `SessionWire`, a named
+  // interface with no index signature; the spread produces a fresh object
+  // literal so `createTimeline` (RawRecord, shared with the live path) accepts it.
+  const timeline = createTimeline({ ...rawSession });
   await appendEvents(timeline, rawEvents);
   return {
     ...timeline,

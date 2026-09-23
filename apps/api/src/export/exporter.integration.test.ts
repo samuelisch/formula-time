@@ -124,10 +124,10 @@ test("exports a real session: gzip file matches ADR-0009 §1 exactly; a second r
     events: Array<Record<string, unknown>>;
   };
 
-  expect(json.schema).toBe(1);
+  expect(json.schema).toBe(2);
   expect(json.exported_at).toBe(row.exportedAt.toISOString());
   expect(json.session).toEqual({
-    session_key: Number(SESSION_KEY),
+    session_key: SESSION_KEY.toString(),
     name: "Exporter Integration Test Grand Prix",
     country: "Testland",
     circuit_key: 1,

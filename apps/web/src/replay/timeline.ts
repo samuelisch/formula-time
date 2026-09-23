@@ -131,14 +131,11 @@ function yieldToEventLoop(): Promise<void> {
 }
 
 /**
- * Normalizes the session row before it becomes `state.session`: the export
- * file's `session_key` travels as a JSON number (`apps/api/src/export/exporter.ts`
- * `buildDoc`), but the live projector's `sessionAsRawRecord()` sends it
- * `.toString()`'d -- "session_key travels as a string, same as everywhere
- * else this service puts a bigint on the wire" -- so a folded `RaceState`
- * would otherwise disagree with a live one on this field's type (ADR-0009
- * §5 "must stay identical to the server's"). Every other field
- * (`total_laps`, `circuit_key`, ...) is already the same shape both ways.
+ * Normalizes the session row before it becomes `state.session`: a schema-1
+ * file (ADR-0041) carries `session_key` as a JSON number, unlike a schema-2
+ * file or the live push, both already a string -- so an old cached file's
+ * fold would otherwise disagree with a live one (ADR-0009 §5). A schema-2
+ * row passes through unchanged.
  */
 function normalizedSessionRow(session: RawRecord): RawRecord {
   const sessionKey = session["session_key"];

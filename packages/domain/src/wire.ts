@@ -5,7 +5,7 @@
 import type { JsonPatchOp } from "./patch.js";
 import type { PollPublic } from "./polls.js";
 import type { RaceState } from "./race-state.js";
-import type { RaceEvent, RawRecord } from "./types.js";
+import type { RaceEvent } from "./types.js";
 
 /**
  * The full-state SSE push (`event: state`) and `GET /api/live/snapshot`'s
@@ -60,6 +60,71 @@ export interface StatusFrame {
 /** A session's lifecycle stage, as stored (`sessions.status`) and served. */
 export type SessionStatus = "upcoming" | "live" | "finished";
 
+/**
+ * The eleven fields a session row carries on every wire surface (the live
+ * push's `state.session`, ADR-0026; the export document's `session`,
+ * ADR-0009 §1, ADR-0041): `session_key` always a string (ADR-0041), never a
+ * JSON number.
+ */
+export interface SessionWire {
+  session_key: string;
+  name: string;
+  country: string;
+  circuit_key: number;
+  date_start: string;
+  date_end: string;
+  total_laps: number | null;
+  status: SessionStatus;
+  meeting_name: string | null;
+  circuit_short_name: string | null;
+  location: string | null;
+}
+
+/**
+ * A session row shaped structurally, not by importing `@formula-time/db`'s
+ * `Session` (this package stays browser-safe, no `node:*`): the projector's
+ * and the exporter's own row both already satisfy this.
+ */
+export interface SessionLike {
+  sessionKey: bigint | number | string;
+  name: string;
+  country: string;
+  circuitKey: number;
+  dateStart: Date | string;
+  dateEnd: Date | string;
+  totalLaps: number | null;
+  status: SessionStatus;
+  meetingName: string | null;
+  circuitShortName: string | null;
+  location: string | null;
+}
+
+function isoString(value: Date | string): string {
+  return typeof value === "string" ? value : value.toISOString();
+}
+
+/**
+ * The one mapping from a stored session row to `SessionWire` (ADR-0041): the
+ * projector's live push and the exporter's export document both call this,
+ * so they cannot disagree on a field's name or type the way `session_key`
+ * did before this function existed (one a string, the other a JSON number).
+ */
+export function sessionToWire(session: SessionLike): SessionWire {
+  return {
+    session_key: String(session.sessionKey),
+    name: session.name,
+    country: session.country,
+    circuit_key: session.circuitKey,
+    date_start: isoString(session.dateStart),
+    date_end: isoString(session.dateEnd),
+    total_laps: session.totalLaps,
+    status: session.status,
+    meeting_name: session.meetingName,
+    circuit_short_name: session.circuitShortName,
+    location: session.location,
+  };
+}
+
 /** `GET /api/races`'s entry shape, one per exported session (ADR-0009 §4, ADR-0026). */
 export interface RaceIndexEntry {
   session_key: number;
@@ -88,14 +153,13 @@ export interface RaceEventsPage {
 }
 
 /**
- * The exported race file's body (ADR-0009 §1, ADR-0026). `session` stays a
- * `RawRecord`, not the exporter's own narrower session shape, because the
- * browser fold (`foldRace`, `createTimeline`) reads any session metadata as
- * one, the same as the live push's `state.session`.
+ * The exported race file's body (ADR-0009 §1, ADR-0026, ADR-0041). `schema`
+ * versions `session`'s shape; see `apps/api/README.md` "Exports" for what
+ * each schema carries and who still reads the older one.
  */
 export interface RaceFile {
-  schema: 1;
+  schema: 2;
   exported_at: string;
-  session: RawRecord;
+  session: SessionWire;
   events: RaceEvent[];
 }
