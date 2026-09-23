@@ -14,6 +14,12 @@ same-key row change — `status`, `total_laps`, `meeting_name`,
 every viewer at once, on that same check, rather than waiting for a
 restart to re-pick the row (`projector/serve-session.ts`, ADR-0033).
 
+`sessions` holds the whole season calendar (ingest discovery upserts
+every row `sessions?year=` returns), so the greatest `dateStart` is not
+"the next session" — it is whichever race is latest on the calendar,
+live or not. Measured against the deployed database 2026-09-09: 131
+rows, 81 finished, 50 upcoming.
+
 ## One tick
 
 ```mermaid
@@ -27,7 +33,12 @@ flowchart LR
 `PG`: the projector reads `events` where `seq > cursor`, at most 5,000
 rows a read, every 250 ms; every 40th tick it also re-reads a 2,000-row
 window behind the cursor, and a row it had not already applied throws the
-fold away and rebuilds it from zero (`projector/projector.ts`). `R`: each
+fold away and rebuilds it from zero (`projector/projector.ts`). This late-
+commit detector exists because `seq` is assigned at insert but a row
+becomes visible only at commit, so with two writer connections a later
+`seq` can become visible before an earlier one; ingest uses one
+connection (ADR-0005), so `seq` order equals commit order and the
+detector should never actually fire. `R`: each
 row is applied to one `RaceState` via the reducer. `P`: the poll module
 folds from that same state, before the push, so a viewer never sees a
 state whose polls have not been judged against it. `F`: the fan-out
@@ -42,12 +53,32 @@ vote never triggers a push; it only ever sends what a tick hands it.
 
 Every push also carries `events`, the `RaceEvent` rows this tick applied
 in seq order (`[]` on a catch-up or rebuild tick), for a client to fold
-into its own deep-rewind timeline (ADR-0014). A tick whose frame never
-reached a client — a fan-out-level deflate skip, a rejected `pusher.push()`,
-or the late-commit detector's own rebuild — forces the next frame this
-class actually delivers to be a full `state` push carrying `rebuilt: true`,
-on every socket format, regardless of what the caller set, so no
-connected client keeps a permanent hole in its timeline (ADR-0032).
+into its own deep-rewind timeline (ADR-0014). Three things leave a
+connected client without a tick's `events` — a fan-out-level deflate
+skip, a rejected `pusher.push()`, and the late-commit detector's own
+rebuild — and each one puts `rebuilt: true` on a push, which tells the
+client to discard its timeline and backfill from the paged log route
+instead, so no connected client keeps a permanent hole in it (ADR-0032).
+
+The three reach the client differently. A deflate skip drops that tick's
+frame entirely: `deliver()` logs, sets `skippedSinceLastDelivery` and
+returns without writing to any socket, so the flag is read on the *next*
+`deliver()` call, which forces that frame to be a full `state` push
+carrying `rebuilt: true` on every socket format, overriding whatever the
+caller set (`fanout/fanout.ts`). A rejected `pusher.push()` is a failure
+upstream of the fan-out — the fan-out's own `push()` swallows the
+failures it can see, a deflate error or a failed diff, rather than
+reject — and is tracked separately, in the subscriber chain's `.catch()`;
+the next payload the projector builds reads that flag and sets
+`rebuilt: true` on it, in whatever format each socket already has
+(`projector/serve-session.ts`). That one is bounded by the tick, not
+immediate: ticks run on a fixed interval regardless of whether the
+previous push settled, so a payload built while the rejection is still in
+flight goes out without `rebuilt`, and the first one built after the
+rejection is observed carries it. The detector's rebuild needs no later
+frame at all: `runDetector()` publishes the rebuilt fold itself, with
+`events: []` and `rebuilt: true`, in the tick that ran the detector
+(`projector/projector.ts`).
 
 ## Polls
 
