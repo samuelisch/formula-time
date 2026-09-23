@@ -298,6 +298,98 @@ force a re-lock. Alignment is experimental by decision.
   `SAMPLE_MS` interval can never observe a commit whose ref sync hasn't
   run yet.
 
+## Polls
+
+`src/polls/PollCard.tsx` renders one poll: question, status pill, lock-lap
+meta, option rows as vote buttons, and a verdict line once resolved.
+Collapsed inside a `Collapsible`: the summary is the status pill, question,
+and lock/vote-count line; the option rows, vote buttons, and verdict live
+in the expanded body. Open polls default open (they need a vote), every
+other status defaults collapsed; `PollList` and `PollModal` both render
+this unchanged, so the collapse behaviour comes for free.
+
+- **Auto-open signal** (`src/polls/PollModal.tsx`). Auto-opens only for a
+  transition the viewer's own tab has watched happen: the first signature
+  observed for a session is seeded without opening, so a cold page load
+  (or a fresh race) never auto-pops for poll state that arrived before
+  this tab was watching. Only a later change for the same session pops it
+  -- a newly open poll, or the count of resolved polls growing -- never
+  re-pops for an unchanged set, including across an unmount/remount
+  (`BoardPage` and `PollsPage` are sibling routes, so navigating away and
+  back remounts this component; the last-seen signature lives in the
+  `pollModalStore` singleton, not a local ref, so it survives that). The
+  signature is scoped to the session key, read off the same push as the
+  polls themselves (`useBoardPush()?.session_key`), so a new race re-seeds
+  instead of comparing across sessions. `polls` is passed in (from
+  `usePolls()` at the mount site in `BoardPage`) so this stays testable by
+  rerendering with new props rather than driving the live store.
+- **Poll-modal signature persistence** (`src/polls/pollModalStore.ts`).
+  The signature lives in this singleton rather than a `PollModal`-local
+  ref: `BoardPage` and `PollsPage` are sibling routes, so navigating away
+  and back remounts `PollModal`. A per-instance ref would reset to `""` on
+  that remount, so the auto-pop effect would treat an unchanged,
+  already-dismissed poll set as a fresh transition and re-pop it. Keeping
+  the signature in this singleton (which survives the remount, same as
+  `isOpen`) makes "never re-pops for an unchanged set" hold across
+  navigation, not just across rerenders of one instance.
+- **Board-seam poll reads** (`src/polls/usePolls.ts`). The push comes
+  through the board seam (`useBoardPush()`), not `useDisplayed()`
+  directly, for the same reason every other board hook does: `BoardPage`
+  also renders under a replay's `BoardSourceProvider`, and `Shell` keeps
+  the live SSE connection open on every route. A replay's synthesized push
+  carries `polls: []` (polls are live-only by product stance), so under
+  the provider this returns nothing -- no poll button count, no auto-pop
+  for an unrelated live result mid-replay. On the live route no provider
+  is mounted and `useBoardPush()` falls back to `useDisplayed()`, so live
+  behaviour is unchanged.
+- **Race selection settling** (`src/polls/useSelectedRace.ts`). An
+  explicit `?race=<key>` always wins immediately -- the caller fetches its
+  polls regardless of whether the current session is known yet, and it
+  self-heals to "current" once a push confirms a matching session key.
+  With no param, the default is "the current session, else the newest
+  race" -- but "no current session is known yet" is ambiguous on its own:
+  it means both "the session hasn't pushed its first state" (transient,
+  resolves in moments) and "there genuinely is no session"
+  (`session-lifecycle.ts`'s `pickSession() === null`, e.g. off-season).
+  Inferring the difference from `sessionKey === null` alone races
+  `GET /api/races` against the first SSE push and can show a wrong,
+  unrelated race's polls. Instead the hook waits for a settled signal from
+  the live connection:
+  1. `connection !== "open"`, or `"open"` with no push and no `status`
+     frame yet -- still settling. `isSettling` is true; no fallback.
+  2. Once a `status` frame has landed (still no push), settling is over:
+     `isSettling` flips false -- the caller falls through to the normal
+     current-session view (its own `GET /api/polls` initial fill) -- while
+     a background timer runs.
+  3. A push lands at any point after (1) -- current session confirmed; the
+     caller reads polls from the push from then on. Or: still no push
+     after `NO_SESSION_TIMEOUT_MS` since (2) -- no session is coming;
+     `selectedKey` falls back to the newest race from `GET /api/races`,
+     matching both the dropdown and the polls the caller shows
+     (`RaceSelect`'s placeholder option, in the meantime, keeps the
+     dropdown from ever silently pre-selecting a historical race before
+     this fires).
+- **No-session timeout reset** (`useSelectedRace`'s `noSessionTimedOut`
+  effect). Ticks true once the connection is settled (open + at least one
+  status frame) and `NO_SESSION_TIMEOUT_MS` has passed with still no push
+  and no explicit `?race=`. Resets the moment any of those stop holding (a
+  push lands, a param is set, or "settled" is lost): the reset lives in
+  the effect's own cleanup, which React runs right before the next effect
+  instance (or on unmount), rather than in the setup body, so a fresh
+  watch cycle always starts from a clean "not timed out" and no state is
+  set synchronously while the effect is merely (re)arming.
+- **Vote key scoping** (`src/polls/votes.ts`). Keyed by `poll_id` alone
+  (`poll-vote-{poll_id}`) rather than `poll-vote-{session_key}-{poll_id}`:
+  poll ids already embed the session key (`${sessionKey}:winner` /
+  `${sessionKey}:podium`, `apps/api/src/polls/poll-module.ts`), so they
+  never repeat across sessions and the session segment would be redundant.
+  Keying by session too is actively wrong: a vote cast during the `/polls`
+  page's initial-fill window (before the first SSE push, when the session
+  key is not yet known) would write under a placeholder session segment;
+  once the push landed and the real session key was known, `myVote` would
+  look under a different key and silently lose the pick. Keying by
+  `poll_id` alone makes that race impossible.
+
 ## Narrow-viewport detection
 
 `src/lib/useNarrowViewport.ts` tracks whether the viewport is at or under

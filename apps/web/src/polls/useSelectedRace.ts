@@ -1,33 +1,10 @@
-// Which race PollsPage should show, and whether it's the current session or
-// a historical one. Selection lives in the URL (`?race=<session_key>`).
-//
-// An explicit `?race=<key>` always wins, immediately -- the caller fetches
-// its polls regardless of whether the current session is known yet, and it
-// self-heals to "current" once a push confirms a matching session key.
-//
-// With no param, the default is "the current session, else the newest
-// race" -- but "no current session is known yet" is ambiguous on its own:
-// it means both "the session hasn't pushed its first state" (transient,
-// resolves in moments) and "there genuinely is no session"
-// (session-lifecycle.ts's `pickSession() === null`, e.g. off-season).
-// Inferring the difference from `sessionKey === null` alone races
-// `GET /api/races` against the first SSE push and can show a wrong,
-// unrelated race's polls. Instead this hook waits for a settled signal from
-// the live connection:
-//   1. `connection !== "open"`, or `"open"` with no push and no `status`
-//      frame yet -- still settling. `isSettling` is true; no fallback.
-//   2. Once a `status` frame has landed (still no push), settling is over:
-//      `isSettling` flips false -- the caller falls through to the normal
-//      current-session view (its own `GET /api/polls` initial fill) -- while
-//      a background timer runs.
-//   3. A push lands at any point after (1) -- current session confirmed;
-//      the caller reads polls from the push from then on. OR: still no push
-//      after `NO_SESSION_TIMEOUT_MS` since (2) -- no session is coming;
-//      `selectedKey` falls back to the newest race from `GET /api/races`,
-//      matching both the dropdown and the polls the caller shows
-//      (`RaceSelect`'s placeholder option, in the meantime, keeps the
-//      dropdown from ever silently pre-selecting a historical race before
-//      this fires).
+// Which race PollsPage should show, and whether it's the current session
+// or a historical one. Selection lives in the URL (`?race=<session_key>`).
+// An explicit `?race=<key>` always wins immediately; with no param, the
+// default is "the current session, else the newest race", resolved by
+// waiting for a settled signal from the live connection rather than
+// racing `GET /api/races` against the first SSE push.
+// See README: Polls.
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -68,14 +45,12 @@ export function useSelectedRace(): SelectedRace {
 
   const currentSessionKey = sessionMeta.sessionKey;
 
-  // Ticks true once the connection is settled (open + at least one status
-  // frame) and NO_SESSION_TIMEOUT_MS has passed with still no push and no
-  // explicit ?race= -- see the file header. Resets the moment any of those
-  // stop holding (a push lands, a param is set, or we lose "settled"): the
-  // reset lives in the effect's own cleanup, which React runs right before
-  // the next effect instance (or on unmount), rather than in the setup body,
-  // so a fresh watch cycle always starts from a clean "not timed out" and no
-  // state is set synchronously while the effect is merely (re)arming.
+  // Ticks true once the connection is settled and NO_SESSION_TIMEOUT_MS has
+  // passed with still no push and no explicit ?race=. Resets the moment
+  // any of those stop holding; the reset lives in the effect's own
+  // cleanup (run before the next instance or on unmount), not the setup
+  // body, so a fresh watch cycle always starts clean.
+  // See README: Polls.
   const settled = connection === "open" && statusReceived;
   const shouldWatchTimeout = paramKey === null && currentSessionKey === null && settled;
   const [noSessionTimedOut, setNoSessionTimedOut] = useState(false);
