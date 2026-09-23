@@ -1,20 +1,7 @@
-// dump-recording — the loader's inverse: reads one session back out of
-// `sessions` + `events` and writes it in the recording layout the loader
-// (`load-recording.ts`) and the drip simulator (`sim/simulator.ts`) both
-// read: `session.json`, `raw/<endpoint>.jsonl` (one line per event, the
-// recorder's own `{ received_at, payload }` shape), and an empty
-// `polls.jsonl` so the simulator's real-recording guard ("never wipe a real
-// recording") treats this directory as real. Round trip is the invariant:
-// `load-recording --replace` of this output reproduces the same `event_id`
-// set in the same `received_at` order as the source, because it is fed the
-// same payloads, in the same per-endpoint order, that produced them.
-//
-// Runs against the deployed database over `railway ssh` (no public proxy),
-// same as the loader and `fetch-race` — see the load-race skill's
-// "Dump a recording" section for the tarball-out procedure.
-//
-// Usage: `DATABASE_URL=... pnpm ingest:dump -- <session_key> [--out <dir>]
-// [--force]` (package.json script "dump"; root script "ingest:dump").
+// dump-recording: the loader's inverse — reads one session back out of
+// `sessions` + `events` into the recording layout `load-recording.ts`
+// and the simulator read. See README: Recording layout. Usage: `pnpm
+// ingest:dump -- <session_key> [--out <dir>] [--force]`.
 
 import { appendFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -64,18 +51,9 @@ export interface DumpDb {
 }
 
 /**
- * The stored `sessions` row translated back to OpenF1's own field names —
- * the shape `sessionFieldsFromRaw` and `isRaceSession` (writer/sessions.ts)
- * read out of a recording's `session.json`. The table does not keep every
- * field a live OpenF1 `sessions` row carries: no `session_type`, `year`,
- * `gmt_offset`, `country_key`, `country_code`, `is_cancelled`, or
- * `meeting_key` column exists, so none of those appear here. This is
- * enough for the loader either way — `sessionFieldsFromRaw` reads
- * `session_name` for the session's name (never falling back to
- * `session_type`, since this always supplies `session_name` directly) and
- * touches no other missing field; only `meeting_name` is permanently
- * unrecoverable from a dump (it depends on `meeting_key`, resolved once at
- * load time and not stored back onto the row).
+ * The stored `sessions` row translated back to OpenF1's own field
+ * names — the shape `sessionFieldsFromRaw` reads out of a recording's
+ * `session.json`. See README: Recording layout.
  */
 export function sessionRawFromRow(row: DumpSessionRow): RawRecord {
   const raw: RawRecord = {
@@ -92,13 +70,10 @@ export function sessionRawFromRow(row: DumpSessionRow): RawRecord {
 }
 
 /**
- * Writes one `raw/<endpoint>.jsonl` line per row, paged by `seq` — rows from
- * one page are grouped by endpoint and appended immediately, so no page's
- * rows are held past the loop iteration that fetched them, and the whole
- * race is never in memory at once. Within one endpoint's file, line order
- * is `seq` order — which is also `received_at` order, since the single
- * writer that produced these rows commits in `seq` order (ADR-0007) — the
- * order the round-trip invariant depends on.
+ * Writes one `raw/<endpoint>.jsonl` line per row, paged by `seq` so the
+ * whole race is never held in memory at once. Line order is `seq` order
+ * — the round-trip invariant's dependency. See README: Recording
+ * layout.
  */
 async function writeEventPages(
   db: DumpDb,
@@ -153,10 +128,9 @@ export interface DumpRecordingResult {
 
 /**
  * Reads one session back out of Postgres into the recording layout the
- * loader and the drip simulator read. Two guards, checked before any write:
- * an `--out` directory already carrying `polls.jsonl` (a real recording) is
- * refused unless `force`; an unknown `session_key` is refused too. Either
- * refusal writes nothing.
+ * loader and simulator read. Two guards, checked before any write: an
+ * `--out` directory already carrying `polls.jsonl` is refused unless
+ * `force`; an unknown `session_key` is also refused, writing nothing.
  */
 export async function dumpRecording(
   sessionKey: bigint,
