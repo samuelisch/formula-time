@@ -118,27 +118,35 @@ function adrMentionsFromText(text) {
   return mentions;
 }
 
-// A mention within this many characters of "untouched" or "unchanged" names
-// what the amendment leaves alone, not what it amends.
-const NEGATION_RE = /\b(untouched|unchanged)\b/i;
+// A mention within this many characters of "untouched", "unchanged" or "not
+// amended" names what the amendment leaves alone, not what it amends.
+const NEGATION_RE = /\b(untouched|unchanged|not amended)\b/i;
 const NEGATION_WINDOW = 40;
 
 /**
  * Every ADR-NNNN mention this file's own `Amends:` field names as an
- * amendment target: only the leading sentence (the list before the first
- * full stop, the shape every field in this repo uses for its target list),
- * since a later sentence in the same field is prose about what the
- * amendment does *not* touch or a cross-reference to an unrelated ADR, not
- * a second target. A mention is also dropped if "untouched" or "unchanged"
- * appears shortly before it even within that leading sentence.
+ * amendment target, across every sentence in the field (a field can name
+ * more than one target, each its own "ADR-NNNN (explanation)." sentence).
+ * A mention inside parentheses is a cross-reference (a seam contract, a
+ * config name), not a target, so it is dropped regardless of nesting depth.
+ * A mention is also dropped if "untouched", "unchanged" or "not amended"
+ * appears shortly before it.
  * @param {string} fieldText the Amends field's value, from `fieldValue`
  * @returns {string[]} four-digit ADR numbers, in the order they appear
  */
 function amendsMentionsFromField(fieldText) {
-  const leadingSentence = fieldText.split(SENTENCE_SPLIT_RE)[0] ?? "";
+  const depthAt = new Array(fieldText.length);
+  let depth = 0;
+  for (let i = 0; i < fieldText.length; i++) {
+    depthAt[i] = depth;
+    if (fieldText[i] === "(") depth++;
+    else if (fieldText[i] === ")") depth = Math.max(0, depth - 1);
+  }
+
   const mentions = [];
-  for (const m of leadingSentence.matchAll(ADR_MENTION_RE)) {
-    const context = leadingSentence.slice(Math.max(0, m.index - NEGATION_WINDOW), m.index);
+  for (const m of fieldText.matchAll(ADR_MENTION_RE)) {
+    if (depthAt[m.index] > 0) continue;
+    const context = fieldText.slice(Math.max(0, m.index - NEGATION_WINDOW), m.index);
     if (NEGATION_RE.test(context)) continue;
     mentions.push(m[1]);
   }

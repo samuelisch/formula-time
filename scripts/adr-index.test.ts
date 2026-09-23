@@ -173,6 +173,62 @@ describe("parseAdrFile", () => {
     expect(parsed?.amends.sort()).toEqual(["0007", "0034"]);
   });
 
+  it("takes both targets from an Amends field whose field text has two sentences, each a bare ADR mention", () => {
+    // Reproduces docs/decisions-adr/0042-request-log-diet-poll-write-error-level-refresh-caught-up.md's
+    // Amends field: two sentences, each "ADR-NNNN (explanation)." -- both
+    // are targets, not just the first.
+    const content = [
+      "# ADR-0042 — Request log diet, poll write failures at error, a session-row refresh guarded by caught-up",
+      "",
+      "- **Status:** Proposed (accepted when this PR merges)",
+      "- **Date:** 2026-09-23",
+      "- **Owner:** Samuel Chan",
+      '- **Amends:** ADR-0033 (`updateSession()`\'s decision reads "publishes once,',
+      '  immediately, with `events: []`" with no precondition; it now publishes',
+      "  only once the projector has finished its catch-up fold — before that,",
+      "  the catch-up tick's own publish already carries the refreshed row).",
+      "  ADR-0022 (`LOG_LEVEL` is introduced there as ingest's config name; the",
+      "  api now reads the same name, the same way, for its own logger).",
+      "",
+      "## Context",
+      "",
+      "Some context paragraph with no trigger word.",
+      "",
+    ].join("\n");
+    const parsed = parseAdrFile("0042-request-log-diet-poll-write-error-level-refresh-caught-up.md", content);
+    expect(parsed?.amends.sort()).toEqual(["0022", "0033"]);
+  });
+
+  it("takes both targets from an Amends field with two bare-mention sentences quoting nested parens and negated prose", () => {
+    // Reproduces docs/decisions-adr/0038-reconnect-resumes-from-head-seq.md's
+    // Amends field: two sentences, each "ADR-NNNN (explanation)."; the
+    // second explanation quotes a nested parenthetical and the word
+    // "unaffected", neither of which should suppress either target.
+    const content = [
+      "# ADR-0038 — A reconnect resumes the browser timeline from the head seq",
+      "",
+      "- **Status:** Proposed (accepted when this PR merges)",
+      "- **Date:** 2026-09-22",
+      "- **Owner:** Samuel Chan",
+      '- **Amends:** ADR-0014 (Decision point 3: "A client backfills',
+      "  `GET /api/races/:key/events` pages from 0 until a short page\"; the",
+      "  starting seq now depends on why the backfill runs).",
+      '  ADR-0032 (its context sentence "a reconnecting client (which always',
+      '  re-backfills) was unaffected": a reconnecting client now resumes from',
+      "  its head seq and still receives a skipped frame's rows through the",
+      "  paged route, which reads the append-only table independently of the",
+      "  projector's cursor; the claim that such a client is unaffected stands,",
+      "  the mechanism changed).",
+      "",
+      "## Context",
+      "",
+      "Some context paragraph with no trigger word.",
+      "",
+    ].join("\n");
+    const parsed = parseAdrFile("0038-reconnect-resumes-from-head-seq.md", content);
+    expect(parsed?.amends.sort()).toEqual(["0014", "0032"]);
+  });
+
   it("does not attribute an amendment described about a different ADR pair to this file", () => {
     // Reproduces docs/decisions-adr/0026-session-names-on-the-wire.md's Context
     // paragraph: it reports that ADR-0025 amends ADR-0004, which is a fact
