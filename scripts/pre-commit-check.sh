@@ -121,4 +121,16 @@ if [ ! -d "node_modules/.pnpm" ] || [ "pnpm-lock.yaml" -nt "node_modules/.pnpm" 
   exit 1
 fi
 
-pnpm check:exact-pins && pnpm typecheck && pnpm lint && pnpm test:unit && scripts/check-adr-immutable.sh
+# Prettier only over the files this commit actually touches, never the
+# whole tree, and with no extension list to maintain — see README.md "The
+# format check" for why (Prettier's own --ignore-unknown and .prettierignore
+# decide scope) and why the existence check below skips `-z` while the real
+# file list does not.
+run_format_check() {
+  if [ -z "$(git diff --cached --name-only --diff-filter=ACMR)" ]; then
+    return 0
+  fi
+  git diff --cached --name-only -z --diff-filter=ACMR | xargs -0 pnpm prettier --check --ignore-unknown --
+}
+
+pnpm check:exact-pins && pnpm typecheck && pnpm lint && run_format_check && pnpm test:unit && scripts/check-adr-immutable.sh
