@@ -16,6 +16,6 @@
     "@formula-time/db": "workspace:*",
     "@formula-time/domain": "workspace:*",
     "mqtt": "5.16.0",
-    "pino": "10.3.1"
+    "pino": "10.4.0"
   }
 }
